@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PhotoSync Telegram</string>
+    <string name="channel_status">حالة الإرسال التلقائي</string>
+    <string name="channel_result">نتائج الإرسال التلقائي</string>
+    <string name="notif_auto_title">الإرسال التلقائي مفعّل</string>
+    <string name="notif_auto_text">تُفحص الصور الجديدة دوريًا وتُرسل إلى Telegram (غير فوري)</string>
+    <string name="notif_stop">إيقاف</string>
+    <string name="notif_result_title">PhotoSync Telegram</string>
+</resources>
