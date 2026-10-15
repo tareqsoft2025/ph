@@ -116,6 +116,7 @@ public class MainActivity extends Activity {
         super.onStart();
         SendQueue.addListener(progressUpdate);
         updateOverlay();
+        UpdateChecker.check(this, null); // فحص صامت؛ إشعار فقط إن وُجد إصدار أحدث
     }
 
     @Override protected void onStop() {

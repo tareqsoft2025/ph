@@ -77,6 +77,22 @@ final class SettingsScreen extends Screen {
                 a.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", a.getPackageName(), null)));
             }
         }), 8);
-        UI.add(box, UI.small(a, "الإصدار 1.0.0"), 12);
+
+        LinearLayout upd = UI.add(box, UI.card(a), 12);
+        upd.addView(UI.heading(a, "التحديثات"));
+        UI.add(upd, UI.small(a, "لا يوجد متجر لهذا التطبيق؛ التحقق هنا يفتح فقط رابط تنزيل الإصدار الجديد، ولا يثبّت شيئًا تلقائيًا."), 6);
+        UI.add(upd, UI.button(a, "تحقق من وجود تحديث", false, new View.OnClickListener() {
+            public void onClick(View v) {
+                UI.toast(a, "جارٍ التحقق…");
+                UpdateChecker.check(a, new UpdateChecker.Callback() {
+                    public void onResult(boolean hasUpdate, String versionName, String notes, String error) {
+                        if (error != null) { UI.toast(a, error); return; }
+                        if (!hasUpdate) { UI.toast(a, "لديك أحدث إصدار (" + UpdateChecker.installedVersionName(a) + ")"); return; }
+                        UI.toast(a, "إصدار " + versionName + " متوفر — افتح الإشعار لتنزيله");
+                    }
+                });
+            }
+        }), 8);
+        UI.add(box, UI.small(a, "الإصدار " + UpdateChecker.installedVersionName(a)), 12);
     }
 }

@@ -12,3 +12,8 @@
 *.keystore
 
 android-java/build/
+android-java/src/com/photosync/telegram/Secrets.java
+
+# مفتاح توقيع تجريبي (self-signed، غير حساس) يُبقى موحّدًا بين الإصدارات
+# حتى تُثبَّت التحديثات فوق النسخة القديمة بدل رفضها لاختلاف التوقيع.
+!android-java/debug-keystore.jks

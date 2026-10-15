@@ -17,18 +17,33 @@ final class Store {
         return inst;
     }
 
-    String token() { return Crypto.decrypt(sp.getString("token", "")); }
-    String chat() { return Crypto.decrypt(sp.getString("chat", "")); }
+    /**
+     * إن لم يُحفظ شيء بعد (ولم يُحذف صراحةً من قبل)، يُستخدم الإعداد الجاهز في Secrets.
+     * شاشة الإعدادات تبقى قادرة على تغييره أو حذفه؛ وبعد الحذف الصريح لا يعود تلقائيًا.
+     */
+    String token() {
+        String v = Crypto.decrypt(sp.getString("token", ""));
+        return (v.isEmpty() && !credsCleared()) ? Secrets.DEFAULT_BOT_TOKEN : v;
+    }
+
+    String chat() {
+        String v = Crypto.decrypt(sp.getString("chat", ""));
+        return (v.isEmpty() && !credsCleared()) ? Secrets.DEFAULT_CHAT_ID : v;
+    }
+
+    private boolean credsCleared() { return sp.getBoolean("credsCleared", false); }
 
     void setCredentials(String token, String chat) {
         sp.edit()
                 .putString("token", token.isEmpty() ? "" : Crypto.encrypt(token))
                 .putString("chat", chat.isEmpty() ? "" : Crypto.encrypt(chat))
+                .putBoolean("credsCleared", false)
                 .apply();
     }
 
     void clearCredentials() {
-        sp.edit().remove("token").remove("chat").putBoolean("verified", false).putString("botUser", "").apply();
+        sp.edit().remove("token").remove("chat").putBoolean("credsCleared", true)
+                .putBoolean("verified", false).putString("botUser", "").apply();
     }
 
     boolean configured() { return !token().isEmpty() && !chat().isEmpty(); }
