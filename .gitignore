@@ -10,3 +10,5 @@
 .cxx/
 *.jks
 *.keystore
+
+android-java/build/
