@@ -99,6 +99,9 @@ test('full dine-in flow: order → kitchen → pay → stock deducted', async ()
 
   const tablesAfter = (await api('/tables', { token: waiter })).data;
   assert.equal(tablesAfter[0].status, 'free');
+  assert.ok(pay.data.order.items.every((i) => i.status === 'served'), 'dine-in items served on payment');
+  assert.ok(pay.data.order.events.some((e) => e.type === 'table_released'), 'table release logged');
+  assert.equal((await api('/kitchen', { token: kitchen })).data.length, 0, 'paid dine-in order leaves the kitchen screen');
 
   const rep = (await api('/reports/summary', { token: admin })).data;
   assert.equal(rep.totals.orders, 1);
@@ -111,8 +114,10 @@ test('full dine-in flow: order → kitchen → pay → stock deducted', async ()
 
 test('customer data required per order type; takeaway cancel works', async () => {
   const cashier = await login('cashier', '1234');
-  const tables = (await api('/tables', { token: cashier })).data;
-  const post = (body) => api('/orders', { method: 'POST', token: cashier, body });
+  const waiter = await login('waiter', '1234');
+  const tables = (await api('/tables', { token: waiter })).data;
+  assert.equal((await api('/orders', { method: 'POST', token: cashier, body: { type: 'takeaway', customer_name: 'a', customer_phone: '0501112223' } })).status, 403, 'cashier cannot create orders');
+  const post = (body) => api('/orders', { method: 'POST', token: waiter, body });
   assert.equal((await post({ type: 'delivery', customer_name: 'a', customer_phone: '0501112223' })).status, 400, 'delivery needs address');
   assert.equal((await post({ type: 'takeaway', customer_name: 'a' })).status, 400, 'takeaway needs phone');
   assert.equal((await post({ type: 'takeaway', customer_phone: '0501112223' })).status, 400, 'takeaway needs name');
@@ -136,4 +141,48 @@ test('device tokens: register, status, unregister', async () => {
   assert.equal((await api('/push/status', { token: waiter })).data.devices, 1, 'same token is not duplicated');
   await api('/push/unregister', { method: 'POST', token: waiter, body: { token: tok } });
   assert.equal((await api('/push/status', { token: waiter })).data.devices, 0);
+});
+
+test('bill request notifies cashier; custom permissions are enforced', async () => {
+  const admin = await login('admin', 'admin123');
+  const waiter = await login('waiter', '1234');
+  const cashier = await login('cashier', '1234');
+  const tables = (await api('/tables', { token: waiter })).data;
+  const free = tables.find((t) => t.status === 'free');
+  const menu = (await api('/menu', { token: waiter })).data;
+  const o = (await api('/orders', { method: 'POST', token: waiter, body: {
+    type: 'dine_in', table_id: free.id, guests: 2, customer_name: 'ب', customer_phone: '0507654321', items: [{ item_id: menu.items[0].id }], send: true,
+  } })).data;
+  const rb = await api(`/orders/${o.id}/request-bill`, { method: 'POST', token: waiter });
+  assert.equal(rb.status, 200);
+  assert.ok(rb.data.bill_requested_at);
+  const cn = (await api('/notifications', { token: cashier })).data.rows;
+  assert.ok(cn.some((n) => n.type === 'bill_request' && n.link.includes(String(o.id))), 'cashier notified of bill request');
+
+  // permissions matrix
+  assert.equal((await api('/permissions', { token: cashier })).status, 403);
+  const pm = (await api('/permissions', { token: admin })).data;
+  const w = pm.roles.find((r) => r.role === 'waiter');
+  assert.ok(w.perms.includes('pos.create'));
+  await api('/permissions/waiter', { method: 'PUT', token: admin, body: { perms: w.perms.filter((k) => k !== 'pos.create') } });
+  const denied = await api('/orders', { method: 'POST', token: waiter, body: { type: 'takeaway', customer_name: 'a', customer_phone: '0501112223' } });
+  assert.equal(denied.status, 403, 'removed permission blocks waiter');
+  const me = (await api('/auth/me', { token: waiter })).data;
+  assert.ok(!me.perms.includes('pos.create'));
+  await api('/permissions/waiter', { method: 'PUT', token: admin, body: { reset: true } });
+  assert.ok((await api('/auth/me', { token: waiter })).data.perms.includes('pos.create'), 'reset restores defaults');
+
+  // grant cashier the right to create orders
+  const c = pm.roles.find((r) => r.role === 'cashier');
+  await api('/permissions/cashier', { method: 'PUT', token: admin, body: { perms: [...c.perms, 'pos.create'] } });
+  const ok = await api('/orders', { method: 'POST', token: cashier, body: { type: 'takeaway', customer_name: 'a', customer_phone: '0501112223' } });
+  assert.equal(ok.status, 201);
+  await api('/permissions/cashier', { method: 'PUT', token: admin, body: { reset: true } });
+
+  const log = (await api('/audit', { token: admin })).data.rows;
+  assert.ok(log.some((a) => a.action === 'permissions.update'), 'permission changes are logged');
+  const ordersLog = (await api('/audit?category=order', { token: admin })).data.rows;
+  assert.ok(ordersLog.length && ordersLog.every((a) => a.action.startsWith('order.')));
+  assert.ok(ordersLog.some((a) => a.order_code === o.code), 'order code resolved');
+  assert.equal((await api('/audit', { token: waiter })).status, 403);
 });

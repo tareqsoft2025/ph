@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { Plus, CalendarOff, Check, X, Trash2 } from 'lucide-react';
 import { api } from '../api.js';
-import { useApp, useData, useAction, can, Loading, Empty, PageHead, LEAVE_TYPES, LEAVE_STATUS } from '../lib.jsx';
+import { useApp, useData, useAction, has, Loading, Empty, PageHead, LEAVE_TYPES, LEAVE_STATUS } from '../lib.jsx';
 import LeaveForm from '../components/LeaveForm.jsx';
 
 export default function Leaves() {
   const { user } = useApp();
-  const isMgr = can(user, 'manager');
+  const isMgr = has(user, 'hr.leaves');
   const [status, setStatus] = useState(isMgr ? 'pending' : '');
   const { data, loading, reload } = useData(`/leaves${status ? `?status=${status}` : ''}`, ['hr'], [status]);
   const [open, setOpen] = useState(false);

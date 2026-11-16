@@ -8,7 +8,11 @@ Authorization: Bearer <token>
 
 الأخطاء تُرجع بالشكل `{ "error": "رسالة" }` مع رمز الحالة المناسب (400، 401، 403، 404).
 
-## الأدوار
+## الأدوار والصلاحيات
+
+كل مسار يتطلب صلاحية (مثل `pos.create` و`payments.collect` و`kitchen.update`). صلاحيات الأدوار قابلة للتخصيص من صفحة **الصلاحيات**، وقائمتها الكاملة في `backend/src/perms.js`. المدير العام (`admin`) يملك كل الصلاحيات.
+
+### الأدوار
 
 | الدور | الرمز |
 |---|---|
@@ -67,7 +71,10 @@ Authorization: Bearer <token>
 | POST | `/push/register` | مسجّل | `{token, platform}` تسجيل رمز الجهاز للإشعارات الفورية |
 | POST | `/push/unregister` | مسجّل | `{token}` إلغاء تسجيل الجهاز |
 | POST | `/push/test` | مسجّل | إرسال إشعار تجريبي لي |
-| GET | `/audit` | admin | سجل التدقيق |
+| GET | `/audit?user_id=&category=&from=&to=&q=&before=` | activity.view | سجل الحركات مع اسم المستخدم وكود الطلب، وترقيم الصفحات `{rows, more}` |
+| POST | `/orders/:id/request-bill` | pos.create | النادل يطلب الحساب، فيُشعَر الكاشير |
+| GET | `/permissions` | admin | كل الصلاحيات وصلاحيات كل دور |
+| PUT | `/permissions/:role` | admin | `{perms: []}` أو `{reset: true}` |
 | GET | `/employees?status=active\|terminated\|all` | manager | الموظفون مع حالة اليوم وتنبيهات المستندات |
 | GET | `/employees/:id?month=YYYY-MM` | manager | ملف الموظف: المستندات، الحضور، الإجازات، الملخص الشهري |
 | POST/PUT | `/employees[/:id]` | manager | إضافة وتعديل موظف |

@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { api } from '../api.js';
-import { useData, useAction, useApp, Modal, Field, Loading, PageHead, ROLE_LABELS } from '../lib.jsx';
+import { useData, useAction, useApp, has, Modal, Field, Loading, PageHead, ROLE_LABELS } from '../lib.jsx';
 import { Plus } from 'lucide-react';
 
 export default function Users() {
   const { user } = useApp();
   const { data, loading, reload } = useData('/users');
   const [edit, setEdit] = useState(null);
-  const isAdmin = user.role === 'admin';
+  const isAdmin = has(user, 'users.manage');
+  const isSuper = user.role === 'admin';
 
   if (loading) return <Loading />;
   return (
@@ -15,7 +16,7 @@ export default function Users() {
       <PageHead title="المستخدمون والصلاحيات">
         {isAdmin && <button className="btn btn-primary" onClick={() => setEdit({ role: 'waiter' })}><Plus size={18} /> مستخدم</button>}
       </PageHead>
-      {!isAdmin && <div className="alert alert-warn">إضافة المستخدمين وتعديلهم متاحة للمدير العام فقط.</div>}
+      {!isAdmin && <div className="alert alert-warn">ليس لديك صلاحية إضافة المستخدمين أو تعديلهم.</div>}
       <div className="table-wrap">
         <table className="data">
           <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الدور</th><th>الحالة</th><th /></tr></thead>
@@ -26,18 +27,18 @@ export default function Users() {
                 <td dir="ltr">{u.username}</td>
                 <td><span className="badge">{ROLE_LABELS[u.role]}</span></td>
                 <td>{u.active ? 'فعّال' : 'معطّل'}</td>
-                <td>{isAdmin && <button className="btn btn-sm" onClick={() => setEdit(u)}>تعديل</button>}</td>
+                <td>{isAdmin && (isSuper || u.role !== 'admin') && <button className="btn btn-sm" onClick={() => setEdit(u)}>تعديل</button>}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {edit && <UserForm u={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); reload(); }} />}
+      {edit && <UserForm u={edit} allowAdmin={isSuper} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); reload(); }} />}
     </div>
   );
 }
 
-function UserForm({ u, onClose, onSaved }) {
+function UserForm({ u, allowAdmin, onClose, onSaved }) {
   const [run, busy] = useAction();
   const [f, setF] = useState({ name: u.name || '', username: u.username || '', password: '', role: u.role, active: u.active ?? 1 });
   const save = async () => {
@@ -53,7 +54,7 @@ function UserForm({ u, onClose, onSaved }) {
         <Field label={u.id ? 'كلمة مرور جديدة (اتركها فارغة للإبقاء)' : 'كلمة المرور'}><input type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} autoComplete="new-password" /></Field>
         <Field label="الدور">
           <select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>
-            {Object.entries(ROLE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            {Object.entries(ROLE_LABELS).filter(([k]) => allowAdmin || k !== 'admin').map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </Field>
       </div>

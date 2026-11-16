@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { useNavigate } from 'react-router-dom';
 import {
   Bell, BellRing, CheckCheck, ChefHat, CircleCheckBig, CalendarOff, PackageX, X, Volume2, VolumeX, Smartphone, Trash2, Info,
+  ReceiptText, ArrowLeft,
 } from 'lucide-react';
 import { api, getSocket, isNative } from './api.js';
 import { setupPush, pushActive } from './push.js';
@@ -10,7 +11,9 @@ import { setupPush, pushActive } from './push.js';
 const NotifContext = createContext(null);
 export const useNotifications = () => useContext(NotifContext);
 
-const ICONS = { order_new: ChefHat, order_ready: CircleCheckBig, leave_request: CalendarOff, leave_decided: CalendarOff, low_stock: PackageX };
+const ICONS = { order_new: ChefHat, order_ready: CircleCheckBig, bill_request: ReceiptText, leave_request: CalendarOff, leave_decided: CalendarOff, low_stock: PackageX, test: BellRing };
+const TYPE_LABEL = { order_new: 'طلب جديد', order_ready: 'جاهز للتقديم', bill_request: 'طلب الحساب', leave_request: 'طلب إجازة', leave_decided: 'إجازة', low_stock: 'المخزون', test: 'تجربة' };
+const ACTION = { order_new: 'شاشة المطبخ', order_ready: 'فتح الطلب', bill_request: 'تحصيل', leave_request: 'مراجعة', leave_decided: 'عرض', low_stock: 'المخزون' };
 const safeGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const safeSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
 
@@ -144,10 +147,16 @@ export function NotificationsProvider({ user, children }) {
           return (
             <div key={t.id} className={`ntoast ntoast-${t.level}`} role="status">
               <span className="ntoast-icon" aria-hidden><Icon size={20} /></span>
-              <button className="ntoast-body" onClick={() => { dismiss(t.id); if (t.link) navigate(t.link); }}>
+              <div className="ntoast-body">
+                <span className="ntoast-kicker">{TYPE_LABEL[t.type] || 'إشعار'} · الآن</span>
                 <strong>{t.title}</strong>
                 {t.body && <span>{t.body}</span>}
-              </button>
+                {t.link && ACTION[t.type] && (
+                  <button className="ntoast-action" onClick={() => { dismiss(t.id); navigate(t.link); }}>
+                    {ACTION[t.type]} <ArrowLeft size={14} aria-hidden />
+                  </button>
+                )}
+              </div>
               <button className="icon-btn ntoast-close" onClick={() => dismiss(t.id)} aria-label="إغلاق"><X size={16} /></button>
               <span className="ntoast-timer" aria-hidden />
             </div>
@@ -156,6 +165,13 @@ export function NotificationsProvider({ user, children }) {
       </div>
     </NotifContext.Provider>
   );
+}
+
+function dayGroup(ts) {
+  const d = new Date(ts.replace(' ', 'T')); d.setHours(0, 0, 0, 0);
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const diff = Math.round((t - d) / 864e5);
+  return diff === 0 ? 'اليوم' : diff === 1 ? 'أمس' : 'أقدم';
 }
 
 function ago(ts) {
@@ -172,6 +188,7 @@ function ago(ts) {
 export function NotificationBell() {
   const { rows, unread, markRead, clearRead, open, sound, toggleSound, push, enablePush } = useNotifications();
   const [show, setShow] = useState(false);
+  const [tab, setTab] = useState('all');
   const [perm, setPerm] = useState('default');
   const ref = useRef(null);
 
@@ -215,23 +232,44 @@ export function NotificationBell() {
               <span><strong>تفعيل الإشعارات الفورية</strong><small>لتصلك الطلبات الجاهزة حتى والتطبيق مغلق</small></span>
             </button>
           )}
+          <div className="npanel-tabs" role="tablist">
+            <button role="tab" aria-selected={tab === 'all'} className={tab === 'all' ? 'active' : ''} onClick={() => setTab('all')}>الكل</button>
+            <button role="tab" aria-selected={tab === 'unread'} className={tab === 'unread' ? 'active' : ''} onClick={() => setTab('unread')}>
+              غير المقروءة {unread > 0 && <span className="npanel-tab-count">{unread}</span>}
+            </button>
+          </div>
           <div className="npanel-list">
-            {!rows.length ? (
-              <div className="empty"><span className="empty-icon" aria-hidden><Bell size={24} /></span><p>لا توجد إشعارات</p></div>
-            ) : rows.map((n) => {
-              const Icon = ICONS[n.type] || Info;
-              return (
-                <button key={n.id} className={`nitem nitem-${n.level} ${n.read_at ? '' : 'unread'}`} onClick={() => { open(n); setShow(false); }}>
-                  <span className="nitem-icon" aria-hidden><Icon size={18} /></span>
-                  <span className="nitem-text">
-                    <strong>{n.title}</strong>
-                    {n.body && <span>{n.body}</span>}
-                    <small>{ago(n.created_at)}</small>
-                  </span>
-                  {!n.read_at && <span className="nitem-dot" aria-label="غير مقروء" />}
-                </button>
-              );
-            })}
+            {(() => {
+              const list = rows.filter((n) => tab === 'all' || !n.read_at);
+              if (!list.length) {
+                return <div className="empty"><span className="empty-icon" aria-hidden><Bell size={24} /></span><p>{tab === 'unread' ? 'لا توجد إشعارات غير مقروءة' : 'لا توجد إشعارات'}</p></div>;
+              }
+              const groups = [];
+              list.forEach((n) => {
+                const g = dayGroup(n.created_at);
+                if (!groups.length || groups[groups.length - 1].g !== g) groups.push({ g, items: [] });
+                groups[groups.length - 1].items.push(n);
+              });
+              return groups.map(({ g, items }) => (
+                <div key={g} className="ngroup">
+                  <div className="ngroup-title">{g}</div>
+                  {items.map((n) => {
+                    const Icon = ICONS[n.type] || Info;
+                    return (
+                      <button key={n.id} className={`nitem nitem-${n.level} ${n.read_at ? '' : 'unread'}`} onClick={() => { open(n); setShow(false); }}>
+                        <span className="nitem-icon" aria-hidden><Icon size={18} /></span>
+                        <span className="nitem-text">
+                          <span className="nitem-top"><span className="nitem-type">{TYPE_LABEL[n.type] || 'إشعار'}</span><small>{ago(n.created_at)}</small></span>
+                          <strong>{n.title}</strong>
+                          {n.body && <span>{n.body}</span>}
+                        </span>
+                        {!n.read_at && <span className="nitem-dot" aria-label="غير مقروء" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              ));
+            })()}
           </div>
           {rows.some((n) => n.read_at) && (
             <footer className="npanel-foot"><button className="btn btn-sm btn-ghost" onClick={clearRead}><Trash2 size={15} /> حذف المقروءة</button></footer>

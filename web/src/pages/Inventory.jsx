@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api.js';
-import { useData, useMoney, useAction, useApp, can, Modal, Field, Loading, Empty, PageHead } from '../lib.jsx';
+import { useData, useMoney, useAction, useApp, has, Modal, Field, Loading, Empty, PageHead } from '../lib.jsx';
 import { Pencil, Plus } from 'lucide-react';
 
 const MOVE_TYPES = { purchase: 'شراء / استلام', waste: 'تالف / هدر', adjust: 'تسوية جرد', sale: 'بيع' };
@@ -8,7 +8,7 @@ const MOVE_TYPES = { purchase: 'شراء / استلام', waste: 'تالف / ه�
 export default function Inventory() {
   const money = useMoney();
   const { user } = useApp();
-  const isManager = can(user, 'manager');
+  const isManager = has(user, 'inventory.manage');
   const { data, loading, reload } = useData('/ingredients', ['inventory']);
   const [tab, setTab] = useState('stock');
   const [edit, setEdit] = useState(null);

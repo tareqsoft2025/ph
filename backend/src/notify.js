@@ -1,5 +1,6 @@
 // الإشعارات: تُحفظ لكل مستخدم مستهدف ثم تُبث لحظياً
 import { all, run } from './db.js';
+import { usersWithPerm } from './perms.js';
 
 let emitter = () => {};
 /** يُضبط من الموجّه ليُرسل حدث "notify" لكل الأجهزة */
@@ -13,12 +14,13 @@ export const pushEnabled = () => !!pushSender;
 /**
  * @param {{ userIds?: number[], roles?: string[], type: string, title: string, body?: string, link?: string, level?: string, exclude?: number }} n
  */
-export function notify({ userIds = [], roles = [], type, title, body = null, link = null, level = 'info', exclude = null }) {
+export function notify({ userIds = [], roles = [], perms = [], type, title, body = null, link = null, level = 'info', exclude = null }) {
   const ids = new Set(userIds.filter(Boolean).map(Number));
   if (roles.length) {
     const rows = all(`SELECT id FROM users WHERE active = 1 AND role IN (${roles.map(() => '?').join(',')})`, ...roles);
     rows.forEach((r) => ids.add(r.id));
   }
+  for (const p of perms) usersWithPerm(p).forEach((id) => ids.add(id));
   if (exclude) ids.delete(exclude);
   if (!ids.size) return [];
   for (const id of ids) {

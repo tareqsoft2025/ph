@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn, LogOut, Pencil, ChevronRight, ChevronLeft, Fingerprint, UserRoundX, CircleCheck } from 'lucide-react';
 import { api } from '../api.js';
-import { useApp, useData, useAction, can, Loading, Empty, PageHead, hm, timeOf, todayStr, monthStr, WEEKDAYS } from '../lib.jsx';
+import { useApp, useData, useAction, has, Loading, Empty, PageHead, hm, timeOf, todayStr, monthStr, WEEKDAYS } from '../lib.jsx';
 import AttendanceForm from '../components/AttendanceForm.jsx';
 
 const DAY_STATUS = {
@@ -25,7 +25,7 @@ function shiftDate(d, n) {
 
 export default function Attendance() {
   const { user } = useApp();
-  const isMgr = can(user, 'manager');
+  const isMgr = has(user, 'hr.attendance');
   return (
     <div>
       <PageHead title="الحضور والانصراف" sub={isMgr ? 'سجل حضورك، وتابع حضور الفريق' : 'سجّل حضورك وانصرافك وتابع سجلك الشهري'} />

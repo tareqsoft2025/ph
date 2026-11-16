@@ -307,3 +307,9 @@ CREATE TABLE IF NOT EXISTS device_tokens (
   last_seen   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 CREATE INDEX IF NOT EXISTS idx_tokens_user ON device_tokens(user_id);
+
+-- ═════════════ صلاحيات الأدوار المخصّصة ═════════════
+CREATE TABLE IF NOT EXISTS role_permissions (
+  role   TEXT PRIMARY KEY,
+  perms  TEXT NOT NULL   -- JSON array
+);

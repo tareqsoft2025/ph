@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { api } from '../api.js';
-import { useData, useMoney, useAction, useApp, can, Field, Loading, PageHead, PAY_METHODS, Empty } from '../lib.jsx';
+import { useData, useMoney, useAction, useApp, has, Field, Loading, PageHead, PAY_METHODS, Empty } from '../lib.jsx';
 
 export default function Shifts() {
   const money = useMoney();
   const { user } = useApp();
   const current = useData('/shifts/current', ['shift', 'orders']);
-  const history = useData(can(user, 'manager') ? '/shifts' : null, ['shift']);
+  const history = useData(has(user, 'reports.view') ? '/shifts' : null, ['shift']);
   const [run, busy] = useAction();
   const [opening, setOpening] = useState('');
   const [closing, setClosing] = useState('');
