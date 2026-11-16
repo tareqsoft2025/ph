@@ -9,6 +9,7 @@ import {
 } from './api.js';
 import { AppContext, ROLE_LABELS, can, Loading } from './lib.jsx';
 import { NotificationsProvider, NotificationBell } from './notifications.jsx';
+import { teardownPush } from './push.js';
 import Login from './pages/Login.jsx';
 import ServerSetup from './pages/ServerSetup.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -69,7 +70,8 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    await teardownPush();
     setToken(null);
     disconnectSocket();
     setUser(null);

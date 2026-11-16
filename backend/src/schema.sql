@@ -296,3 +296,14 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, read_at);
+
+-- ═════════════ أجهزة الإشعارات الفورية (Firebase) ═════════════
+CREATE TABLE IF NOT EXISTS device_tokens (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token       TEXT NOT NULL UNIQUE,
+  platform    TEXT NOT NULL DEFAULT 'android',
+  created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  last_seen   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_tokens_user ON device_tokens(user_id);

@@ -123,3 +123,17 @@ test('customer data required per order type; takeaway cancel works', async () =>
   const c = await api(`/orders/${o.id}/cancel`, { method: 'POST', token: cashier, body: { reason: 'test' } });
   assert.equal(c.data.status, 'cancelled');
 });
+
+test('device tokens: register, status, unregister', async () => {
+  const waiter = await login('waiter', '1234');
+  assert.equal((await api('/push/register', { method: 'POST', token: waiter, body: { token: 'short' } })).status, 400);
+  const tok = 'fcm-token-' + 'x'.repeat(40);
+  const r = await api('/push/register', { method: 'POST', token: waiter, body: { token: tok, platform: 'android' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.enabled, false, 'no service account in tests');
+  assert.equal((await api('/push/status', { token: waiter })).data.devices, 1);
+  await api('/push/register', { method: 'POST', token: waiter, body: { token: tok } });
+  assert.equal((await api('/push/status', { token: waiter })).data.devices, 1, 'same token is not duplicated');
+  await api('/push/unregister', { method: 'POST', token: waiter, body: { token: tok } });
+  assert.equal((await api('/push/status', { token: waiter })).data.devices, 0);
+});

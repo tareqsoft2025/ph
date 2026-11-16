@@ -5,7 +5,7 @@ import { authenticate, allow, signToken, ROLES } from './auth.js';
 import { bad, notFound, pick, updateSql, normalize, round2, today } from './util.js';
 import * as Orders from './orders.js';
 import { hrRoutes } from './hr.js';
-import { setNotifyEmitter } from './notify.js';
+import { setNotifyEmitter, notify, pushEnabled } from './notify.js';
 
 /**
  * @param {(event: string, payload?: any) => void} emit إرسال حدث لحظي لكل الأجهزة
@@ -539,6 +539,29 @@ export function buildRouter(emit) {
   r.delete('/notifications', (req, res) => {
     run('DELETE FROM notifications WHERE user_id = ? AND read_at IS NOT NULL', req.user.id);
     res.json({ ok: true });
+  });
+
+  // ───────────── الإشعارات الفورية (أجهزة الأندرويد) ─────────────
+  r.get('/push/status', (req, res) => {
+    const devices = get('SELECT COUNT(*) AS c FROM device_tokens WHERE user_id = ?', req.user.id).c;
+    res.json({ enabled: pushEnabled(), devices });
+  });
+  r.post('/push/register', (req, res) => {
+    const token = String(req.body?.token || '').trim();
+    if (token.length < 20 || token.length > 4096) throw bad('رمز الجهاز غير صحيح');
+    const platform = ['android', 'ios', 'web'].includes(req.body?.platform) ? req.body.platform : 'android';
+    run(`INSERT INTO device_tokens(user_id, token, platform) VALUES(?,?,?)
+      ON CONFLICT(token) DO UPDATE SET user_id = excluded.user_id, platform = excluded.platform, last_seen = datetime('now','localtime')`,
+    req.user.id, token, platform);
+    res.json({ ok: true, enabled: pushEnabled() });
+  });
+  r.post('/push/unregister', (req, res) => {
+    run('DELETE FROM device_tokens WHERE token = ? AND user_id = ?', String(req.body?.token || ''), req.user.id);
+    res.json({ ok: true });
+  });
+  r.post('/push/test', (req, res) => {
+    notify({ userIds: [req.user.id], type: 'test', level: 'success', link: '/settings', title: 'إشعار تجريبي', body: 'الإشعارات تعمل على هذا الجهاز ✓' });
+    res.json({ ok: true, enabled: pushEnabled() });
   });
 
   r.get('/audit', allow(), (req, res) => {

@@ -9,11 +9,23 @@ import { Server } from 'socket.io';
 import { buildRouter } from './routes.js';
 import { verifyToken } from './auth.js';
 import { ensureSeed } from './seed.js';
+import { loadServiceAccount, createPushSender } from './push.js';
+import { setPushSender } from './notify.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
 
 ensureSeed();
+
+// الإشعارات الفورية (Firebase) — اختيارية
+const serviceAccount = loadServiceAccount();
+const pushSender = createPushSender(serviceAccount);
+if (pushSender) {
+  setPushSender(pushSender);
+  console.log(`🔔 الإشعارات الفورية مفعّلة (Firebase: ${serviceAccount.project_id})`);
+} else {
+  console.log('ℹ️  الإشعارات الفورية غير مفعّلة — راجع docs/FIREBASE.md');
+}
 
 const app = express();
 const server = createServer(app);
