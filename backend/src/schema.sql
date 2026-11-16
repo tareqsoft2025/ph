@@ -183,3 +183,88 @@ CREATE TABLE IF NOT EXISTS audit_log (
   details    TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
+
+-- ═════════════ الموارد البشرية ═════════════
+CREATE TABLE IF NOT EXISTS employees (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id           INTEGER UNIQUE REFERENCES users(id),  -- حساب الدخول المرتبط (اختياري)
+  name              TEXT NOT NULL,
+  job_title         TEXT,
+  department        TEXT,
+  phone             TEXT,
+  email             TEXT,
+  national_id       TEXT,
+  nationality       TEXT,
+  birth_date        TEXT,
+  address           TEXT,
+  hire_date         TEXT,
+  contract_end      TEXT,
+  basic_salary      REAL NOT NULL DEFAULT 0,
+  allowances        REAL NOT NULL DEFAULT 0,
+  work_start        TEXT NOT NULL DEFAULT '09:00',
+  work_end          TEXT NOT NULL DEFAULT '17:00',
+  weekly_off        TEXT NOT NULL DEFAULT '5',          -- أيام الراحة (0=الأحد … 6=السبت)
+  annual_leave_days INTEGER NOT NULL DEFAULT 21,
+  emergency_contact TEXT,
+  bank_iban         TEXT,
+  notes             TEXT,
+  status            TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','terminated')),
+  terminated_at     TEXT,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS employee_documents (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id  INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  doc_type     TEXT NOT NULL DEFAULT 'other',  -- id / passport / health / contract / license / other
+  title        TEXT NOT NULL,
+  number       TEXT,
+  expiry_date  TEXT,
+  file_name    TEXT,
+  file_type    TEXT,
+  file_size    INTEGER,
+  file_data    TEXT,                            -- data URL
+  created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS attendance (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id     INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  date            TEXT NOT NULL,
+  check_in        TEXT,
+  check_out       TEXT,
+  status          TEXT NOT NULL DEFAULT 'present' CHECK (status IN ('present','absent','leave')),
+  late_minutes    INTEGER NOT NULL DEFAULT 0,
+  worked_minutes  INTEGER NOT NULL DEFAULT 0,
+  note            TEXT,
+  source          TEXT NOT NULL DEFAULT 'self',
+  created_by      INTEGER,
+  UNIQUE (employee_id, date)
+);
+CREATE INDEX IF NOT EXISTS idx_att_date ON attendance(date);
+
+CREATE TABLE IF NOT EXISTS leaves (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id  INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  type         TEXT NOT NULL CHECK (type IN ('annual','sick','unpaid','emergency')),
+  start_date   TEXT NOT NULL,
+  end_date     TEXT NOT NULL,
+  days         INTEGER NOT NULL,
+  reason       TEXT,
+  status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  decided_by   INTEGER,
+  decided_at   TEXT,
+  created_by   INTEGER,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS payroll_adjustments (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id  INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  month        TEXT NOT NULL,                   -- YYYY-MM
+  type         TEXT NOT NULL CHECK (type IN ('bonus','deduction','advance')),
+  amount       REAL NOT NULL,
+  note         TEXT,
+  created_by   INTEGER,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);

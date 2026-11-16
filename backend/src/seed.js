@@ -71,7 +71,66 @@ function seed() {
     for (const [ingName, qty] of recipe) run('INSERT INTO recipes(item_id, ingredient_id, qty) VALUES(?,?,?)', id, ing[ingName], qty);
   });
 
+  seedHr();
+
   for (let i = 1; i <= 10; i++) run('INSERT INTO dining_tables(name, seats, area) VALUES(?,?,?)', `طاولة ${i}`, i % 3 === 0 ? 6 : 4, 'الصالة');
   for (let i = 1; i <= 4; i++) run('INSERT INTO dining_tables(name, seats, area) VALUES(?,?,?)', `ت ${i}`, 4, 'الجلسات الخارجية');
   for (let i = 1; i <= 3; i++) run('INSERT INTO dining_tables(name, seats, area) VALUES(?,?,?)', `VIP ${i}`, 8, 'العائلات');
+}
+
+/** موظفون ومستندات وسجل حضور لآخر أسبوعين (بيانات تجريبية) */
+function seedHr() {
+  const p2 = (n) => String(n).padStart(2, '0');
+  const fmt = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+  const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d; };
+  const uid = (u) => get('SELECT id FROM users WHERE username = ?', u)?.id ?? null;
+
+  // [الحساب، الاسم، الوظيفة، القسم، الراتب، البدلات، بداية الدوام، نهاية الدوام، الجنسية]
+  const staff = [
+    ['manager', 'خالد العتيبي', 'مدير الفرع', 'الإدارة', 9000, 2000, '09:00', '18:00', 'سعودي'],
+    ['cashier', 'سارة القحطاني', 'كاشير', 'الصالة', 4500, 800, '12:00', '21:00', 'سعودية'],
+    ['waiter', 'أحمد محمود', 'نادل', 'الصالة', 3200, 600, '12:00', '21:00', 'مصري'],
+    ['kitchen', 'رامي حداد', 'رئيس الطهاة', 'المطبخ', 7000, 1200, '10:00', '19:00', 'لبناني'],
+    [null, 'محمد إقبال', 'طباخ', 'المطبخ', 3500, 500, '10:00', '19:00', 'باكستاني'],
+    [null, 'جون سانتوس', 'عامل نظافة', 'الخدمات', 2200, 400, '08:00', '17:00', 'فلبيني'],
+  ];
+  const ids = [];
+  staff.forEach(([u, name, job, dept, sal, allow, ws, we, nat], i) => {
+    const id = Number(run(`INSERT INTO employees(user_id, name, job_title, department, phone, nationality, national_id, hire_date, contract_end,
+      basic_salary, allowances, work_start, work_end, weekly_off, annual_leave_days, emergency_contact)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      u ? uid(u) : null, name, job, dept, `05${p2(10 + i)}${String(1234567 + i * 1111).slice(0, 7)}`, nat, String(2400000000 + i * 1357913),
+      fmt(addDays(-400 - i * 60)), fmt(addDays(i === 4 ? 20 : 300 + i * 30)), sal, allow, ws, we, i % 2 ? '5' : '6', 21, `قريب: 0500000${100 + i}`).lastInsertRowid);
+    ids.push(id);
+    run("INSERT INTO employee_documents(employee_id, doc_type, title, number, expiry_date) VALUES(?, 'id', ?, ?, ?)",
+      id, nat.startsWith('سعودي') ? 'الهوية الوطنية' : 'الإقامة', String(2400000000 + i * 1357913), fmt(addDays(i === 2 ? 12 : 200 + i * 40)));
+    run("INSERT INTO employee_documents(employee_id, doc_type, title, expiry_date) VALUES(?, 'health', 'الشهادة الصحية', ?)",
+      id, fmt(addDays(i === 5 ? -3 : 90 + i * 20)));
+  });
+
+  // سجل حضور لآخر 14 يوماً
+  ids.forEach((id, i) => {
+    const e = get('SELECT * FROM employees WHERE id = ?', id);
+    const off = e.weekly_off.split(',').map(Number);
+    const [sh, sm] = e.work_start.split(':').map(Number);
+    const [eh] = e.work_end.split(':').map(Number);
+    for (let d = 14; d >= 1; d--) {
+      const day = addDays(-d);
+      if (off.includes(day.getDay())) continue;
+      if ((i + d) % 11 === 0) continue; // غياب أحياناً
+      const late = (i * 7 + d * 5) % 23 > 17 ? 12 + ((i + d) % 25) : (d % 4);
+      const inMin = sh * 60 + sm + late;
+      const outMin = eh * 60 + ((i + d) % 3) * 10;
+      const ds = fmt(day);
+      const ci = `${ds} ${p2(Math.floor(inMin / 60))}:${p2(inMin % 60)}:00`;
+      const co = `${ds} ${p2(Math.floor(outMin / 60))}:${p2(outMin % 60)}:00`;
+      run("INSERT INTO attendance(employee_id, date, check_in, check_out, status, late_minutes, worked_minutes, source) VALUES(?,?,?,?, 'present', ?, ?, 'seed')",
+        id, ds, ci, co, late > 10 ? late : 0, outMin - inMin);
+    }
+  });
+
+  run("INSERT INTO leaves(employee_id, type, start_date, end_date, days, reason, status) VALUES(?, 'annual', ?, ?, 3, 'سفر عائلي', 'pending')",
+    ids[2], fmt(addDays(10)), fmt(addDays(12)));
+  run("INSERT INTO leaves(employee_id, type, start_date, end_date, days, reason, status) VALUES(?, 'sick', ?, ?, 1, 'مراجعة طبية', 'approved')",
+    ids[4], fmt(addDays(-6)), fmt(addDays(-6)));
 }

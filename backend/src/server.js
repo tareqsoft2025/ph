@@ -32,7 +32,7 @@ io.use((socket, next) => {
 const emit = (event, payload) => io.emit(event, payload ?? {});
 
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '5mb' })); // يتسع لمستندات الموظفين
 app.use('/api', buildRouter(emit));
 app.use('/api', (req, res) => res.status(404).json({ error: 'المسار غير موجود' }));
 

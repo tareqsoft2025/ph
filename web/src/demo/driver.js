@@ -3,7 +3,7 @@ import initSqlJs from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import schema from '../../../backend/src/schema.sql?raw';
 
-export const STORAGE_KEY = 'ph-demo-db-v2';
+export const STORAGE_KEY = 'ph-demo-db-v3';
 const SQL = await initSqlJs({ locateFile: () => wasmUrl });
 
 function load() {

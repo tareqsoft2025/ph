@@ -4,6 +4,7 @@ import { get, all, run, tx, getSettings, setSettings, audit } from './db.js';
 import { authenticate, allow, signToken, ROLES } from './auth.js';
 import { bad, notFound, pick, updateSql, normalize, round2, today } from './util.js';
 import * as Orders from './orders.js';
+import { hrRoutes } from './hr.js';
 
 /**
  * @param {(event: string, payload?: any) => void} emit إرسال حدث لحظي لكل الأجهزة
@@ -499,6 +500,9 @@ export function buildRouter(emit) {
       lowStock,
     });
   });
+
+  // ───────────── الموارد البشرية ─────────────
+  hrRoutes(r, changed);
 
   r.get('/audit', allow(), (req, res) => {
     res.json(all(`SELECT a.*, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT 300`));

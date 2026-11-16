@@ -35,6 +35,9 @@ const DEFAULT_SETTINGS = {
   delivery_fee: '10',
   receipt_footer: 'شكراً لزيارتكم',
   loyalty_points_per_unit: '1', // نقطة لكل وحدة عملة
+  late_grace_minutes: '10',      // سماحية التأخير بالدقائق
+  late_deduction: '1',           // خصم التأخير من الراتب (1/0)
+  doc_alert_days: '30',          // التنبيه قبل انتهاء المستندات بأيام
 };
 
 export function getSettings() {
