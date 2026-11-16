@@ -36,7 +36,7 @@ Authorization: Bearer <token>
 | GET | `/tables` | مسجّل | الطاولات مع حالتها والطلب المفتوح |
 | POST/PUT/DELETE | `/tables[/:id]` | manager | إدارة الطاولات |
 | GET | `/orders?status=&type=&date=&from=&to=` | مسجّل | قائمة الطلبات |
-| GET | `/orders/:id` | مسجّل | طلب مع الأصناف والدفعات |
+| GET | `/orders/:id` | مسجّل | طلب مع الأصناف والدفعات وتسلسل العملية `events` |
 | POST | `/orders` | cashier, waiter | إنشاء طلب (انظر المثال أدناه) |
 | POST | `/orders/:id/items` | cashier, waiter | `{items[], send}` إضافة أصناف |
 | PATCH | `/orders/:id/items/:lineId` | cashier, waiter | `{qty, notes}` أو `{cancel: true}` |
@@ -60,6 +60,9 @@ Authorization: Bearer <token>
 | POST/PUT | `/reservations[/:id]` | cashier, waiter | إدارة الحجوزات |
 | GET | `/customers?q=` | مسجّل | العملاء ونقاطهم |
 | GET | `/reports/summary?from=&to=` | manager | ملخص التقارير |
+| GET | `/notifications` | مسجّل | آخر 50 إشعاراً وعدد غير المقروء |
+| POST | `/notifications/read` | مسجّل | `{ids?}` تعليم كمقروء (بدون ids = الكل) |
+| DELETE | `/notifications` | مسجّل | حذف المقروءة |
 | GET | `/audit` | admin | سجل التدقيق |
 | GET | `/employees?status=active\|terminated\|all` | manager | الموظفون مع حالة اليوم وتنبيهات المستندات |
 | GET | `/employees/:id?month=YYYY-MM` | manager | ملف الموظف: المستندات، الحضور، الإجازات، الملخص الشهري |
@@ -110,6 +113,7 @@ POST /api/orders
 | `settings` | تعديل الإعدادات |
 | `hr` | تعديل الموظفين أو المستندات أو الإجازات أو الرواتب |
 | `attendance` | تسجيل حضور أو انصراف |
+| `notify` | إشعار جديد `{user_ids, type, title, body, link, level}` (يعرضه المستخدمون المستهدفون فقط) |
 
 ## حساب الفاتورة
 

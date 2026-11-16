@@ -21,7 +21,8 @@ export default function Receipt({ order, onClose }) {
           {settings.tax_number && <div>الرقم الضريبي: {settings.tax_number}</div>}
           <div className="r-sep" />
           <div>{order.status === 'paid' ? 'فاتورة ضريبية مبسطة' : 'فاتورة مبدئية'}</div>
-          <div>طلب #{order.number} · {ORDER_TYPES[order.type]}{order.table_name ? ` · ${order.table_name}` : ''}</div>
+          <div className="r-code" dir="ltr">{order.code}</div>
+          <div>{ORDER_TYPES[order.type]}{order.table_name ? ` · ${order.table_name}` : ''}{order.customer_name ? ` · ${order.customer_name}` : ''}</div>
           <div dir="ltr">{order.closed_at || order.created_at}</div>
         </div>
         <div className="r-sep" />

@@ -6,7 +6,8 @@ import {
   ORDER_TYPES, ITEM_STATUS, PAY_METHODS,
 } from '../lib.jsx';
 import Receipt from '../components/Receipt.jsx';
-import { Search, Utensils, SlidersHorizontal, Plus, StickyNote, ShoppingBag, Flame, CheckCheck, Printer, CreditCard, TriangleAlert, X } from 'lucide-react';
+import OrderTimeline from '../components/OrderTimeline.jsx';
+import { Search, Utensils, SlidersHorizontal, Plus, StickyNote, ShoppingBag, Flame, CheckCheck, Printer, CreditCard, TriangleAlert, X, History, Minus, UserRound, Phone, MapPin, Armchair } from 'lucide-react';
 
 let draftSeq = 1;
 
@@ -36,8 +37,23 @@ export default function Pos() {
   const [meta, setMeta] = useState({
     type: params.get('type') || (user.role === 'waiter' ? 'dine_in' : 'takeaway'),
     table_id: params.get('table') ? Number(params.get('table')) : '',
-    customer_name: '', customer_phone: '', address: '', guests: '', notes: '',
+    customer_name: '', customer_phone: '', address: '', guests: params.get('table') ? 2 : '', notes: '',
   });
+  const [tried, setTried] = useState(false);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+
+  // التحقق من بيانات العميل حسب نوع الطلب
+  const metaErrors = {};
+  if (meta.type === 'dine_in') {
+    if (!meta.table_id) metaErrors.table_id = 'اختر الطاولة';
+    if (!(Number(meta.guests) >= 1)) metaErrors.guests = 'أدخل عدد الأشخاص';
+  }
+  if (!meta.customer_name.trim()) metaErrors.customer_name = 'اسم العميل مطلوب';
+  if (!meta.customer_phone.trim()) metaErrors.customer_phone = 'رقم الجوال مطلوب';
+  else if (!/^\+?[0-9\s-]{7,15}$/.test(meta.customer_phone.trim())) metaErrors.customer_phone = 'رقم الجوال غير صحيح';
+  if (meta.type === 'delivery' && !meta.address.trim()) metaErrors.address = 'عنوان التوصيل مطلوب';
+  const metaValid = Object.keys(metaErrors).length === 0;
+  const err = (k) => (tried ? metaErrors[k] : null);
 
   useEffect(() => { setDraft([]); }, [orderId]);
   useEffect(() => {
@@ -83,11 +99,17 @@ export default function Pos() {
         return order;
       }
       if (!draft.length) throw new Error('أضف أصنافاً للطلب');
+      if (!metaValid) {
+        setTried(true);
+        setCartOpen(true);
+        throw new Error(Object.values(metaErrors)[0]);
+      }
       return api('/orders', { method: 'POST', body: { ...meta, table_id: meta.table_id || null, guests: Number(meta.guests) || null, items: draftPayload(), send } });
     }, send ? 'تم الإرسال للمطبخ' : 'تم الحفظ');
     if (!r) return;
     setDraft([]);
     setCartOpen(false);
+    setTried(false);
     if (!order) navigate(`/pos/${r.id}`, { replace: true });
     else orderQ.setData(r);
     if (thenPay) setPaying(true);
@@ -188,13 +210,15 @@ export default function Pos() {
         <div className="cart-head">
           {order ? (
             <>
-              <div>
-                <h2>طلب #{order.number}</h2>
-                <span className="muted">{ORDER_TYPES[order.type]}{order.table_name ? ` · ${order.table_name}` : ''}{order.customer_name ? ` · ${order.customer_name}` : ''}</span>
+              <div className="cart-id">
+                <span className="order-code" dir="ltr">{order.code}</span>
+                <span className="muted">{ORDER_TYPES[order.type]}{order.table_name ? ` · ${order.table_name}` : ''}{order.guests ? ` · ${order.guests} أشخاص` : ''}</span>
+                {order.customer_name && <span className="muted small">{order.customer_name} · <bdi dir="ltr">{order.customer_phone}</bdi></span>}
               </div>
               <div className="row gap-s">
                 {order.status !== 'open' && <span className={`badge ${order.status === 'paid' ? 'badge-ok' : 'badge-err'}`}>{order.status === 'paid' ? 'مدفوع' : 'ملغى'}</span>}
-                <button className="btn btn-ghost btn-sm" onClick={newOrder}><Plus size={16} /> طلب جديد</button>
+                <button className="btn btn-sm" onClick={() => setTimelineOpen(true)}><History size={16} /> التفاصيل</button>
+                <button className="btn btn-ghost btn-sm" onClick={newOrder} aria-label="طلب جديد"><Plus size={16} /></button>
                 <button className="icon-btn cart-close" onClick={() => setCartOpen(false)} aria-label="إغلاق"><X size={20} /></button>
               </div>
             </>
@@ -214,21 +238,43 @@ export default function Pos() {
           <div className="cart-meta">
             {meta.type === 'dine_in' && (
               <div className="grid-2">
-                <select value={meta.table_id} onChange={(e) => setMeta({ ...meta, table_id: Number(e.target.value) || '' })} aria-label="الطاولة">
-                  <option value="">— اختر الطاولة —</option>
-                  {freeTables.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.area})</option>)}
-                </select>
-                <input type="number" min="1" placeholder="عدد الأشخاص" value={meta.guests} onChange={(e) => setMeta({ ...meta, guests: e.target.value })} />
+                <label className={`cfield ${err('table_id') ? 'invalid' : ''}`}>
+                  <span className="cfield-label"><Armchair size={14} aria-hidden /> الطاولة *</span>
+                  <select value={meta.table_id} onChange={(e) => setMeta({ ...meta, table_id: Number(e.target.value) || '' })} aria-invalid={!!err('table_id')}>
+                    <option value="">— اختر —</option>
+                    {freeTables.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.seats} مقاعد)</option>)}
+                  </select>
+                  {err('table_id') && <span className="cfield-err">{err('table_id')}</span>}
+                </label>
+                <div className={`cfield ${err('guests') ? 'invalid' : ''}`}>
+                  <span className="cfield-label">عدد الأشخاص *</span>
+                  <div className="stepper-input">
+                    <button type="button" className="btn btn-xs" onClick={() => setMeta({ ...meta, guests: (Number(meta.guests) || 0) + 1 })} aria-label="زيادة"><Plus size={14} /></button>
+                    <input type="number" min="1" inputMode="numeric" value={meta.guests} onChange={(e) => setMeta({ ...meta, guests: e.target.value })} aria-label="عدد الأشخاص" aria-invalid={!!err('guests')} />
+                    <button type="button" className="btn btn-xs" onClick={() => setMeta({ ...meta, guests: Math.max(1, (Number(meta.guests) || 2) - 1) })} aria-label="إنقاص"><Minus size={14} /></button>
+                  </div>
+                  {err('guests') && <span className="cfield-err">{err('guests')}</span>}
+                </div>
               </div>
             )}
-            {meta.type !== 'dine_in' && (
-              <div className="grid-2">
-                <input placeholder="اسم العميل" value={meta.customer_name} onChange={(e) => setMeta({ ...meta, customer_name: e.target.value })} />
-                <input placeholder="رقم الجوال" inputMode="tel" dir="ltr" value={meta.customer_phone} onChange={(e) => setMeta({ ...meta, customer_phone: e.target.value })} />
-              </div>
-            )}
+            <div className="grid-2">
+              <label className={`cfield ${err('customer_name') ? 'invalid' : ''}`}>
+                <span className="cfield-label"><UserRound size={14} aria-hidden /> اسم العميل *</span>
+                <input value={meta.customer_name} onChange={(e) => setMeta({ ...meta, customer_name: e.target.value })} autoComplete="off" aria-invalid={!!err('customer_name')} />
+                {err('customer_name') && <span className="cfield-err">{err('customer_name')}</span>}
+              </label>
+              <label className={`cfield ${err('customer_phone') ? 'invalid' : ''}`}>
+                <span className="cfield-label"><Phone size={14} aria-hidden /> رقم الجوال *</span>
+                <input inputMode="tel" dir="ltr" placeholder="05xxxxxxxx" value={meta.customer_phone} onChange={(e) => setMeta({ ...meta, customer_phone: e.target.value })} autoComplete="off" aria-invalid={!!err('customer_phone')} />
+                {err('customer_phone') && <span className="cfield-err">{err('customer_phone')}</span>}
+              </label>
+            </div>
             {meta.type === 'delivery' && (
-              <input placeholder="عنوان التوصيل" value={meta.address} onChange={(e) => setMeta({ ...meta, address: e.target.value })} />
+              <label className={`cfield ${err('address') ? 'invalid' : ''}`}>
+                <span className="cfield-label"><MapPin size={14} aria-hidden /> عنوان التوصيل *</span>
+                <input value={meta.address} onChange={(e) => setMeta({ ...meta, address: e.target.value })} aria-invalid={!!err('address')} />
+                {err('address') && <span className="cfield-err">{err('address')}</span>}
+              </label>
             )}
           </div>
         )}
@@ -354,6 +400,7 @@ export default function Pos() {
         </Modal>
       )}
       {printOrder && <Receipt order={printOrder} onClose={() => setPrintOrder(null)} />}
+      {timelineOpen && order && <OrderTimeline orderId={order.id} onClose={() => setTimelineOpen(false)} />}
     </div>
   );
 }

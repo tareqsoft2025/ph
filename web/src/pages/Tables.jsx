@@ -34,7 +34,7 @@ export default function Tables() {
                 {t.order_id ? (
                   <>
                     <div className="t-total">{money(t.order_total)}</div>
-                    <div className="t-time"><Clock size={13} aria-hidden /> {minutesSince(t.opened_at)} د · #{t.order_number}</div>
+                    <div className="t-time"><Clock size={13} aria-hidden /> {minutesSince(t.opened_at)} د · <bdi dir="ltr">{t.order_code}</bdi></div>
                     {t.ready_items > 0 && <span className="badge badge-ok pulse">جاهز {t.ready_items}</span>}
                   </>
                 ) : t.reservation ? (

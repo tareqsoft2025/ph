@@ -1,7 +1,11 @@
 // بديل لـ Socket.io: ناقل أحداث داخل الصفحة
 const listeners = new Map();
 
-export const ALL_EVENTS = ['orders', 'kitchen', 'tables', 'menu', 'inventory', 'shift', 'reservations', 'settings'];
+export const ALL_EVENTS = ['orders', 'kitchen', 'tables', 'menu', 'inventory', 'shift', 'reservations', 'settings', 'hr', 'attendance', 'notifications'];
+
+// نقل الإشعارات بين تبويبات نفس المتصفح (مثلاً من شاشة المطبخ إلى النادل)
+const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('ph-demo-notify') : null;
+channel?.addEventListener('message', (e) => setTimeout(() => fire('notify', e.data), 0));
 
 function fire(event, payload) {
   for (const fn of listeners.get(event) || []) {
@@ -22,6 +26,7 @@ export const bus = {
   // تأجيل بسيط حتى يكتمل الطلب الحالي قبل إعادة الجلب
   emit(event, payload) {
     setTimeout(() => fire(event, payload), 0);
+    if (event === 'notify') channel?.postMessage(payload);
   },
   disconnect() {},
 };

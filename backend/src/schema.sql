@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS shifts (
 CREATE TABLE IF NOT EXISTS orders (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   number          INTEGER NOT NULL,             -- رقم الطلب اليومي
+  code            TEXT,                         -- كود الطلب الثابت: ORD-YYMMDD-0001
   type            TEXT NOT NULL CHECK (type IN ('dine_in','takeaway','delivery')),
   status          TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','paid','cancelled')),
   table_id        INTEGER REFERENCES dining_tables(id),
@@ -146,6 +147,7 @@ CREATE TABLE IF NOT EXISTS order_items (
   -- pending: لم يرسل للمطبخ | new | preparing | ready | served | cancelled
   status      TEXT NOT NULL DEFAULT 'pending',
   sent_at     TEXT,
+  sent_by     INTEGER,                 -- من أرسل الصنف للمطبخ
   ready_at    TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
@@ -268,3 +270,29 @@ CREATE TABLE IF NOT EXISTS payroll_adjustments (
   created_by   INTEGER,
   created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
+
+-- ═════════════ تسلسل عمليات الطلب ═════════════
+CREATE TABLE IF NOT EXISTS order_events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id    INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL,   -- created / items_added / sent / preparing / ready / served / item_cancelled / discount / moved / payment / paid / cancelled
+  message     TEXT,
+  data        TEXT,
+  user_id     INTEGER,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_events_order ON order_events(order_id);
+
+-- ═════════════ الإشعارات ═════════════
+CREATE TABLE IF NOT EXISTS notifications (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL,   -- order_new / order_ready / leave_request / leave_decided / low_stock
+  title       TEXT NOT NULL,
+  body        TEXT,
+  link        TEXT,
+  level       TEXT NOT NULL DEFAULT 'info',  -- info / success / warning
+  read_at     TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, read_at);
