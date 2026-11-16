@@ -14,3 +14,7 @@ web/android/app/src/main/assets/public/
 *.apk
 !releases/*.apk
 .DS_Store
+
+# مفاتيح Firebase (سرية)
+firebase-service-account.json
+*-firebase-adminsdk-*.json

@@ -47,6 +47,13 @@ jobs:
       - run: npm run build
       - run: npx cap sync android
 
+      # إشعارات Firebase: ضع نص google-services.json في السر GOOGLE_SERVICES_JSON (اختياري)
+      - name: إعداد Firebase
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        if: env.GOOGLE_SERVICES_JSON != ''
+        run: printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+
       # توقيع الإصدار: أضف الأسرار في إعدادات المستودع (اختياري)
       # ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
       - name: تجهيز مفتاح التوقيع

@@ -5,6 +5,7 @@ import {
   Bell, BellRing, CheckCheck, ChefHat, CircleCheckBig, CalendarOff, PackageX, X, Volume2, VolumeX, Smartphone, Trash2, Info,
 } from 'lucide-react';
 import { api, getSocket, isNative } from './api.js';
+import { setupPush, pushActive } from './push.js';
 
 const NotifContext = createContext(null);
 export const useNotifications = () => useContext(NotifContext);
@@ -40,6 +41,7 @@ function chime(kind) {
 async function deviceNotify(n) {
   try {
     if (isNative) {
+      if (pushActive()) return; // Firebase سيعرض الإشعار، فلا نكرره
       const { LocalNotifications } = await import('@capacitor/local-notifications');
       await LocalNotifications.schedule({ notifications: [{ id: Math.floor(Math.random() * 2e9), title: n.title, body: n.body || '' }] });
       return;
@@ -75,6 +77,14 @@ export function NotificationsProvider({ user, children }) {
   const [unread, setUnread] = useState(0);
   const [toasts, setToasts] = useState([]);
   const [sound, setSound] = useState(safeGet('notifSound') !== '0');
+  const [push, setPush] = useState({ state: isNative ? 'pending' : 'unsupported' });
+  const enablePush = useCallback(async () => {
+    setPush({ state: 'pending' });
+    const r = await setupPush(navigate).catch((e) => ({ state: 'denied', detail: e?.message }));
+    setPush(r);
+    return r;
+  }, [navigate]);
+  useEffect(() => { if (isNative) enablePush(); }, [user.id]); // eslint-disable-line
   const soundRef = useRef(sound);
   soundRef.current = sound;
 
@@ -126,7 +136,7 @@ export function NotificationsProvider({ user, children }) {
   };
 
   return (
-    <NotifContext.Provider value={{ rows, unread, markRead, clearRead, open, sound, toggleSound, reload: load }}>
+    <NotifContext.Provider value={{ rows, unread, markRead, clearRead, open, sound, toggleSound, reload: load, push, enablePush }}>
       {children}
       <div className="ntoasts" aria-live="polite">
         {toasts.map((t) => {
@@ -160,7 +170,7 @@ function ago(ts) {
 
 /** زر الجرس ولوحة الإشعارات */
 export function NotificationBell() {
-  const { rows, unread, markRead, clearRead, open, sound, toggleSound } = useNotifications();
+  const { rows, unread, markRead, clearRead, open, sound, toggleSound, push, enablePush } = useNotifications();
   const [show, setShow] = useState(false);
   const [perm, setPerm] = useState('default');
   const ref = useRef(null);
@@ -199,6 +209,12 @@ export function NotificationBell() {
             </button>
           )}
           {perm === 'denied' && <p className="npanel-note">إشعارات الجهاز محظورة. يمكنك السماح بها من إعدادات المتصفح أو التطبيق.</p>}
+          {isNative && push.state === 'denied' && (
+            <button className="npanel-perm" onClick={enablePush}>
+              <BellRing size={18} aria-hidden />
+              <span><strong>تفعيل الإشعارات الفورية</strong><small>لتصلك الطلبات الجاهزة حتى والتطبيق مغلق</small></span>
+            </button>
+          )}
           <div className="npanel-list">
             {!rows.length ? (
               <div className="empty"><span className="empty-icon" aria-hidden><Bell size={24} /></span><p>لا توجد إشعارات</p></div>

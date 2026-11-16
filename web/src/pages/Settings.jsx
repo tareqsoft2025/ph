@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { BellRing, Send } from 'lucide-react';
 import { api, isNative, getServerUrl, setServerUrl } from '../api.js';
+import { useNotifications, devicePermission, requestDevicePermission } from '../notifications.jsx';
 import { useApp, useAction, useData, Field, PageHead, Modal } from '../lib.jsx';
 
 export default function Settings() {
@@ -48,6 +50,7 @@ export default function Settings() {
           </div>
           <label className="switch"><input type="checkbox" checked={f.late_deduction === '1'} onChange={set('late_deduction')} /> خصم دقائق التأخير من الراتب</label>
         </section>
+        <PushSettings />
         <TablesSettings />
         {isNative && (
           <section className="card">
@@ -92,6 +95,36 @@ function TablesSettings() {
           </div>
         </Modal>
       )}
+    </section>
+  );
+}
+
+const PUSH_TEXT = {
+  active: ['badge-ok', 'مفعّلة على هذا الجهاز', 'ستصلك الإشعارات حتى لو كان التطبيق مغلقاً.'],
+  pending: ['', 'جارِ التفعيل…', ''],
+  'not-configured': ['badge-warn', 'غير مهيّأة في التطبيق', 'هذه النسخة من التطبيق لا تحتوي إعدادات Firebase (google-services.json). راجع docs/FIREBASE.md.'],
+  'server-disabled': ['badge-warn', 'غير مفعّلة على الخادم', 'أضف ملف حساب خدمة Firebase على جهاز الخادم ثم أعد تشغيله. راجع docs/FIREBASE.md.'],
+  denied: ['badge-err', 'مرفوضة', 'اسمح للتطبيق بالإشعارات من إعدادات الجهاز ثم أعد المحاولة.'],
+  unsupported: ['', 'المتصفح', 'في المتصفح تصل الإشعارات والصفحة مفتوحة (ولو في الخلفية). للإشعارات والتطبيق مغلق استخدم تطبيق الأندرويد.'],
+};
+
+function PushSettings() {
+  const { push, enablePush } = useNotifications();
+  const [run, busy] = useAction();
+  const [perm, setPerm] = useState('default');
+  useEffect(() => { devicePermission().then(setPerm).catch(() => {}); }, []);
+  const [cls, label, hint] = PUSH_TEXT[push.state] || PUSH_TEXT.unsupported;
+  return (
+    <section className="card">
+      <h3>الإشعارات</h3>
+      <div className="kv"><span>الإشعارات الفورية (Firebase)</span><span className={`badge ${cls}`}>{label}</span></div>
+      {hint && <p className="muted small" style={{ marginTop: 8 }}>{hint}</p>}
+      {!isNative && <div className="kv"><span>إشعارات المتصفح</span><span className={`badge ${perm === 'granted' ? 'badge-ok' : perm === 'denied' ? 'badge-err' : ''}`}>{perm === 'granted' ? 'مسموحة' : perm === 'denied' ? 'محظورة' : 'غير مفعّلة'}</span></div>}
+      <div className="btn-row" style={{ marginTop: 16 }}>
+        {isNative && push.state !== 'active' && <button className="btn" onClick={enablePush} disabled={push.state === 'pending'}><BellRing size={17} /> تفعيل الإشعارات الفورية</button>}
+        {!isNative && perm === 'default' && <button className="btn" onClick={async () => setPerm(await requestDevicePermission())}><BellRing size={17} /> السماح بإشعارات المتصفح</button>}
+        <button className="btn" onClick={() => run(() => api('/push/test', { method: 'POST' }), 'تم إرسال إشعار تجريبي')} disabled={busy}><Send size={17} /> إرسال إشعار تجريبي</button>
+      </div>
     </section>
   );
 }

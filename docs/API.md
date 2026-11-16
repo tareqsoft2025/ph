@@ -63,6 +63,10 @@ Authorization: Bearer <token>
 | GET | `/notifications` | مسجّل | آخر 50 إشعاراً وعدد غير المقروء |
 | POST | `/notifications/read` | مسجّل | `{ids?}` تعليم كمقروء (بدون ids = الكل) |
 | DELETE | `/notifications` | مسجّل | حذف المقروءة |
+| GET | `/push/status` | مسجّل | `{enabled, devices}` هل Firebase مفعّل على الخادم وعدد أجهزتي |
+| POST | `/push/register` | مسجّل | `{token, platform}` تسجيل رمز الجهاز للإشعارات الفورية |
+| POST | `/push/unregister` | مسجّل | `{token}` إلغاء تسجيل الجهاز |
+| POST | `/push/test` | مسجّل | إرسال إشعار تجريبي لي |
 | GET | `/audit` | admin | سجل التدقيق |
 | GET | `/employees?status=active\|terminated\|all` | manager | الموظفون مع حالة اليوم وتنبيهات المستندات |
 | GET | `/employees/:id?month=YYYY-MM` | manager | ملف الموظف: المستندات، الحضور، الإجازات، الملخص الشهري |
