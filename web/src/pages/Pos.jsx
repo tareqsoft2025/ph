@@ -13,7 +13,7 @@ export default function Pos() {
   const { orderId } = useParams();
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const { user } = useApp();
+  const { user, settings } = useApp();
   const money = useMoney();
   const toast = useToast();
   const [run, busy] = useAction();
@@ -49,6 +49,9 @@ export default function Pos() {
     return menu.data.items.filter((i) => (s ? i.name.includes(s) : i.category_id === cat));
   }, [menu.data, cat, q]);
 
+  const currentCat = menu.data?.categories.find((c) => c.id === cat);
+  const catIcon = Object.fromEntries((menu.data?.categories || []).map((c) => [c.id, c.icon]));
+  const price = (n) => (Number.isInteger(n) ? String(n) : Number(n).toFixed(2));
   const draftTotal = draft.reduce((a, d) => a + d.unit * d.qty, 0);
   const isOpen = !order || order.status === 'open';
   const canPay = can(user, 'cashier', 'manager');
@@ -124,27 +127,61 @@ export default function Pos() {
     <div className="pos">
       {/* ───── قائمة الأصناف ───── */}
       <section className="pos-menu">
-        <div className="pos-search">
-          <input type="search" placeholder="🔍 ابحث عن صنف…" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-        <div className="cat-tabs" role="tablist">
+        <header className="menu-hero">
+          <div className="menu-brand">
+            <span className="menu-kicker">قائمة الطعام</span>
+            <h1 className="menu-title">{settings?.restaurant_name}</h1>
+          </div>
+          <label className="menu-search">
+            <span aria-hidden>⌕</span>
+            <input type="search" placeholder="ابحث عن طبق…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="بحث" />
+          </label>
+        </header>
+
+        <nav className="cat-tabs" role="tablist" aria-label="الفئات">
           {menu.data.categories.map((c) => (
             <button key={c.id} role="tab" aria-selected={!q && cat === c.id} className={`cat-tab ${!q && cat === c.id ? 'active' : ''}`} onClick={() => { setQ(''); setCat(c.id); }}>
-              <span aria-hidden>{c.icon}</span> {c.name}
+              <span className="cat-icon" aria-hidden>{c.icon}</span>
+              <span>{c.name}</span>
             </button>
           ))}
-        </div>
-        <div className="item-grid">
-          {items.map((it) => (
-            <button key={it.id} className={`item-card ${it.available ? '' : 'unavailable'}`} onClick={() => isOpen && onItemClick(it)} disabled={!isOpen}>
-              <span className="item-name">{it.name}</span>
-              {it.description && <span className="item-desc">{it.description}</span>}
-              <span className="item-price">{money(it.price)}</span>
-              {!it.available && <span className="badge badge-err">نفد</span>}
-              {it.modifiers?.length > 0 && <span className="item-mods" aria-hidden>＋</span>}
-            </button>
-          ))}
-          {!items.length && <Empty text="لا توجد أصناف" />}
+        </nav>
+
+        <div className="menu-scroll">
+          <div className="menu-section-head">
+            <span className="orn" aria-hidden />
+            <h2>{q ? `نتائج البحث عن «${q}»` : currentCat?.name}</h2>
+            <span className="orn" aria-hidden />
+          </div>
+          <p className="menu-count">{items.length} {items.length === 1 ? 'طبق' : 'أطباق'}</p>
+
+          <div className="dish-grid">
+            {items.map((it) => {
+              const inCart = draft.filter((d) => d.item_id === it.id).reduce((a, d) => a + d.qty, 0);
+              const art = it.image || catIcon[it.category_id] || '🍽️';
+              return (
+                <button key={it.id} className={`dish st-${it.station} ${it.available ? '' : 'unavailable'} ${inCart ? 'in-cart' : ''}`}
+                  onClick={() => isOpen && onItemClick(it)} disabled={!isOpen}
+                  aria-label={`${it.name}، ${money(it.price)}${it.available ? '' : '، غير متوفر'}`}>
+                  <span className="dish-art" aria-hidden>
+                    {/^(https?:|data:)/.test(art) ? <img src={art} alt="" loading="lazy" /> : <span className="dish-emoji">{art}</span>}
+                  </span>
+                  <span className="dish-body">
+                    <span className="dish-name">{it.name}</span>
+                    {it.description && <span className="dish-desc">{it.description}</span>}
+                    {it.modifiers?.length > 0 && <span className="dish-opts">✦ {it.modifiers.length} خيارات إضافية</span>}
+                    <span className="dish-foot">
+                      <span className="dish-price"><b>{price(it.price)}</b> <small>{settings?.currency}</small></span>
+                      <span className="dish-add" aria-hidden>{it.available ? '+' : ''}</span>
+                    </span>
+                  </span>
+                  {!it.available && <span className="dish-flag">نفد اليوم</span>}
+                  {inCart > 0 && <span className="dish-qty">{inCart}</span>}
+                </button>
+              );
+            })}
+          </div>
+          {!items.length && <Empty icon="🍽️" text="لا توجد أطباق" />}
         </div>
       </section>
 
