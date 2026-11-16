@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useData, useMoney, Loading, PageHead, Empty } from '../lib.jsx';
+import { Users as UsersIcon, Star } from 'lucide-react';
 
 export default function Customers() {
   const money = useMoney();
@@ -10,7 +11,7 @@ export default function Customers() {
       <PageHead title="العملاء">
         <input type="search" placeholder="بحث بالاسم أو الجوال" value={q} onChange={(e) => setQ(e.target.value)} />
       </PageHead>
-      {loading ? <Loading /> : !data?.length ? <Empty icon="👥" text="لا يوجد عملاء بعد — يُضاف العميل تلقائياً عند إدخال رقم جواله في الطلب" /> : (
+      {loading ? <Loading /> : !data?.length ? <Empty icon={UsersIcon} text="لا يوجد عملاء بعد — يُضاف العميل تلقائياً عند إدخال رقم جواله في الطلب" /> : (
         <div className="table-wrap">
           <table className="data">
             <thead><tr><th>الاسم</th><th>الجوال</th><th>العنوان</th><th>الطلبات</th><th>إجمالي المشتريات</th><th>النقاط</th></tr></thead>
@@ -18,7 +19,7 @@ export default function Customers() {
               {data.map((c) => (
                 <tr key={c.id}>
                   <td>{c.name || '—'}</td><td dir="ltr">{c.phone}</td><td className="small">{c.address}</td>
-                  <td>{c.orders_count}</td><td>{money(c.total_spent)}</td><td><span className="badge badge-ok">⭐ {c.points}</span></td>
+                  <td>{c.orders_count}</td><td>{money(c.total_spent)}</td><td><span className="badge badge-ok"><Star size={12} aria-hidden /> {c.points}</span></td>
                 </tr>
               ))}
             </tbody>

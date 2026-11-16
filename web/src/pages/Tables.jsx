@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useData, useMoney, useNow, minutesSince, Loading, Empty, PageHead } from '../lib.jsx';
+import { UserRound, Clock, CalendarDays } from 'lucide-react';
 
 export default function Tables() {
   const navigate = useNavigate();
@@ -29,17 +30,17 @@ export default function Tables() {
               <button key={t.id} className={`table-card t-${t.status}`}
                 onClick={() => navigate(t.order_id ? `/pos/${t.order_id}` : `/pos?type=dine_in&table=${t.id}`)}>
                 <div className="t-name">{t.name}</div>
-                <div className="t-seats">👤 {t.guests || t.seats}</div>
+                <div className="t-seats"><UserRound size={14} aria-hidden /> {t.guests || t.seats}</div>
                 {t.order_id ? (
                   <>
                     <div className="t-total">{money(t.order_total)}</div>
-                    <div className="t-time">⏱ {minutesSince(t.opened_at)} د · #{t.order_number}</div>
+                    <div className="t-time"><Clock size={13} aria-hidden /> {minutesSince(t.opened_at)} د · #{t.order_number}</div>
                     {t.ready_items > 0 && <span className="badge badge-ok pulse">جاهز {t.ready_items}</span>}
                   </>
                 ) : t.reservation ? (
-                  <div className="t-res">📅 {t.reservation}</div>
+                  <div className="t-res"><CalendarDays size={13} aria-hidden /> {t.reservation}</div>
                 ) : (
-                  <div className="t-free">متاحة</div>
+                  <div className="t-avail">متاحة</div>
                 )}
               </button>
             ))}

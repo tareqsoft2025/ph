@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { api, getSocket } from './api.js';
+import { X, Inbox, LoaderCircle } from 'lucide-react';
 
 export const AppContext = createContext(null);
 export const useApp = () => useContext(AppContext);
@@ -108,7 +109,7 @@ export function Modal({ title, onClose, children, footer, wide }) {
       <div className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-head">
           <h3>{title}</h3>
-          <button className="icon-btn" onClick={onClose} aria-label="إغلاق">✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="إغلاق"><X size={20} /></button>
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
@@ -127,12 +128,17 @@ export function Field({ label, children, hint }) {
   );
 }
 
-export function Empty({ icon = '📭', text }) {
-  return <div className="empty"><div className="empty-icon">{icon}</div><p>{text}</p></div>;
+export function Empty({ icon: Icon = Inbox, text }) {
+  return (
+    <div className="empty">
+      <span className="empty-icon" aria-hidden><Icon size={26} strokeWidth={1.6} /></span>
+      <p>{text}</p>
+    </div>
+  );
 }
 
 export function Loading() {
-  return <div className="loading"><span className="spinner" /> جارِ التحميل…</div>;
+  return <div className="loading" role="status"><LoaderCircle className="spin" size={20} aria-hidden /> جارِ التحميل…</div>;
 }
 
 export function PageHead({ title, children, sub }) {

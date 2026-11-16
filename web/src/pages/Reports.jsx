@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useData, useMoney, Loading, PageHead, Empty, ORDER_TYPES, PAY_METHODS, todayStr } from '../lib.jsx';
+import { Printer, CircleCheck } from 'lucide-react';
 
 function daysAgo(n) {
   const d = new Date();
@@ -63,7 +64,7 @@ export default function Reports() {
         </div>
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="من" />
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label="إلى" />
-        <button className="btn" onClick={() => window.print()}>🖨️</button>
+        <button className="btn" onClick={() => window.print()} aria-label="طباعة"><Printer size={18} /></button>
       </PageHead>
       {loading || !data ? <Loading /> : (
         <>
@@ -112,7 +113,7 @@ export default function Reports() {
               <h3>مواد تحت الحد الأدنى</h3>
               {data.lowStock.length ? (
                 <ul className="simple-list">{data.lowStock.map((i) => <li key={i.id}><span>{i.name}</span><span className="text-err">{+i.stock.toFixed(2)} / {i.min_stock} {i.unit}</span></li>)}</ul>
-              ) : <Empty icon="✅" text="المخزون جيد" />}
+              ) : <Empty icon={CircleCheck} text="المخزون جيد" />}
             </section>
           </div>
         </>

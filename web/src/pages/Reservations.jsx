@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 import { useData, useAction, Modal, Field, Loading, Empty, PageHead, todayStr, timeOf } from '../lib.jsx';
+import { CalendarDays, UserRound, StickyNote, Pencil, Plus } from 'lucide-react';
 
 const STATUS = { booked: 'محجوز', seated: 'حضر', cancelled: 'ملغى', no_show: 'لم يحضر' };
 
@@ -17,17 +18,17 @@ export default function Reservations() {
     <div>
       <PageHead title="الحجوزات">
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="التاريخ" />
-        <button className="btn btn-primary" onClick={() => setEdit({ reserved_at: `${date}T20:00`, party_size: 2 })}>+ حجز</button>
+        <button className="btn btn-primary" onClick={() => setEdit({ reserved_at: `${date}T20:00`, party_size: 2 })}><Plus size={18} /> حجز</button>
       </PageHead>
-      {loading ? <Loading /> : !data?.length ? <Empty icon="📅" text="لا توجد حجوزات في هذا اليوم" /> : (
+      {loading ? <Loading /> : !data?.length ? <Empty icon={CalendarDays} text="لا توجد حجوزات في هذا اليوم" /> : (
         <div className="cards">
           {data.map((r) => (
             <div key={r.id} className={`card res res-${r.status}`}>
               <div className="res-time">{timeOf(r.reserved_at)}</div>
               <div className="res-body">
                 <strong>{r.customer_name}</strong>
-                <span className="muted">👤 {r.party_size} · {r.table_name || 'بدون طاولة'}{r.phone ? ` · ${r.phone}` : ''}</span>
-                {r.notes && <small>📝 {r.notes}</small>}
+                <span className="muted meta-line"><UserRound size={14} aria-hidden /> {r.party_size} · {r.table_name || 'بدون طاولة'}{r.phone ? ` · ${r.phone}` : ''}</span>
+                {r.notes && <small className="meta-line"><StickyNote size={13} aria-hidden /> {r.notes}</small>}
               </div>
               <div className="res-actions">
                 <span className="badge">{STATUS[r.status]}</span>
@@ -36,7 +37,7 @@ export default function Reservations() {
                     <button className="btn btn-sm btn-ok" onClick={() => setStatus(r, 'seated')}>حضر</button>
                     <button className="btn btn-sm" onClick={() => setStatus(r, 'no_show')}>لم يحضر</button>
                     <button className="btn btn-sm btn-danger-ghost" onClick={() => setStatus(r, 'cancelled')}>إلغاء</button>
-                    <button className="btn btn-sm btn-ghost" onClick={() => setEdit({ ...r, reserved_at: r.reserved_at.replace(' ', 'T').slice(0, 16) })}>✎</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setEdit({ ...r, reserved_at: r.reserved_at.replace(' ', 'T').slice(0, 16) })} aria-label="تعديل"><Pencil size={15} /></button>
                   </>
                 )}
               </div>

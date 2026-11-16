@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { Server } from 'lucide-react';
 import { getServerUrl, setServerUrl, testServer } from '../api.js';
+import AuthLayout from '../components/AuthLayout.jsx';
 
 export default function ServerSetup({ onDone }) {
   const [url, setUrl] = useState(getServerUrl() || 'http://192.168.1.10:3000');
@@ -24,11 +26,13 @@ export default function ServerSetup({ onDone }) {
   }
 
   return (
-    <div className="auth-screen">
+    <AuthLayout>
       <form className="auth-card" onSubmit={submit}>
-        <img src="./icon.svg" alt="" width="64" height="64" />
-        <h1>ربط التطبيق بالخادم</h1>
-        <p className="muted">أدخل عنوان خادم المطعم كما يظهر عند تشغيله على جهاز الكاشير.</p>
+        <div className="auth-head">
+          <span className="brand-mark" aria-hidden><Server size={22} /></span>
+          <h1>ربط التطبيق بالخادم</h1>
+          <p className="muted">أدخل عنوان خادم المطعم كما يظهر عند تشغيله على جهاز الكاشير.</p>
+        </div>
         <label className="field">
           <span className="field-label">عنوان الخادم</span>
           <input dir="ltr" value={url} onChange={(e) => setUrl(e.target.value)} inputMode="url" autoCapitalize="none" required />
@@ -37,6 +41,6 @@ export default function ServerSetup({ onDone }) {
         {error && <div className="alert alert-err">{error}</div>}
         <button className="btn btn-primary btn-lg btn-block" disabled={busy}>{busy ? 'جارِ الاختبار…' : 'اتصال'}</button>
       </form>
-    </div>
+    </AuthLayout>
   );
 }

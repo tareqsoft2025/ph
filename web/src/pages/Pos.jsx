@@ -6,6 +6,7 @@ import {
   ORDER_TYPES, ITEM_STATUS, PAY_METHODS,
 } from '../lib.jsx';
 import Receipt from '../components/Receipt.jsx';
+import { Search, Utensils, SlidersHorizontal, Plus, StickyNote, ShoppingBag, Flame, CheckCheck, Printer, CreditCard, TriangleAlert, X } from 'lucide-react';
 
 let draftSeq = 1;
 
@@ -83,7 +84,7 @@ export default function Pos() {
       }
       if (!draft.length) throw new Error('أضف أصنافاً للطلب');
       return api('/orders', { method: 'POST', body: { ...meta, table_id: meta.table_id || null, guests: Number(meta.guests) || null, items: draftPayload(), send } });
-    }, send ? 'تم الإرسال للمطبخ ✓' : 'تم الحفظ');
+    }, send ? 'تم الإرسال للمطبخ' : 'تم الحفظ');
     if (!r) return;
     setDraft([]);
     setCartOpen(false);
@@ -116,7 +117,7 @@ export default function Pos() {
   }
 
   if (menu.loading || (orderId && orderQ.loading && !order)) return <Loading />;
-  if (orderId && orderQ.error) return <Empty icon="⚠️" text={orderQ.error} />;
+  if (orderId && orderQ.error) return <Empty icon={TriangleAlert} text={orderQ.error} />;
 
   const freeTables = (tables.data || []).filter((t) => t.status !== 'occupied' || t.order_id === order?.id);
   const pendingCount = order?.items.filter((i) => i.status === 'pending').length || 0;
@@ -133,7 +134,7 @@ export default function Pos() {
             <h1 className="menu-title">{settings?.restaurant_name}</h1>
           </div>
           <label className="menu-search">
-            <span aria-hidden>⌕</span>
+            <Search size={18} aria-hidden />
             <input type="search" placeholder="ابحث عن طبق…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="بحث" />
           </label>
         </header>
@@ -141,7 +142,6 @@ export default function Pos() {
         <nav className="cat-tabs" role="tablist" aria-label="الفئات">
           {menu.data.categories.map((c) => (
             <button key={c.id} role="tab" aria-selected={!q && cat === c.id} className={`cat-tab ${!q && cat === c.id ? 'active' : ''}`} onClick={() => { setQ(''); setCat(c.id); }}>
-              <span className="cat-icon" aria-hidden>{c.icon}</span>
               <span>{c.name}</span>
             </button>
           ))}
@@ -149,30 +149,28 @@ export default function Pos() {
 
         <div className="menu-scroll">
           <div className="menu-section-head">
-            <span className="orn" aria-hidden />
             <h2>{q ? `نتائج البحث عن «${q}»` : currentCat?.name}</h2>
-            <span className="orn" aria-hidden />
+            <span className="menu-count">{items.length} {items.length === 1 ? 'طبق' : 'أطباق'}</span>
           </div>
-          <p className="menu-count">{items.length} {items.length === 1 ? 'طبق' : 'أطباق'}</p>
 
           <div className="dish-grid">
             {items.map((it) => {
               const inCart = draft.filter((d) => d.item_id === it.id).reduce((a, d) => a + d.qty, 0);
-              const art = it.image || catIcon[it.category_id] || '🍽️';
+              const art = it.image || catIcon[it.category_id] || '';
               return (
                 <button key={it.id} className={`dish st-${it.station} ${it.available ? '' : 'unavailable'} ${inCart ? 'in-cart' : ''}`}
                   onClick={() => isOpen && onItemClick(it)} disabled={!isOpen}
                   aria-label={`${it.name}، ${money(it.price)}${it.available ? '' : '، غير متوفر'}`}>
                   <span className="dish-art" aria-hidden>
-                    {/^(https?:|data:)/.test(art) ? <img src={art} alt="" loading="lazy" /> : <span className="dish-emoji">{art}</span>}
+                    {/^(https?:|data:)/.test(art) ? <img src={art} alt="" loading="lazy" /> : art ? <span className="dish-emoji">{art}</span> : <Utensils size={30} strokeWidth={1.5} />}
                   </span>
                   <span className="dish-body">
                     <span className="dish-name">{it.name}</span>
                     {it.description && <span className="dish-desc">{it.description}</span>}
-                    {it.modifiers?.length > 0 && <span className="dish-opts">✦ {it.modifiers.length} خيارات إضافية</span>}
+                    {it.modifiers?.length > 0 && <span className="dish-opts"><SlidersHorizontal size={13} aria-hidden /> {it.modifiers.length} خيارات إضافية</span>}
                     <span className="dish-foot">
                       <span className="dish-price"><b>{price(it.price)}</b> <small>{settings?.currency}</small></span>
-                      <span className="dish-add" aria-hidden>{it.available ? '+' : ''}</span>
+                      <span className="dish-add" aria-hidden><Plus size={18} strokeWidth={2.4} /></span>
                     </span>
                   </span>
                   {!it.available && <span className="dish-flag">نفد اليوم</span>}
@@ -181,7 +179,7 @@ export default function Pos() {
               );
             })}
           </div>
-          {!items.length && <Empty icon="🍽️" text="لا توجد أطباق" />}
+          {!items.length && <Empty icon={Utensils} text="لا توجد أطباق" />}
         </div>
       </section>
 
@@ -196,8 +194,8 @@ export default function Pos() {
               </div>
               <div className="row gap-s">
                 {order.status !== 'open' && <span className={`badge ${order.status === 'paid' ? 'badge-ok' : 'badge-err'}`}>{order.status === 'paid' ? 'مدفوع' : 'ملغى'}</span>}
-                <button className="btn btn-ghost btn-sm" onClick={newOrder}>+ طلب جديد</button>
-                <button className="icon-btn cart-close" onClick={() => setCartOpen(false)} aria-label="إغلاق">✕</button>
+                <button className="btn btn-ghost btn-sm" onClick={newOrder}><Plus size={16} /> طلب جديد</button>
+                <button className="icon-btn cart-close" onClick={() => setCartOpen(false)} aria-label="إغلاق"><X size={20} /></button>
               </div>
             </>
           ) : (
@@ -207,7 +205,7 @@ export default function Pos() {
                   <button key={k} role="radio" aria-checked={meta.type === k} className={meta.type === k ? 'active' : ''} onClick={() => setMeta({ ...meta, type: k })}>{v}</button>
                 ))}
               </div>
-              <button className="icon-btn cart-close" onClick={() => setCartOpen(false)} aria-label="إغلاق">✕</button>
+              <button className="icon-btn cart-close" onClick={() => setCartOpen(false)} aria-label="إغلاق"><X size={20} /></button>
             </>
           )}
         </div>
@@ -243,7 +241,7 @@ export default function Pos() {
                 <div className="line-text">
                   <strong>{l.name}</strong>
                   {l.modifiers.length > 0 && <small>{l.modifiers.map((m) => m.name).join('، ')}</small>}
-                  {l.notes && <small className="note">📝 {l.notes}</small>}
+                  {l.notes && <small className="note"><StickyNote size={13} aria-hidden /> {l.notes}</small>}
                 </div>
                 <span className="line-price">{money(l.price * l.qty)}</span>
               </div>
@@ -274,13 +272,13 @@ export default function Pos() {
                 <div className="line-text">
                   <strong>{d.name}</strong>
                   {d.modifiers.length > 0 && <small>{d.modifiers.map((m) => m.name).join('، ')}</small>}
-                  {d.notes && <small className="note">📝 {d.notes}</small>}
+                  {d.notes && <small className="note"><StickyNote size={13} aria-hidden /> {d.notes}</small>}
                 </div>
                 <span className="line-price">{money(d.unit * d.qty)}</span>
               </div>
             </div>
           ))}
-          {!order?.items.length && !draft.length && <Empty icon="🛒" text="اختر الأصناف من القائمة" />}
+          {!order?.items.length && !draft.length && <Empty icon={ShoppingBag} text="اختر الأصناف من القائمة" />}
         </div>
 
         <div className="cart-totals">
@@ -304,36 +302,36 @@ export default function Pos() {
           <div className="cart-actions">
             {(draft.length > 0 || pendingCount > 0) && (
               <div className="grid-2">
-                <button className="btn btn-primary btn-lg" onClick={() => submit({ send: true })} disabled={busy}>🔥 إرسال للمطبخ</button>
+                <button className="btn btn-primary btn-lg" onClick={() => submit({ send: true })} disabled={busy}><Flame size={19} /> إرسال للمطبخ</button>
                 <button className="btn btn-lg" onClick={() => submit({ send: false })} disabled={busy || !draft.length}>حفظ</button>
               </div>
             )}
             {order && (
               <div className="btn-row">
-                {readyCount > 0 && <button className="btn btn-ok" onClick={serveReady} disabled={busy}>✓ تقديم ({readyCount})</button>}
+                {readyCount > 0 && <button className="btn btn-ok" onClick={serveReady} disabled={busy}><CheckCheck size={18} /> تقديم ({readyCount})</button>}
                 {canPay && <button className="btn" onClick={() => setDiscountOpen(true)}>خصم</button>}
                 {order.type === 'dine_in' && <button className="btn" onClick={() => setMoveOpen(true)}>نقل طاولة</button>}
-                <button className="btn" onClick={() => setPrintOrder(order)}>🖨️ طباعة</button>
+                <button className="btn" onClick={() => setPrintOrder(order)}><Printer size={17} /> طباعة</button>
                 {canPay && <button className="btn btn-danger-ghost" onClick={cancelOrder} disabled={busy || order.paid > 0}>إلغاء الطلب</button>}
               </div>
             )}
             {canPay && (order || draft.length > 0) && (
               <button className="btn btn-ok btn-lg btn-block" disabled={busy} onClick={() => (draft.length || !order ? submit({ send: true, thenPay: true }) : setPaying(true))}>
-                💳 الدفع {order ? `(${money(order.total - order.paid + (draft.length ? draftTotal : 0))})` : ''}
+                <CreditCard size={19} /> الدفع {order ? `(${money(order.total - order.paid + (draft.length ? draftTotal : 0))})` : ''}
               </button>
             )}
           </div>
         )}
         {order && !isOpen && (
           <div className="cart-actions">
-            <button className="btn btn-lg btn-block" onClick={() => setPrintOrder(order)}>🖨️ طباعة الفاتورة</button>
-            <button className="btn btn-primary btn-lg btn-block" onClick={newOrder}>+ طلب جديد</button>
+            <button className="btn btn-lg btn-block" onClick={() => setPrintOrder(order)}><Printer size={18} /> طباعة الفاتورة</button>
+            <button className="btn btn-primary btn-lg btn-block" onClick={newOrder}><Plus size={18} /> طلب جديد</button>
           </div>
         )}
       </section>
 
       <button className="cart-fab" onClick={() => setCartOpen(true)}>
-        🛒 السلة {cartCount > 0 && <span className="fab-count">{cartCount}</span>}
+        <ShoppingBag size={20} /> السلة {cartCount > 0 && <span className="fab-count">{cartCount}</span>}
         {order && <span>· {money(order.total)}</span>}
       </button>
 

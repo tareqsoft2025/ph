@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useData, useMoney, Loading, PageHead, Empty, todayStr } from '../lib.jsx';
 import { Stat, Bars } from './Reports.jsx';
+import { TriangleAlert, CircleCheck, Plus } from 'lucide-react';
 
 export default function Dashboard() {
   const money = useMoney();
@@ -17,7 +18,7 @@ export default function Dashboard() {
   return (
     <div>
       <PageHead title="لوحة التحكم" sub={`ملخص اليوم ${today}`}>
-        <Link className="btn btn-primary" to="/pos">+ طلب جديد</Link>
+        <Link className="btn btn-primary" to="/pos"><Plus size={18} /> طلب جديد</Link>
       </PageHead>
       {!shift.loading && !shift.data && (
         <div className="alert alert-warn">لا توجد وردية مفتوحة — <Link to="/shifts">افتح وردية</Link> لتسجيل حركة الصندوق.</div>
@@ -38,8 +39,8 @@ export default function Dashboard() {
         <section className="card">
           <h3>تنبيهات المخزون</h3>
           {rep.data?.lowStock.length ? (
-            <ul className="simple-list">{rep.data.lowStock.map((i) => <li key={i.id}><span>⚠️ {i.name}</span><span className="text-err">{+i.stock.toFixed(2)} {i.unit}</span></li>)}</ul>
-          ) : <Empty icon="✅" text="لا توجد نواقص" />}
+            <ul className="simple-list">{rep.data.lowStock.map((i) => <li key={i.id}><span className="meta-line"><TriangleAlert size={15} className="text-warn" aria-hidden /> {i.name}</span><span className="text-err">{+i.stock.toFixed(2)} {i.unit}</span></li>)}</ul>
+          ) : <Empty icon={CircleCheck} text="لا توجد نواقص" />}
         </section>
       </div>
     </div>

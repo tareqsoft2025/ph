@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
+  LayoutDashboard, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
+  UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff,
+} from 'lucide-react';
+import {
   api, connectSocket, disconnectSocket, getToken, setToken, needsServerUrl, setUnauthorizedHandler, getServerUrl,
 } from './api.js';
 import { AppContext, ROLE_LABELS, can, Loading } from './lib.jsx';
@@ -20,22 +24,27 @@ import Users from './pages/Users.jsx';
 import Customers from './pages/Customers.jsx';
 import Settings from './pages/Settings.jsx';
 
-// عناصر القائمة الجانبية مع الأدوار المسموح لها
+// عناصر القائمة الجانبية مع الأدوار المسموح لها، مجمّعة في أقسام
 const NAV = [
-  { to: '/dashboard', label: 'الرئيسية', icon: '🏠', roles: ['manager'] },
-  { to: '/pos', label: 'نقطة البيع', icon: '🧾', roles: ['cashier', 'waiter', 'manager'] },
-  { to: '/tables', label: 'الطاولات', icon: '🪑', roles: ['cashier', 'waiter', 'manager'] },
-  { to: '/orders', label: 'الطلبات', icon: '📋', roles: ['cashier', 'waiter', 'manager'] },
-  { to: '/kitchen', label: 'شاشة المطبخ', icon: '👨‍🍳', roles: ['kitchen', 'manager'] },
-  { to: '/reservations', label: 'الحجوزات', icon: '📅', roles: ['cashier', 'waiter', 'manager'] },
-  { to: '/shifts', label: 'الورديات', icon: '💵', roles: ['cashier', 'manager'] },
-  { to: '/menu', label: 'قائمة الطعام', icon: '🍽️', roles: ['manager'] },
-  { to: '/inventory', label: 'المخزون', icon: '📦', roles: ['manager', 'kitchen'] },
-  { to: '/customers', label: 'العملاء', icon: '👥', roles: ['cashier', 'manager'] },
-  { to: '/reports', label: 'التقارير', icon: '📊', roles: ['manager'] },
-  { to: '/users', label: 'المستخدمون', icon: '🔐', roles: ['manager'] },
-  { to: '/settings', label: 'الإعدادات', icon: '⚙️', roles: ['manager'] },
+  { group: 'العمليات اليومية', items: [
+    { to: '/dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, roles: ['manager'] },
+    { to: '/pos', label: 'نقطة البيع', icon: ReceiptText, roles: ['cashier', 'waiter', 'manager'] },
+    { to: '/tables', label: 'الطاولات', icon: Armchair, roles: ['cashier', 'waiter', 'manager'] },
+    { to: '/orders', label: 'الطلبات', icon: ClipboardList, roles: ['cashier', 'waiter', 'manager'] },
+    { to: '/kitchen', label: 'شاشة المطبخ', icon: ChefHat, roles: ['kitchen', 'manager'] },
+    { to: '/reservations', label: 'الحجوزات', icon: CalendarDays, roles: ['cashier', 'waiter', 'manager'] },
+    { to: '/shifts', label: 'الورديات', icon: Wallet, roles: ['cashier', 'manager'] },
+  ] },
+  { group: 'الإدارة', items: [
+    { to: '/menu', label: 'قائمة الطعام', icon: UtensilsCrossed, roles: ['manager'] },
+    { to: '/inventory', label: 'المخزون', icon: Package, roles: ['manager', 'kitchen'] },
+    { to: '/customers', label: 'العملاء', icon: UsersIcon, roles: ['cashier', 'manager'] },
+    { to: '/reports', label: 'التقارير', icon: ChartColumn, roles: ['manager'] },
+    { to: '/users', label: 'المستخدمون', icon: ShieldCheck, roles: ['manager'] },
+    { to: '/settings', label: 'الإعدادات', icon: SettingsIcon, roles: ['manager'] },
+  ] },
 ];
+const ALL_NAV = NAV.flatMap((g) => g.items);
 
 const HOME = { admin: '/dashboard', manager: '/dashboard', cashier: '/pos', waiter: '/tables', kitchen: '/kitchen' };
 
@@ -84,41 +93,52 @@ export default function App() {
     );
   }
 
-  const nav = NAV.filter((n) => can(user, ...n.roles));
+  const groups = NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(user, ...n.roles)) })).filter((g) => g.items.length);
   const home = HOME[user.role];
+  const current = ALL_NAV.find((n) => location.pathname.startsWith(n.to));
 
   return (
     <AppContext.Provider value={{ user, settings, setSettings, logout }}>
       <div className={`shell ${menuOpen ? 'menu-open' : ''}`}>
-        <aside className="sidebar">
+        <aside className="sidebar" aria-label="القائمة الرئيسية">
           <div className="brand">
-            <img src="./icon.svg" alt="" width="36" height="36" />
-            <div>
+            <span className="brand-mark" aria-hidden><UtensilsCrossed size={20} strokeWidth={2.2} /></span>
+            <div className="brand-text">
               <strong>{settings?.restaurant_name}</strong>
               <small>نظام إدارة المطعم</small>
             </div>
           </div>
           <nav>
-            {nav.map((n) => (
-              <NavLink key={n.to} to={n.to} className="nav-link">
-                <span className="nav-icon" aria-hidden>{n.icon}</span>{n.label}
-              </NavLink>
+            {groups.map((g) => (
+              <div key={g.group} className="nav-group">
+                <span className="nav-group-label">{g.group}</span>
+                {g.items.map((n) => (
+                  <NavLink key={n.to} to={n.to} className="nav-link">
+                    <n.icon size={19} strokeWidth={1.8} aria-hidden />
+                    <span>{n.label}</span>
+                  </NavLink>
+                ))}
+              </div>
             ))}
           </nav>
           <div className="sidebar-foot">
             <div className="me">
-              <div className="avatar">{user.name.slice(0, 1)}</div>
-              <div><strong>{user.name}</strong><small>{ROLE_LABELS[user.role]}</small></div>
+              <div className="avatar" aria-hidden>{user.name.slice(0, 1)}</div>
+              <div className="me-text"><strong>{user.name}</strong><small>{ROLE_LABELS[user.role]}</small></div>
+              <button className="icon-btn" onClick={logout} aria-label="تسجيل الخروج" title="تسجيل الخروج"><LogOut size={18} /></button>
             </div>
-            <button className="btn btn-ghost btn-block" onClick={logout}>تسجيل الخروج</button>
           </div>
         </aside>
         <div className="scrim" onClick={() => setMenuOpen(false)} />
         <main className="main">
           <header className="topbar">
-            <button className="icon-btn menu-btn" onClick={() => setMenuOpen(true)} aria-label="القائمة">☰</button>
-            <strong className="topbar-title">{settings?.restaurant_name}</strong>
+            <button className="icon-btn menu-btn" onClick={() => setMenuOpen(true)} aria-label="فتح القائمة"><MenuIcon size={22} /></button>
+            <div className="topbar-title">
+              {current && <current.icon size={20} strokeWidth={1.8} aria-hidden />}
+              <span>{current?.label || settings?.restaurant_name}</span>
+            </div>
             <span className={`conn ${online ? 'on' : 'off'}`} title={getServerUrl() || 'الخادم'}>
+              {online ? <Wifi size={14} /> : <WifiOff size={14} />}
               {online ? 'متصل' : 'غير متصل'}
             </span>
           </header>

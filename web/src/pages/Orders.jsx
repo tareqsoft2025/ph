@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData, useMoney, useApp, Loading, Empty, PageHead, ORDER_TYPES, todayStr, timeOf, minutesSince, useNow } from '../lib.jsx';
+import { Plus } from 'lucide-react';
 
 const STATUS = { open: 'مفتوح', paid: 'مدفوع', cancelled: 'ملغى' };
 
@@ -22,7 +23,7 @@ export default function Orders() {
   return (
     <div>
       <PageHead title="الطلبات">
-        <button className="btn btn-primary" onClick={() => navigate('/pos')}>+ طلب جديد</button>
+        <button className="btn btn-primary" onClick={() => navigate('/pos')}><Plus size={18} /> طلب جديد</button>
       </PageHead>
       <div className="filters">
         <div className="seg">
