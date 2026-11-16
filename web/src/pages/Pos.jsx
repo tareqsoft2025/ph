@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import {
   useApp, useData, useMoney, useAction, useToast, has, Modal, Field, Empty, Loading,
@@ -7,6 +7,7 @@ import {
 } from '../lib.jsx';
 import Receipt from '../components/Receipt.jsx';
 import OrderTimeline from '../components/OrderTimeline.jsx';
+import TableHero from '../components/TableHero.jsx';
 import { PayModal, DiscountModal } from '../components/PaymentModals.jsx';
 import { Search, Utensils, SlidersHorizontal, Plus, StickyNote, ShoppingBag, Flame, CheckCheck, Printer, CreditCard, TriangleAlert, X, History, Minus, UserRound, Phone, MapPin, Armchair, ReceiptText } from 'lucide-react';
 
@@ -36,11 +37,12 @@ export default function Pos() {
   const [printOrder, setPrintOrder] = useState(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [meta, setMeta] = useState({
-    type: params.get('type') || (has(user, 'payments.collect') ? 'takeaway' : 'dine_in'),
+    type: ['dine_in', 'takeaway', 'delivery'].includes(params.get('type')) ? params.get('type') : (params.get('table') ? 'dine_in' : ''),
     table_id: params.get('table') ? Number(params.get('table')) : '',
     customer_name: '', customer_phone: '', address: '', guests: params.get('table') ? 2 : '', notes: '',
   });
   const [tried, setTried] = useState(false);
+  const submitted = useRef(false); // بعد إنشاء الطلب لا نعيد التوجيه لطلب الطاولة
   const [timelineOpen, setTimelineOpen] = useState(false);
 
   // التحقق من بيانات العميل حسب نوع الطلب
@@ -57,6 +59,19 @@ export default function Pos() {
   const err = (k) => (tried ? metaErrors[k] : null);
 
   useEffect(() => { setDraft([]); }, [orderId]);
+  // سياق جديد (طاولة أخرى أو سفري/توصيل): نبدأ ببيانات نظيفة
+  const ctxKey = params.toString();
+  useEffect(() => {
+    if (orderId) return;
+    submitted.current = false;
+    setTried(false);
+    setDraft([]);
+    setMeta({
+      type: ['dine_in', 'takeaway', 'delivery'].includes(params.get('type')) ? params.get('type') : (params.get('table') ? 'dine_in' : ''),
+      table_id: params.get('table') ? Number(params.get('table')) : '',
+      customer_name: '', customer_phone: '', address: '', guests: params.get('table') ? 2 : '', notes: '',
+    });
+  }, [ctxKey]); // eslint-disable-line
   useEffect(() => {
     if (menu.data && cat === null) setCat(menu.data.categories[0]?.id ?? 0);
   }, [menu.data, cat]);
@@ -112,13 +127,15 @@ export default function Pos() {
       return api('/orders', { method: 'POST', body: { ...meta, table_id: meta.table_id || null, guests: Number(meta.guests) || null, items: draftPayload(), send } });
     }, send ? 'تم الإرسال للمطبخ' : 'تم الحفظ');
     if (!r) return;
+    submitted.current = true;
     setDraft([]);
     setCartOpen(false);
     setTried(false);
+    // النادل يعود للطاولات بعد الإرسال
+    if (send && !canPay && !thenPay) { navigate('/tables'); return; }
     if (!order) navigate(`/pos/${r.id}`, { replace: true });
     else orderQ.setData(r);
     if (thenPay) setPaying(true);
-    else if (send && !canPay) navigate('/tables');
   }
 
   async function lineAction(line, body) {
@@ -145,34 +162,45 @@ export default function Pos() {
 
   function newOrder() {
     setDraft([]);
-    navigate('/pos');
+    navigate('/tables');
   }
 
   if (menu.loading || (orderId && orderQ.loading && !order)) return <Loading />;
-  if (!orderId && !canEdit) {
-    return <Empty icon={ShoppingBag} text={canPay ? 'إنشاء الطلبات ليس من صلاحياتك. استخدم صفحة الكاشير لتحصيل الدفعات.' : 'ليس لديك صلاحية إنشاء الطلبات.'} />;
-  }
+  if (!orderId && !canEdit) return <Navigate to={canPay ? '/cashier' : '/tables'} replace />;
   if (orderId && orderQ.error) return <Empty icon={TriangleAlert} text={orderQ.error} />;
 
-  const freeTables = (tables.data || []).filter((t) => t.status !== 'occupied' || t.order_id === order?.id);
+  // لا توجد شاشة طلب عامة: يجب الدخول من طاولة (أو طلب سفري/توصيل من صفحة الطاولات)
+  if (!orderId && (!meta.type || (meta.type === 'dine_in' && !meta.table_id))) return <Navigate to="/tables" replace />;
+  const ctxTable = (tables.data || []).find((t) => t.id === (order?.table_id || meta.table_id));
+  // الطاولة مشغولة بطلب مفتوح: افتح ذلك الطلب مباشرة
+  if (!orderId && !submitted.current && meta.type === 'dine_in' && ctxTable?.order_id) return <Navigate to={`/pos/${ctxTable.order_id}`} replace />;
+  const ctxType = order?.type || meta.type;
+
   const pendingCount = order?.items.filter((i) => i.status === 'pending').length || 0;
   const readyCount = order?.items.filter((i) => i.status === 'ready').length || 0;
   const cartCount = draft.reduce((a, d) => a + d.qty, 0) + (order?.items.filter((i) => i.status !== 'cancelled').length || 0);
 
   return (
+    <div className="pos-page">
+    <TableHero
+      type={ctxType}
+      table={ctxTable}
+      order={order}
+      guests={meta.guests}
+      onGuests={!order && ctxType === 'dine_in' ? (n) => setMeta((m) => ({ ...m, guests: n })) : undefined}
+      guestsError={err('guests')}
+      customer={{ name: meta.customer_name, phone: meta.customer_phone, address: meta.address }}
+      onBack={() => navigate('/tables')}
+    />
     <div className="pos">
       {/* ───── قائمة الأصناف ───── */}
       <section className="pos-menu">
-        <header className="menu-hero">
-          <div className="menu-brand">
-            <span className="menu-kicker">قائمة الطعام</span>
-            <h1 className="menu-title">{settings?.restaurant_name}</h1>
-          </div>
+        <div className="menu-bar">
           <label className="menu-search">
             <Search size={18} aria-hidden />
             <input type="search" placeholder="ابحث عن طبق…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="بحث" />
           </label>
-        </header>
+        </div>
 
         <nav className="cat-tabs" role="tablist" aria-label="الفئات">
           {menu.data.categories.map((c) => (
@@ -237,10 +265,9 @@ export default function Pos() {
             </>
           ) : (
             <>
-              <div className="seg" role="radiogroup" aria-label="نوع الطلب">
-                {Object.entries(ORDER_TYPES).map(([k, v]) => (
-                  <button key={k} role="radio" aria-checked={meta.type === k} className={meta.type === k ? 'active' : ''} onClick={() => setMeta({ ...meta, type: k })}>{v}</button>
-                ))}
+              <div className="cart-id">
+                <h2>طلب جديد</h2>
+                <span className="muted">{ctxType === 'dine_in' ? `${ctxTable?.name || ''} · ${meta.guests || 0} أشخاص` : ORDER_TYPES[ctxType]}</span>
               </div>
               <button className="icon-btn cart-close" onClick={() => setCartOpen(false)} aria-label="إغلاق"><X size={20} /></button>
             </>
@@ -249,27 +276,6 @@ export default function Pos() {
 
         {!order && (
           <div className="cart-meta">
-            {meta.type === 'dine_in' && (
-              <div className="grid-2">
-                <label className={`cfield ${err('table_id') ? 'invalid' : ''}`}>
-                  <span className="cfield-label"><Armchair size={14} aria-hidden /> الطاولة *</span>
-                  <select value={meta.table_id} onChange={(e) => setMeta({ ...meta, table_id: Number(e.target.value) || '' })} aria-invalid={!!err('table_id')}>
-                    <option value="">— اختر —</option>
-                    {freeTables.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.seats} مقاعد)</option>)}
-                  </select>
-                  {err('table_id') && <span className="cfield-err">{err('table_id')}</span>}
-                </label>
-                <div className={`cfield ${err('guests') ? 'invalid' : ''}`}>
-                  <span className="cfield-label">عدد الأشخاص *</span>
-                  <div className="stepper-input">
-                    <button type="button" className="btn btn-xs" onClick={() => setMeta({ ...meta, guests: (Number(meta.guests) || 0) + 1 })} aria-label="زيادة"><Plus size={14} /></button>
-                    <input type="number" min="1" inputMode="numeric" value={meta.guests} onChange={(e) => setMeta({ ...meta, guests: e.target.value })} aria-label="عدد الأشخاص" aria-invalid={!!err('guests')} />
-                    <button type="button" className="btn btn-xs" onClick={() => setMeta({ ...meta, guests: Math.max(1, (Number(meta.guests) || 2) - 1) })} aria-label="إنقاص"><Minus size={14} /></button>
-                  </div>
-                  {err('guests') && <span className="cfield-err">{err('guests')}</span>}
-                </div>
-              </div>
-            )}
             <div className="grid-2">
               <label className={`cfield ${err('customer_name') ? 'invalid' : ''}`}>
                 <span className="cfield-label"><UserRound size={14} aria-hidden /> اسم العميل *</span>
@@ -419,6 +425,7 @@ export default function Pos() {
       )}
       {printOrder && <Receipt order={printOrder} onClose={() => setPrintOrder(null)} />}
       {timelineOpen && order && <OrderTimeline orderId={order.id} onClose={() => setTimelineOpen(false)} />}
+    </div>
     </div>
   );
 }

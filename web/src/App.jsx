@@ -39,7 +39,6 @@ const NAV = [
   { group: 'العمليات اليومية', items: [
     { to: '/dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, perms: ['reports.view'] },
     { to: '/cashier', label: 'الكاشير', icon: Banknote, perms: ['payments.collect'] },
-    { to: '/pos', label: 'نقطة البيع', icon: ReceiptText, perms: ['pos.create'] },
     { to: '/tables', label: 'الطاولات', icon: Armchair, perms: ['tables.view', 'pos.create'] },
     { to: '/orders', label: 'الطلبات', icon: ClipboardList, perms: ['orders.view', 'pos.create', 'payments.collect'] },
     { to: '/kitchen', label: 'شاشة المطبخ', icon: ChefHat, perms: ['kitchen.view', 'kitchen.update'] },
@@ -67,7 +66,8 @@ const ALL_NAV = NAV.flatMap((g) => g.items);
 const allowed = (user, n) => n.perms.includes('*') || (n.perms.includes('__admin') ? user.role === 'admin' : has(user, ...n.perms));
 
 // الصفحة الرئيسية المفضلة لكل دور (إن كانت مسموحة)
-const PREFERRED = { admin: '/dashboard', manager: '/dashboard', cashier: '/cashier', waiter: '/tables', kitchen: '/kitchen' };
+// صفحة الطلب تُفتح من الطاولة دائماً (/pos?type=dine_in&table=..)
+const PREFERRED = { admin: '/dashboard', manager: '/dashboard', cashier: '/cashier', waiter: '/tables', kitchen: '/kitchen', staff: '/attendance' };
 
 export default function App() {
   const [user, setUser] = useState(null);

@@ -83,8 +83,13 @@ Authorization: Bearer <token>
 | GET | `/documents/:id/file` | manager | محتوى الملف المرفق |
 | DELETE | `/documents/:id` | manager | حذف مستند |
 | GET | `/hr/alerts` | manager | المستندات والعقود القريبة من الانتهاء، وطلبات الإجازة المعلّقة |
-| GET | `/attendance/me` | مسجّل | حضوري اليوم وملخص الشهر |
-| POST | `/attendance/check-in` و `/attendance/check-out` | مسجّل (مرتبط بموظف) | تسجيل الحضور والانصراف |
+| GET | `/attendance/me` | مسجّل | حضوري اليوم وملخص الشهر وقواعد التسجيل (المواقع، ربط الجهاز) ووقت الخادم |
+| POST | `/attendance/challenge` | مسجّل | رمز لمرة واحدة صالح 120 ثانية `{nonce}` |
+| POST | `/attendance/check-in` و `/attendance/check-out` | مسجّل (مرتبط بموظف) | `{nonce, lat, lng, accuracy, age_ms, device_id, platform, mock, emulator, rooted}`، وعند الرفض يعيد `{error, reason, nearest}` |
+| GET/POST/PUT/DELETE | `/work-locations[/:id]` | hr.attendance | مواقع الحضور `{name, lat, lng, radius_m}` |
+| GET | `/attendance/report?from=&to=&employee_id=` | hr.attendance | تقرير الحضور: لكل موظف ويومي، والمحاولات المرفوضة والسجلات المعلّمة |
+| POST | `/employees/:id/reset-device` | hr.attendance | إلغاء ربط جهاز الموظف |
+| POST | `/employees/:id/account` | hr.employees | `{username, password}` إنشاء حساب بدور "موظف" |
 | GET | `/attendance?date=` | manager | الكشف اليومي |
 | POST | `/attendance` | manager | تسجيل يدوي `{employee_id, date, status, check_in, check_out, note}` |
 | GET | `/attendance/summary?month=` | manager | الملخص الشهري لكل الموظفين |

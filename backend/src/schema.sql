@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
   name          TEXT NOT NULL,
   username      TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  role          TEXT NOT NULL CHECK (role IN ('admin','manager','cashier','waiter','kitchen')),
+  role          TEXT NOT NULL CHECK (role IN ('admin','manager','cashier','waiter','kitchen','staff')),
   active        INTEGER NOT NULL DEFAULT 1,
   created_at    TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
@@ -313,3 +313,33 @@ CREATE TABLE IF NOT EXISTS role_permissions (
   role   TEXT PRIMARY KEY,
   perms  TEXT NOT NULL   -- JSON array
 );
+
+-- ═════════════ مواقع تسجيل الحضور ═════════════
+CREATE TABLE IF NOT EXISTS work_locations (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  lat         REAL NOT NULL,
+  lng         REAL NOT NULL,
+  radius_m    INTEGER NOT NULL DEFAULT 100,
+  active      INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+-- محاولات تسجيل الحضور المرفوضة (لكشف التحايل)
+CREATE TABLE IF NOT EXISTS attendance_attempts (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id  INTEGER REFERENCES employees(id) ON DELETE CASCADE,
+  user_id      INTEGER,
+  action       TEXT NOT NULL,            -- check_in / check_out
+  reason       TEXT NOT NULL,            -- رمز السبب
+  message      TEXT,
+  lat          REAL,
+  lng          REAL,
+  accuracy     REAL,
+  distance     REAL,
+  device_id    TEXT,
+  platform     TEXT,
+  suspicious   INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_attempts_date ON attendance_attempts(created_at);

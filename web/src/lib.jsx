@@ -6,7 +6,7 @@ export const AppContext = createContext(null);
 export const useApp = () => useContext(AppContext);
 
 export const ROLE_LABELS = {
-  admin: 'المدير العام', manager: 'مدير الفرع', cashier: 'كاشير', waiter: 'نادل', kitchen: 'المطبخ',
+  admin: 'المدير العام', manager: 'مدير الفرع', cashier: 'كاشير', waiter: 'نادل', kitchen: 'المطبخ', staff: 'موظف',
 };
 export const ORDER_TYPES = { dine_in: 'صالة', takeaway: 'سفري', delivery: 'توصيل' };
 export const PAY_METHODS = { cash: 'نقدي', card: 'بطاقة', wallet: 'محفظة' };

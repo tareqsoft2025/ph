@@ -35,7 +35,7 @@ export const PERMISSIONS = [
   { key: 'hr.payroll', group: 'الموارد البشرية', label: 'الرواتب' },
 ];
 export const ALL_KEYS = PERMISSIONS.map((p) => p.key);
-export const ROLES_EDITABLE = ['manager', 'cashier', 'waiter', 'kitchen'];
+export const ROLES_EDITABLE = ['manager', 'cashier', 'waiter', 'kitchen', 'staff'];
 
 /** الصلاحيات الافتراضية لكل دور */
 export const DEFAULTS = {
@@ -43,6 +43,7 @@ export const DEFAULTS = {
   cashier: ['orders.view', 'tables.view', 'payments.collect', 'shifts.manage', 'customers.view', 'orders.discount', 'orders.cancel', 'orders.cancel_item', 'reservations.manage', 'kitchen.view'],
   waiter: ['pos.create', 'tables.view', 'orders.move', 'reservations.manage', 'kitchen.view'],
   kitchen: ['kitchen.view', 'kitchen.update', 'menu.availability', 'inventory.view', 'inventory.receive'],
+  staff: [], // الحضور والإجازات متاحة للجميع
 };
 
 /** صلاحيات الدور (المخصّصة أو الافتراضية) */

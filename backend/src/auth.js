@@ -4,7 +4,7 @@ import { rolePerms } from './perms.js';
 
 const SECRET = process.env.JWT_SECRET || 'change-this-secret-in-production';
 
-export const ROLES = ['admin', 'manager', 'cashier', 'waiter', 'kitchen'];
+export const ROLES = ['admin', 'manager', 'cashier', 'waiter', 'kitchen', 'staff'];
 
 export function signToken(user) {
   return jwt.sign({ id: user.id, role: user.role, name: user.name }, SECRET, { expiresIn: '7d' });
@@ -19,16 +19,18 @@ export function authenticate(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'يجب تسجيل الدخول' });
+  let payload;
   try {
-    const payload = verifyToken(token);
-    const user = get('SELECT id, name, username, role, active FROM users WHERE id = ?', payload.id);
-    if (!user || !user.active) return res.status(401).json({ error: 'الحساب غير مفعّل' });
-    user.perms = rolePerms(user.role);
-    req.user = user;
-    next();
+    payload = verifyToken(token);
   } catch {
-    res.status(401).json({ error: 'انتهت الجلسة، سجّل الدخول مجدداً' });
+    return res.status(401).json({ error: 'انتهت الجلسة، سجّل الدخول مجدداً' });
   }
+  const user = get('SELECT id, name, username, role, active FROM users WHERE id = ?', payload.id);
+  if (!user || !user.active) return res.status(401).json({ error: 'الحساب غير مفعّل' });
+  user.perms = rolePerms(user.role);
+  req.user = user;
+  // خارج try: أخطاء المسارات لا تتحول إلى "انتهت الجلسة"
+  next();
 }
 
 /** يسمح فقط للأدوار المحددة (المدير العام مسموح دائماً) */

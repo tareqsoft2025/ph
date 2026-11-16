@@ -6,6 +6,7 @@ import { useAction, useData, Modal, Field, WEEKDAYS, ROLE_LABELS } from '../lib.
 export default function EmployeeForm({ emp = {}, onClose, onSaved }) {
   const [run, busy] = useAction();
   const users = useData('/users');
+  const locs = useData('/work-locations');
   const [f, setF] = useState({
     name: emp.name || '', job_title: emp.job_title || '', department: emp.department || '',
     phone: emp.phone || '', email: emp.email || '', national_id: emp.national_id || '', nationality: emp.nationality || '',
@@ -17,12 +18,19 @@ export default function EmployeeForm({ emp = {}, onClose, onSaved }) {
     annual_leave_days: emp.annual_leave_days ?? 21,
     emergency_contact: emp.emergency_contact || '', bank_iban: emp.bank_iban || '', notes: emp.notes || '',
     user_id: emp.user_id || '',
+    grace_minutes: emp.grace_minutes ?? '',
+    location_mode: emp.location_mode || 'geo',
+    location_ids: (() => { try { return emp.location_ids ? JSON.parse(emp.location_ids) : []; } catch { return []; } })(),
+    device_binding: emp.device_binding ?? 1,
+    early_checkin_minutes: emp.early_checkin_minutes ?? 60,
   });
+  const toggleLoc = (id) => setF({ ...f, location_ids: f.location_ids.includes(id) ? f.location_ids.filter((x) => x !== id) : [...f.location_ids, id] });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const toggleDay = (d) => setF({ ...f, weekly_off: f.weekly_off.includes(d) ? f.weekly_off.filter((x) => x !== d) : [...f.weekly_off, d].sort() });
 
   async function save() {
-    const body = { ...f, user_id: f.user_id || null, basic_salary: Number(f.basic_salary) || 0, allowances: Number(f.allowances) || 0 };
+    const body = { ...f, user_id: f.user_id || null, basic_salary: Number(f.basic_salary) || 0, allowances: Number(f.allowances) || 0,
+      grace_minutes: f.grace_minutes === '' ? null : Number(f.grace_minutes), early_checkin_minutes: Number(f.early_checkin_minutes) || 0 };
     for (const k of ['birth_date', 'contract_end', 'hire_date']) if (!body[k]) body[k] = null;
     const r = await run(() => (emp.id ? api(`/employees/${emp.id}`, { method: 'PUT', body }) : api('/employees', { method: 'POST', body })), 'تم حفظ بيانات الموظف');
     if (r) onSaved(emp.id || r.id);
@@ -69,6 +77,32 @@ export default function EmployeeForm({ emp = {}, onClose, onSaved }) {
           {(users.data || []).filter((u) => u.active).map((u) => <option key={u.id} value={u.id}>{u.name} (@{u.username} · {ROLE_LABELS[u.role]})</option>)}
         </select>
       </Field>
+
+      <h4 className="section-title">إعدادات الحضور</h4>
+      <div className="grid-2">
+        <Field label="سماحية التأخير (دقيقة)" hint="اتركه فارغاً لاستخدام الإعداد العام">
+          <input type="number" min="0" value={f.grace_minutes} onChange={set('grace_minutes')} placeholder="الإعداد العام" />
+        </Field>
+        <Field label="أقصى وقت لتسجيل الحضور قبل الدوام (دقيقة)">
+          <input type="number" min="0" value={f.early_checkin_minutes} onChange={set('early_checkin_minutes')} />
+        </Field>
+      </div>
+      <Field label="مكان تسجيل الحضور">
+        <div className="seg seg-lg">
+          <button type="button" className={f.location_mode === 'geo' ? 'active' : ''} onClick={() => setF({ ...f, location_mode: 'geo' })}>من مواقع العمل فقط</button>
+          <button type="button" className={f.location_mode === 'anywhere' ? 'active' : ''} onClick={() => setF({ ...f, location_mode: 'anywhere' })}>من أي مكان</button>
+        </div>
+      </Field>
+      {f.location_mode === 'geo' && (locs.data || []).length > 0 && (
+        <Field label="المواقع المسموحة" hint="بدون اختيار = كل المواقع">
+          <div className="day-picker">
+            {locs.data.map((l) => (
+              <button type="button" key={l.id} className={`chip ${f.location_ids.includes(l.id) ? 'chip-on' : ''}`} aria-pressed={f.location_ids.includes(l.id)} onClick={() => toggleLoc(l.id)}>{l.name}</button>
+            ))}
+          </div>
+        </Field>
+      )}
+      <label className="switch"><input type="checkbox" checked={!!f.device_binding} onChange={(e) => setF({ ...f, device_binding: e.target.checked ? 1 : 0 })} /> ربط الحضور بجهاز الموظف فقط (يمنع التسجيل من جوال زميل)</label>
 
       <h4 className="section-title">الراتب</h4>
       <div className="grid-2">

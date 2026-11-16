@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { useNavigate } from 'react-router-dom';
 import {
   Bell, BellRing, CheckCheck, ChefHat, CircleCheckBig, CalendarOff, PackageX, X, Volume2, VolumeX, Smartphone, Trash2, Info,
-  ReceiptText, ArrowLeft,
+  ReceiptText, ArrowLeft, ShieldAlert,
 } from 'lucide-react';
 import { api, getSocket, isNative } from './api.js';
 import { setupPush, pushActive } from './push.js';
@@ -11,9 +11,9 @@ import { setupPush, pushActive } from './push.js';
 const NotifContext = createContext(null);
 export const useNotifications = () => useContext(NotifContext);
 
-const ICONS = { order_new: ChefHat, order_ready: CircleCheckBig, bill_request: ReceiptText, leave_request: CalendarOff, leave_decided: CalendarOff, low_stock: PackageX, test: BellRing };
-const TYPE_LABEL = { order_new: 'طلب جديد', order_ready: 'جاهز للتقديم', bill_request: 'طلب الحساب', leave_request: 'طلب إجازة', leave_decided: 'إجازة', low_stock: 'المخزون', test: 'تجربة' };
-const ACTION = { order_new: 'شاشة المطبخ', order_ready: 'فتح الطلب', bill_request: 'تحصيل', leave_request: 'مراجعة', leave_decided: 'عرض', low_stock: 'المخزون' };
+const ICONS = { order_new: ChefHat, order_ready: CircleCheckBig, bill_request: ReceiptText, leave_request: CalendarOff, leave_decided: CalendarOff, low_stock: PackageX, test: BellRing, attendance_alert: ShieldAlert };
+const TYPE_LABEL = { order_new: 'طلب جديد', order_ready: 'جاهز للتقديم', bill_request: 'طلب الحساب', leave_request: 'طلب إجازة', leave_decided: 'إجازة', low_stock: 'المخزون', test: 'تجربة', attendance_alert: 'تنبيه حضور' };
+const ACTION = { order_new: 'شاشة المطبخ', order_ready: 'فتح الطلب', bill_request: 'تحصيل', leave_request: 'مراجعة', leave_decided: 'عرض', low_stock: 'المخزون', attendance_alert: 'التقارير' };
 const safeGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const safeSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
 
