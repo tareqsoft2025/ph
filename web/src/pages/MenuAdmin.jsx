@@ -44,7 +44,7 @@ export default function MenuAdmin() {
               <tbody>
                 {items.map((i) => (
                   <tr key={i.id}>
-                    <td><strong>{i.name}</strong>{i.description && <div className="muted small">{i.description}</div>}</td>
+                    <td><strong>{i.image && !/^(https?:|data:)/.test(i.image) ? `${i.image} ` : ''}{i.name}</strong>{i.description && <div className="muted small">{i.description}</div>}</td>
                     <td>{money(i.price)}</td>
                     <td>{STATIONS[i.station]}</td>
                     <td>{i.modifiers.length || '—'}</td>
@@ -101,7 +101,7 @@ function ItemForm({ item, categories, onClose, onSaved }) {
   const ingredients = useData('/ingredients');
   const [f, setF] = useState({
     category_id: item.category_id, name: item.name || '', description: item.description || '', price: item.price ?? '',
-    station: item.station || 'kitchen', available: item.available ?? 1,
+    station: item.station || 'kitchen', available: item.available ?? 1, image: item.image || '',
     modifiers: item.modifiers?.map((m) => ({ name: m.name, price: m.price })) || [],
     recipe: item.recipe?.map((r) => ({ ingredient_id: r.ingredient_id, qty: r.qty })) || [],
   });
@@ -143,6 +143,14 @@ function ItemForm({ item, categories, onClose, onSaved }) {
         </Field>
       </div>
       <Field label="الوصف"><input value={f.description} onChange={(e) => set('description', e.target.value)} /></Field>
+      <Field label="الصورة" hint="رابط صورة (https://…) أو إيموجي مثل 🍔. تظهر في قائمة الطعام بنقطة البيع.">
+        <div className="inline-row inline-row-img">
+          <input dir="auto" value={f.image} onChange={(e) => set('image', e.target.value)} placeholder="🍔 أو https://…" />
+          <span className="img-preview" aria-hidden>
+            {/^(https?:|data:)/.test(f.image) ? <img src={f.image} alt="" /> : (f.image || '🍽️')}
+          </span>
+        </div>
+      </Field>
 
       <h4 className="section-title">الإضافات والخيارات</h4>
       {f.modifiers.map((m, i) => (
