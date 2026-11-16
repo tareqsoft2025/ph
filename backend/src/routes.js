@@ -5,6 +5,7 @@ import { authenticate, allow, signToken, ROLES } from './auth.js';
 import { bad, notFound, pick, updateSql, normalize, round2, today } from './util.js';
 import * as Orders from './orders.js';
 import { hrRoutes } from './hr.js';
+import { setNotifyEmitter } from './notify.js';
 
 /**
  * @param {(event: string, payload?: any) => void} emit إرسال حدث لحظي لكل الأجهزة
@@ -12,6 +13,7 @@ import { hrRoutes } from './hr.js';
 export function buildRouter(emit) {
   const r = Router();
   const changed = (...events) => events.forEach((e) => emit(e));
+  setNotifyEmitter(emit);
 
   // ───────────── المصادقة ─────────────
   r.get('/health', (req, res) => res.json({ ok: true, name: getSettings().restaurant_name }));
@@ -170,7 +172,7 @@ export function buildRouter(emit) {
   // ───────────── الطاولات ─────────────
   r.get('/tables', (req, res) => {
     const tables = all(`
-      SELECT t.*, o.id AS order_id, o.number AS order_number, o.total AS order_total, o.created_at AS opened_at,
+      SELECT t.*, o.id AS order_id, o.number AS order_number, o.code AS order_code, o.total AS order_total, o.created_at AS opened_at,
         o.guests, w.name AS waiter_name,
         (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'ready') AS ready_items,
         (SELECT r.customer_name || ' ' || substr(r.reserved_at, 12, 5) FROM reservations r
@@ -259,7 +261,8 @@ export function buildRouter(emit) {
   });
   r.post('/orders/:id/serve', allow('cashier', 'waiter', 'manager'), (req, res) => {
     const id = Number(req.params.id);
-    run("UPDATE order_items SET status = 'served' WHERE order_id = ? AND status = 'ready'", id);
+    const ch = run("UPDATE order_items SET status = 'served' WHERE order_id = ? AND status = 'ready'", id);
+    Orders.kitchenProgress(id, 'served', req.user, Number(ch.changes));
     changed('kitchen');
     res.json(orderChanged(id));
   });
@@ -299,11 +302,13 @@ export function buildRouter(emit) {
   r.get('/kitchen', allow('kitchen', 'manager', 'cashier', 'waiter'), (req, res) => {
     const { station } = req.query;
     const items = all(`
-      SELECT oi.*, o.number, o.type, o.notes AS order_notes, t.name AS table_name, w.name AS waiter_name
+      SELECT oi.*, o.number, o.code, o.type, o.guests, o.customer_name, o.notes AS order_notes, t.name AS table_name,
+        w.name AS waiter_name, sb.name AS sent_by_name, sb.role AS sent_by_role
       FROM order_items oi
       JOIN orders o ON o.id = oi.order_id
       LEFT JOIN dining_tables t ON t.id = o.table_id
       LEFT JOIN users w ON w.id = o.waiter_id
+      LEFT JOIN users sb ON sb.id = oi.sent_by
       WHERE oi.status IN ('new','preparing','ready') AND o.status != 'cancelled'
       ${station ? 'AND oi.station = ?' : ''}
       ORDER BY oi.sent_at, oi.id`, ...(station ? [station] : []));
@@ -311,31 +316,43 @@ export function buildRouter(emit) {
     for (const it of items) {
       if (!map.has(it.order_id)) {
         map.set(it.order_id, {
-          order_id: it.order_id, number: it.number, type: it.type, table_name: it.table_name,
-          waiter_name: it.waiter_name, notes: it.order_notes, sent_at: it.sent_at, items: [],
+          order_id: it.order_id, number: it.number, code: it.code, type: it.type, table_name: it.table_name,
+          guests: it.guests, customer_name: it.customer_name,
+          waiter_name: it.waiter_name, sent_by_name: it.sent_by_name || it.waiter_name, sent_by_role: it.sent_by_role,
+          notes: it.order_notes, sent_at: it.sent_at, items: [],
         });
       }
       map.get(it.order_id).items.push({
         id: it.id, name: it.name, qty: it.qty, notes: it.notes, status: it.status, station: it.station,
-        modifiers: it.modifiers ? JSON.parse(it.modifiers) : [], sent_at: it.sent_at,
+        modifiers: it.modifiers ? JSON.parse(it.modifiers) : [], sent_at: it.sent_at, sent_by_name: it.sent_by_name,
       });
     }
-    res.json([...map.values()]);
+    const orders = [...map.values()];
+    // حالة التذكرة = أقل حالة بين أصنافها
+    for (const o of orders) {
+      o.stage = o.items.some((i) => i.status === 'new') ? 'new' : o.items.some((i) => i.status === 'preparing') ? 'preparing' : 'ready';
+    }
+    res.json(orders);
   });
   r.patch('/kitchen/items/:id', allow('kitchen', 'manager'), (req, res) => {
     const { status } = req.body || {};
     if (!['new', 'preparing', 'ready', 'served'].includes(status)) throw bad('الحالة غير صحيحة');
+    const item = get('SELECT order_id, status FROM order_items WHERE id = ?', Number(req.params.id));
+    if (!item) throw notFound();
     run(`UPDATE order_items SET status = ?, ready_at = CASE WHEN ? = 'ready' THEN datetime('now','localtime') ELSE ready_at END WHERE id = ?`,
       status, status, Number(req.params.id));
+    if (status !== 'new') Orders.kitchenProgress(item.order_id, status, req.user, item.status !== status);
     changed('kitchen', 'orders', 'tables');
     res.json({ ok: true });
   });
   r.post('/kitchen/orders/:id/bump', allow('kitchen', 'manager'), (req, res) => {
     const { status = 'ready' } = req.body || {};
-    if (!['preparing', 'ready'].includes(status)) throw bad('الحالة غير صحيحة');
-    const from = status === 'preparing' ? "('new')" : "('new','preparing')";
-    run(`UPDATE order_items SET status = ?, ready_at = CASE WHEN ? = 'ready' THEN datetime('now','localtime') ELSE ready_at END
-      WHERE order_id = ? AND status IN ${from}`, status, status, Number(req.params.id));
+    if (!['preparing', 'ready', 'served'].includes(status)) throw bad('الحالة غير صحيحة');
+    const from = { preparing: "('new')", ready: "('new','preparing')", served: "('ready')" }[status];
+    const id = Number(req.params.id);
+    const ch = run(`UPDATE order_items SET status = ?, ready_at = CASE WHEN ? = 'ready' THEN datetime('now','localtime') ELSE ready_at END
+      WHERE order_id = ? AND status IN ${from}`, status, status, id);
+    Orders.kitchenProgress(id, status, req.user, Number(ch.changes));
     changed('kitchen', 'orders', 'tables');
     res.json({ ok: true });
   });
@@ -503,6 +520,26 @@ export function buildRouter(emit) {
 
   // ───────────── الموارد البشرية ─────────────
   hrRoutes(r, changed);
+
+  // ───────────── الإشعارات ─────────────
+  r.get('/notifications', (req, res) => {
+    const rows = all('SELECT * FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 50', req.user.id);
+    const unread = get('SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND read_at IS NULL', req.user.id).c;
+    res.json({ rows, unread });
+  });
+  r.post('/notifications/read', (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : null;
+    if (ids?.length) {
+      run(`UPDATE notifications SET read_at = datetime('now','localtime') WHERE user_id = ? AND read_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`, req.user.id, ...ids);
+    } else {
+      run("UPDATE notifications SET read_at = datetime('now','localtime') WHERE user_id = ? AND read_at IS NULL", req.user.id);
+    }
+    res.json({ ok: true });
+  });
+  r.delete('/notifications', (req, res) => {
+    run('DELETE FROM notifications WHERE user_id = ? AND read_at IS NOT NULL', req.user.id);
+    res.json({ ok: true });
+  });
 
   r.get('/audit', allow(), (req, res) => {
     res.json(all(`SELECT a.*, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT 300`));

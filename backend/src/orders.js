@@ -1,6 +1,23 @@
 // منطق الطلبات: الحساب، الإضافة، الإرسال للمطبخ، الدفع
 import { get, all, run, tx, getSettings, audit } from './db.js';
 import { bad, notFound, round2 } from './util.js';
+import { notify } from './notify.js';
+
+const TYPE_LABEL = { dine_in: 'صالة', takeaway: 'سفري', delivery: 'توصيل' };
+
+/** يسجّل خطوة في تسلسل عمليات الطلب */
+export function logEvent(orderId, type, userId, message = null, data = null) {
+  run('INSERT INTO order_events(order_id, type, message, data, user_id) VALUES(?,?,?,?,?)',
+    orderId, type, message, data ? JSON.stringify(data) : null, userId ?? null);
+}
+
+/** وصف مختصر للطلب: الكود + الطاولة أو العميل */
+export function orderLabel(orderId) {
+  const o = get('SELECT o.code, o.type, o.customer_name, t.name AS table_name FROM orders o LEFT JOIN dining_tables t ON t.id = o.table_id WHERE o.id = ?', orderId);
+  return { code: o.code, where: o.table_name || `${TYPE_LABEL[o.type]}${o.customer_name ? ` · ${o.customer_name}` : ''}` };
+}
+
+const PHONE_RE = /^\+?[0-9\s-]{7,15}$/;
 
 export function getOrder(id) {
   const order = get(`
@@ -15,7 +32,9 @@ export function getOrder(id) {
     ...i,
     modifiers: i.modifiers ? JSON.parse(i.modifiers) : [],
   }));
-  order.payments = all('SELECT * FROM payments WHERE order_id = ? ORDER BY id', id);
+  order.payments = all('SELECT p.*, u.name AS user_name FROM payments p LEFT JOIN users u ON u.id = p.user_id WHERE p.order_id = ? ORDER BY p.id', id);
+  order.events = all(`SELECT e.*, u.name AS user_name, u.role AS user_role FROM order_events e
+    LEFT JOIN users u ON u.id = e.user_id WHERE e.order_id = ? ORDER BY e.id`, id).map((e) => ({ ...e, data: e.data ? JSON.parse(e.data) : null }));
   order.remaining = round2(order.total - order.paid);
   return order;
 }
@@ -69,12 +88,19 @@ function assertOpen(order) {
 export function createOrder(data, user) {
   const type = data.type || 'dine_in';
   if (!['dine_in', 'takeaway', 'delivery'].includes(type)) throw bad('نوع الطلب غير صحيح');
+  const name = String(data.customer_name || '').trim();
+  const phone = String(data.customer_phone || '').trim();
   if (type === 'dine_in') {
     if (!data.table_id) throw bad('اختر الطاولة');
+    if (!(Number(data.guests) >= 1)) throw bad('أدخل عدد الأشخاص');
     const busy = get("SELECT id FROM orders WHERE table_id = ? AND status = 'open'", data.table_id);
     if (busy) throw bad('الطاولة مشغولة بطلب مفتوح');
   }
-  if (type === 'delivery' && (!data.customer_phone || !data.address)) throw bad('أدخل رقم الهاتف والعنوان للتوصيل');
+  if (!name) throw bad('أدخل اسم العميل');
+  if (!phone) throw bad('أدخل رقم جوال العميل');
+  if (!PHONE_RE.test(phone)) throw bad('رقم الجوال غير صحيح');
+  if (type === 'delivery' && !String(data.address || '').trim()) throw bad('أدخل عنوان التوصيل');
+  data = { ...data, customer_name: name, customer_phone: phone };
 
   return tx(() => {
     let customerId = null;
@@ -90,13 +116,20 @@ export function createOrder(data, user) {
       }
     }
     const shift = get('SELECT id FROM shifts WHERE closed_at IS NULL ORDER BY id DESC LIMIT 1');
-    const info = run(`INSERT INTO orders(number, type, table_id, customer_id, customer_name, customer_phone, address, guests, notes, waiter_id, shift_id)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-      nextOrderNumber(), type, type === 'dine_in' ? data.table_id : null, customerId,
+    const number = nextOrderNumber();
+    const d = new Date();
+    const code = `ORD-${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(number).padStart(4, '0')}`;
+    const info = run(`INSERT INTO orders(number, code, type, table_id, customer_id, customer_name, customer_phone, address, guests, notes, waiter_id, shift_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+      number, code, type, type === 'dine_in' ? data.table_id : null, customerId,
       data.customer_name || null, data.customer_phone || null, data.address || null,
       data.guests || null, data.notes || null, user.id, shift?.id ?? null);
     const id = Number(info.lastInsertRowid);
-    if (Array.isArray(data.items)) for (const it of data.items) insertItem(id, it);
+    logEvent(id, 'created', user.id, `طلب ${TYPE_LABEL[type]} جديد`, { type, table_id: data.table_id || null, guests: data.guests || null });
+    if (Array.isArray(data.items) && data.items.length) {
+      for (const it of data.items) insertItem(id, it);
+      logEvent(id, 'items_added', user.id, `أُضيف ${data.items.reduce((a, x) => a + (Number(x.qty) || 1), 0)} صنف`);
+    }
     recalc(id);
     audit(user.id, 'order.create', 'order', id, { type });
     return id;
@@ -126,6 +159,7 @@ export function addItems(orderId, items, user) {
   if (!Array.isArray(items) || !items.length) throw bad('لا توجد أصناف');
   tx(() => {
     for (const it of items) insertItem(orderId, it);
+    logEvent(orderId, 'items_added', user.id, `أُضيف ${items.reduce((a, x) => a + (Number(x.qty) || 1), 0)} صنف`);
     recalc(orderId);
   });
   audit(user.id, 'order.add_items', 'order', orderId, { count: items.length });
@@ -143,6 +177,7 @@ export function updateItem(orderId, lineId, data, user) {
     if (sent) run("UPDATE order_items SET status = 'cancelled' WHERE id = ?", lineId);
     else run('DELETE FROM order_items WHERE id = ?', lineId);
     audit(user.id, 'order.cancel_item', 'order', orderId, { line: lineId, name: line.name, qty: line.qty, sent });
+    logEvent(orderId, 'item_cancelled', user.id, `إلغاء ${line.qty}× ${line.name}`);
   } else {
     if (sent && data.qty !== undefined && Number(data.qty) !== line.qty) throw bad('لا يمكن تعديل كمية صنف أُرسل للمطبخ، ألغِه وأضف من جديد');
     const qty = data.qty !== undefined ? Math.max(1, parseInt(data.qty, 10) || 1) : line.qty;
@@ -155,9 +190,20 @@ export function updateItem(orderId, lineId, data, user) {
 export function sendToKitchen(orderId, user) {
   const order = get('SELECT * FROM orders WHERE id = ?', orderId);
   assertOpen(order);
-  const r = run("UPDATE order_items SET status = 'new', sent_at = datetime('now','localtime') WHERE order_id = ? AND status = 'pending'", orderId);
-  audit(user.id, 'order.send', 'order', orderId, { count: Number(r.changes) });
-  return Number(r.changes);
+  const lines = all("SELECT name, qty FROM order_items WHERE order_id = ? AND status = 'pending'", orderId);
+  const r = run("UPDATE order_items SET status = 'new', sent_at = datetime('now','localtime'), sent_by = ? WHERE order_id = ? AND status = 'pending'", user.id, orderId);
+  const count = Number(r.changes);
+  audit(user.id, 'order.send', 'order', orderId, { count });
+  if (count) {
+    const qty = lines.reduce((a, l) => a + l.qty, 0);
+    logEvent(orderId, 'sent', user.id, `أُرسل ${qty} صنف للمطبخ`, { items: lines });
+    const { code, where } = orderLabel(orderId);
+    notify({
+      roles: ['kitchen'], type: 'order_new', level: 'info', link: '/kitchen',
+      title: `طلب جديد ${code}`, body: `${where} · ${qty} صنف · من ${user.name}`,
+    });
+  }
+  return count;
 }
 
 export function setDiscount(orderId, { type, value }, user) {
@@ -168,6 +214,7 @@ export function setDiscount(orderId, { type, value }, user) {
   if (type && !['amount', 'percent'].includes(type)) throw bad('نوع الخصم غير صحيح');
   run('UPDATE orders SET discount_type = ?, discount_value = ? WHERE id = ?', v ? type : null, v, orderId);
   recalc(orderId);
+  logEvent(orderId, 'discount', user.id, v ? `خصم ${type === 'percent' ? `${v}%` : v}` : 'إزالة الخصم');
   audit(user.id, 'order.discount', 'order', orderId, { type, value: v });
 }
 
@@ -182,12 +229,14 @@ export function pay(orderId, payments, user) {
 
   return tx(() => {
     let paid = order.paid;
+    const newIds = [];
     for (const p of payments) {
       const amount = round2(p.amount);
       if (!(amount > 0)) throw bad('المبلغ غير صحيح');
       if (!['cash', 'card', 'wallet'].includes(p.method)) throw bad('طريقة دفع غير صحيحة');
-      run('INSERT INTO payments(order_id, method, amount, user_id, shift_id) VALUES(?,?,?,?,?)',
+      const ins = run('INSERT INTO payments(order_id, method, amount, user_id, shift_id) VALUES(?,?,?,?,?)',
         orderId, p.method, amount, user.id, shift?.id ?? null);
+      newIds.push(Number(ins.lastInsertRowid));
       paid = round2(paid + amount);
     }
     // الباقي للعميل (الفكة) يُحسب على الدفع النقدي فقط
@@ -200,9 +249,17 @@ export function pay(orderId, payments, user) {
       paid = order.total;
     }
     run('UPDATE orders SET paid = ?, cashier_id = ? WHERE id = ?', paid, user.id, orderId);
+    // تسجيل الدفعات بمبالغها الفعلية (بعد خصم الباقي للعميل)
+    for (const pid of newIds) {
+      const pr = get('SELECT method, amount FROM payments WHERE id = ?', pid);
+      logEvent(orderId, 'payment', user.id, null, { method: pr.method, amount: pr.amount });
+    }
 
     const closed = paid >= order.total;
-    if (closed) closeOrder(orderId, user);
+    if (closed) {
+      closeOrder(orderId, user);
+      logEvent(orderId, 'paid', user.id, change ? `تم السداد · الباقي للعميل ${change}` : 'تم السداد وإغلاق الطلب', { total: order.total, change });
+    }
     audit(user.id, 'order.pay', 'order', orderId, { payments, change });
     return { change, closed };
   });
@@ -220,6 +277,11 @@ function closeOrder(orderId, user) {
     WHERE oi.order_id = ? AND oi.status != 'cancelled'
     GROUP BY r.ingredient_id`, orderId);
   for (const u of usage) {
+    const ing = get('SELECT name, unit, stock, min_stock FROM ingredients WHERE id = ?', u.ingredient_id);
+    if (ing && ing.stock > ing.min_stock && ing.stock - u.used <= ing.min_stock) {
+      notify({ roles: ['manager', 'admin'], type: 'low_stock', level: 'warning', link: '/inventory',
+        title: `مخزون منخفض: ${ing.name}`, body: `المتبقي ${+(ing.stock - u.used).toFixed(2)} ${ing.unit} (الحد الأدنى ${ing.min_stock})` });
+    }
     run('UPDATE ingredients SET stock = stock - ? WHERE id = ?', u.used, u.ingredient_id);
     run("INSERT INTO stock_movements(ingredient_id, qty, type, order_id, user_id) VALUES(?,?, 'sale', ?, ?)",
       u.ingredient_id, -u.used, orderId, user.id);
@@ -239,6 +301,7 @@ export function cancelOrder(orderId, reason, user) {
   run("UPDATE orders SET status = 'cancelled', cancel_reason = ?, closed_at = datetime('now','localtime') WHERE id = ?", reason || null, orderId);
   run("UPDATE order_items SET status = 'cancelled' WHERE order_id = ? AND status NOT IN ('served')", orderId);
   audit(user.id, 'order.cancel', 'order', orderId, { reason });
+  logEvent(orderId, 'cancelled', user.id, reason ? `إلغاء الطلب: ${reason}` : 'إلغاء الطلب');
 }
 
 export function moveTable(orderId, tableId, user) {
@@ -249,4 +312,32 @@ export function moveTable(orderId, tableId, user) {
   if (busy) throw bad('الطاولة الجديدة مشغولة');
   run('UPDATE orders SET table_id = ? WHERE id = ?', tableId, orderId);
   audit(user.id, 'order.move_table', 'order', orderId, { from: order.table_id, to: tableId });
+  const names = all('SELECT id, name FROM dining_tables WHERE id IN (?, ?)', order.table_id, tableId);
+  const nm = (id) => names.find((t) => t.id === id)?.name;
+  logEvent(orderId, 'moved', user.id, `نقل من ${nm(order.table_id)} إلى ${nm(tableId)}`);
+}
+
+/**
+ * بعد تغيير حالة أصناف في المطبخ: يسجّل الخطوة، وإذا أصبح الطلب كله جاهزاً يُشعر النادل/الكاشير
+ * @param {'preparing'|'ready'|'served'} status
+ */
+export function kitchenProgress(orderId, status, user, changed) {
+  if (!changed) return;
+  const msg = { preparing: 'بدأ التحضير في المطبخ', ready: 'أصناف جاهزة', served: 'تم تقديم الطلب' }[status];
+  const pending = get("SELECT COUNT(*) AS c FROM order_items WHERE order_id = ? AND status IN ('new','preparing')", orderId).c;
+  if (status === 'ready' && pending === 0) {
+    logEvent(orderId, 'ready', user.id, 'الطلب جاهز للتقديم');
+    const o = get('SELECT waiter_id, type FROM orders WHERE id = ?', orderId);
+    const { code, where } = orderLabel(orderId);
+    notify({
+      userIds: [o.waiter_id], roles: o.type === 'dine_in' ? [] : ['cashier'],
+      type: 'order_ready', level: 'success', link: `/pos/${orderId}`,
+      title: `الطلب ${code} جاهز`, body: `${where} · جهّزه ${user.name}`,
+    });
+  } else if (status === 'preparing') {
+    const already = get("SELECT id FROM order_events WHERE order_id = ? AND type = 'preparing' AND id > COALESCE((SELECT MAX(id) FROM order_events WHERE order_id = ? AND type = 'sent'), 0)", orderId, orderId);
+    if (!already) logEvent(orderId, 'preparing', user.id, msg);
+  } else if (status === 'served') {
+    logEvent(orderId, 'served', user.id, msg);
+  }
 }

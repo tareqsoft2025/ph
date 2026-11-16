@@ -2,6 +2,7 @@
 import { get, all, run, getSettings, audit } from './db.js';
 import { allow } from './auth.js';
 import { bad, notFound, pick, updateSql, round2, today } from './util.js';
+import { notify } from './notify.js';
 
 const p2 = (n) => String(n).padStart(2, '0');
 const fmtDate = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
@@ -368,6 +369,10 @@ export function hrRoutes(r, changed) {
       VALUES(?,?,?,?,?,?,?,?,?,?)`, emp.id, b.type, b.start_date, b.end_date, days, b.reason || null,
     autoApprove ? 'approved' : 'pending', autoApprove ? req.user.id : null, autoApprove ? nowStamp() : null, req.user.id);
     audit(req.user.id, 'leave.request', 'employee', emp.id, { type: b.type, days });
+    if (!autoApprove) {
+      notify({ roles: ['manager', 'admin'], exclude: req.user.id, type: 'leave_request', level: 'info', link: '/leaves',
+        title: `طلب إجازة من ${emp.name}`, body: `${days} ${days === 1 ? 'يوم' : 'أيام'} · من ${b.start_date} إلى ${b.end_date}` });
+    }
     changed('hr', 'attendance');
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
@@ -379,6 +384,11 @@ export function hrRoutes(r, changed) {
     if (!['approved', 'rejected', 'pending'].includes(status)) throw bad('الحالة غير صحيحة');
     run('UPDATE leaves SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?', status, req.user.id, nowStamp(), l.id);
     audit(req.user.id, `leave.${status}`, 'employee', l.employee_id, { leave: l.id });
+    const emp = get('SELECT user_id FROM employees WHERE id = ?', l.employee_id);
+    if (emp?.user_id && status !== 'pending') {
+      notify({ userIds: [emp.user_id], type: 'leave_decided', level: status === 'approved' ? 'success' : 'warning', link: '/leaves',
+        title: status === 'approved' ? 'تم اعتماد إجازتك' : 'تم رفض طلب إجازتك', body: `${l.days} ${l.days === 1 ? 'يوم' : 'أيام'} · من ${l.start_date} إلى ${l.end_date}` });
+    }
     changed('hr', 'attendance');
     res.json({ ok: true });
   });

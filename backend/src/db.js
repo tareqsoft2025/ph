@@ -2,6 +2,16 @@ import { db } from './driver.js';
 
 export { db };
 
+/** ترقية قواعد البيانات القديمة (إضافة الأعمدة الجديدة) */
+function migrate() {
+  const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+  if (!cols('orders').includes('code')) db.exec('ALTER TABLE orders ADD COLUMN code TEXT');
+  if (!cols('order_items').includes('sent_by')) db.exec('ALTER TABLE order_items ADD COLUMN sent_by INTEGER');
+  db.exec(`UPDATE orders SET code = 'ORD-' || substr(replace(date(created_at), '-', ''), 3) || '-' || printf('%04d', number) WHERE code IS NULL`);
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_code ON orders(code)');
+}
+migrate();
+
 /** صف واحد */
 export const get = (sql, ...params) => db.prepare(sql).get(...params);
 /** كل الصفوف */

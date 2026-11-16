@@ -8,6 +8,7 @@ import {
   api, connectSocket, disconnectSocket, getToken, setToken, needsServerUrl, setUnauthorizedHandler, getServerUrl,
 } from './api.js';
 import { AppContext, ROLE_LABELS, can, Loading } from './lib.jsx';
+import { NotificationsProvider, NotificationBell } from './notifications.jsx';
 import Login from './pages/Login.jsx';
 import ServerSetup from './pages/ServerSetup.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -110,7 +111,8 @@ export default function App() {
 
   return (
     <AppContext.Provider value={{ user, settings, setSettings, logout }}>
-      <div className={`shell ${menuOpen ? 'menu-open' : ''}`}>
+      <NotificationsProvider user={user}>
+      <div className={`shell ${menuOpen ? 'menu-open' : ''} ${location.pathname.startsWith('/kitchen') ? 'route-kitchen' : ''}`}>
         <aside className="sidebar" aria-label="القائمة الرئيسية">
           <div className="brand">
             <span className="brand-mark" aria-hidden><UtensilsCrossed size={20} strokeWidth={2.2} /></span>
@@ -150,8 +152,9 @@ export default function App() {
             </div>
             <span className={`conn ${online ? 'on' : 'off'}`} title={getServerUrl() || 'الخادم'}>
               {online ? <Wifi size={14} /> : <WifiOff size={14} />}
-              {online ? 'متصل' : 'غير متصل'}
+              <span className="conn-label">{online ? 'متصل' : 'غير متصل'}</span>
             </span>
+            <NotificationBell />
           </header>
           <div className="content">
             <Routes>
@@ -179,6 +182,7 @@ export default function App() {
           </div>
         </main>
       </div>
+      </NotificationsProvider>
     </AppContext.Provider>
   );
 }
