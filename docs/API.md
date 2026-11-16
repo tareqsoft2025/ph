@@ -61,6 +61,23 @@ Authorization: Bearer <token>
 | GET | `/customers?q=` | مسجّل | العملاء ونقاطهم |
 | GET | `/reports/summary?from=&to=` | manager | ملخص التقارير |
 | GET | `/audit` | admin | سجل التدقيق |
+| GET | `/employees?status=active\|terminated\|all` | manager | الموظفون مع حالة اليوم وتنبيهات المستندات |
+| GET | `/employees/:id?month=YYYY-MM` | manager | ملف الموظف: المستندات، الحضور، الإجازات، الملخص الشهري |
+| POST/PUT | `/employees[/:id]` | manager | إضافة وتعديل موظف |
+| POST | `/employees/:id/status` | manager | `{status: active\|terminated}` |
+| POST | `/employees/:id/documents` | manager | `{title, doc_type, number, expiry_date, file_name, file_type, file_data}` (data URL حتى 2.5MB) |
+| GET | `/documents/:id/file` | manager | محتوى الملف المرفق |
+| DELETE | `/documents/:id` | manager | حذف مستند |
+| GET | `/hr/alerts` | manager | المستندات والعقود القريبة من الانتهاء، وطلبات الإجازة المعلّقة |
+| GET | `/attendance/me` | مسجّل | حضوري اليوم وملخص الشهر |
+| POST | `/attendance/check-in` و `/attendance/check-out` | مسجّل (مرتبط بموظف) | تسجيل الحضور والانصراف |
+| GET | `/attendance?date=` | manager | الكشف اليومي |
+| POST | `/attendance` | manager | تسجيل يدوي `{employee_id, date, status, check_in, check_out, note}` |
+| GET | `/attendance/summary?month=` | manager | الملخص الشهري لكل الموظفين |
+| GET/POST | `/leaves` | مسجّل | الموظف يرى طلباته ويطلب، والمدير يرى الكل ويضيف |
+| PATCH | `/leaves/:id` | manager | `{status: approved\|rejected}` |
+| GET | `/payroll?month=` | manager | مسير الرواتب |
+| POST/DELETE | `/payroll/adjustments[/:id]` | manager | `{employee_id, month, type: bonus\|deduction\|advance, amount, note}` |
 
 ### مثال: إنشاء طلب صالة وإرساله للمطبخ
 
@@ -91,6 +108,8 @@ POST /api/orders
 | `shift` | فتح وردية أو إغلاقها |
 | `reservations` | تعديل الحجوزات |
 | `settings` | تعديل الإعدادات |
+| `hr` | تعديل الموظفين أو المستندات أو الإجازات أو الرواتب |
+| `attendance` | تسجيل حضور أو انصراف |
 
 ## حساب الفاتورة
 

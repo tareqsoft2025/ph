@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
-  UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff,
+  UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, IdCard, Fingerprint, CalendarOff, Banknote, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff,
 } from 'lucide-react';
 import {
   api, connectSocket, disconnectSocket, getToken, setToken, needsServerUrl, setUnauthorizedHandler, getServerUrl,
@@ -23,6 +23,11 @@ import Reports from './pages/Reports.jsx';
 import Users from './pages/Users.jsx';
 import Customers from './pages/Customers.jsx';
 import Settings from './pages/Settings.jsx';
+import Employees from './pages/Employees.jsx';
+import EmployeeProfile from './pages/EmployeeProfile.jsx';
+import Attendance from './pages/Attendance.jsx';
+import Leaves from './pages/Leaves.jsx';
+import Payroll from './pages/Payroll.jsx';
 
 // عناصر القائمة الجانبية مع الأدوار المسموح لها، مجمّعة في أقسام
 const NAV = [
@@ -34,6 +39,12 @@ const NAV = [
     { to: '/kitchen', label: 'شاشة المطبخ', icon: ChefHat, roles: ['kitchen', 'manager'] },
     { to: '/reservations', label: 'الحجوزات', icon: CalendarDays, roles: ['cashier', 'waiter', 'manager'] },
     { to: '/shifts', label: 'الورديات', icon: Wallet, roles: ['cashier', 'manager'] },
+  ] },
+  { group: 'الموارد البشرية', items: [
+    { to: '/attendance', label: 'الحضور والانصراف', icon: Fingerprint, roles: ['cashier', 'waiter', 'kitchen', 'manager'] },
+    { to: '/leaves', label: 'الإجازات', icon: CalendarOff, roles: ['cashier', 'waiter', 'kitchen', 'manager'] },
+    { to: '/employees', label: 'الموظفون', icon: IdCard, roles: ['manager'] },
+    { to: '/payroll', label: 'الرواتب', icon: Banknote, roles: ['manager'] },
   ] },
   { group: 'الإدارة', items: [
     { to: '/menu', label: 'قائمة الطعام', icon: UtensilsCrossed, roles: ['manager'] },
@@ -158,6 +169,11 @@ export default function App() {
               <Route path="/reports" element={<Reports />} />
               <Route path="/users" element={<Users />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/employees" element={<Employees />} />
+              <Route path="/employees/:id" element={<EmployeeProfile />} />
+              <Route path="/attendance" element={<Attendance />} />
+              <Route path="/leaves" element={<Leaves />} />
+              <Route path="/payroll" element={<Payroll />} />
               <Route path="*" element={<Navigate to={home} replace />} />
             </Routes>
           </div>

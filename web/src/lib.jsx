@@ -11,6 +11,26 @@ export const ROLE_LABELS = {
 export const ORDER_TYPES = { dine_in: 'صالة', takeaway: 'سفري', delivery: 'توصيل' };
 export const PAY_METHODS = { cash: 'نقدي', card: 'بطاقة', wallet: 'محفظة' };
 export const STATIONS = { kitchen: 'المطبخ', grill: 'المشويات', drinks: 'المشروبات', dessert: 'الحلويات' };
+export const LEAVE_TYPES = { annual: 'سنوية', sick: 'مرضية', unpaid: 'بدون راتب', emergency: 'اضطرارية' };
+export const LEAVE_STATUS = { pending: 'قيد المراجعة', approved: 'معتمدة', rejected: 'مرفوضة' };
+export const DOC_TYPES = { id: 'هوية / إقامة', passport: 'جواز سفر', health: 'شهادة صحية', contract: 'عقد عمل', license: 'رخصة', other: 'أخرى' };
+export const WEEKDAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+export const ADJ_TYPES = { bonus: 'مكافأة', deduction: 'خصم', advance: 'سلفة' };
+
+/** دقائق ← "س:د" */
+export const hm = (min) => {
+  const m = Math.max(0, Math.round(Number(min) || 0));
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+};
+export const monthStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+/** الأيام المتبقية حتى تاريخ (سالب = انتهى) */
+export const daysUntil = (date) => {
+  if (!date) return null;
+  const [y, m, d] = date.split('-').map(Number);
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  return Math.round((new Date(y, m - 1, d) - t) / 864e5);
+};
+
 export const ITEM_STATUS = {
   pending: 'لم يُرسل', new: 'جديد', preparing: 'قيد التحضير', ready: 'جاهز', served: 'تم التقديم', cancelled: 'ملغى',
 };

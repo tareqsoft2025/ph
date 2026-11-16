@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useData, useMoney, Loading, PageHead, Empty, todayStr } from '../lib.jsx';
 import { Stat, Bars } from './Reports.jsx';
-import { TriangleAlert, CircleCheck, Plus } from 'lucide-react';
+import { TriangleAlert, CircleCheck, Plus, Fingerprint, CalendarOff, FileWarning } from 'lucide-react';
 
 export default function Dashboard() {
   const money = useMoney();
@@ -10,6 +10,8 @@ export default function Dashboard() {
   const tables = useData('/tables', ['tables']);
   const open = useData('/orders?status=open', ['orders']);
   const shift = useData('/shifts/current', ['shift']);
+  const att = useData('/attendance', ['attendance', 'hr']);
+  const hr = useData('/hr/alerts', ['hr']);
 
   if (rep.loading) return <Loading />;
   const t = rep.data?.totals || {};
@@ -35,6 +37,20 @@ export default function Dashboard() {
         <section className="card">
           <h3>الأكثر مبيعاً اليوم</h3>
           {rep.data?.topItems.length ? <Bars rows={rep.data.topItems.slice(0, 6)} label="name" value="qty" /> : <Empty text="لا مبيعات بعد" />}
+        </section>
+        <section className="card">
+          <h3>الفريق اليوم</h3>
+          {att.data ? (
+            <ul className="simple-list">
+              <li><span className="meta-line"><Fingerprint size={15} aria-hidden /> حاضرون</span><strong>{att.data.totals.in} / {att.data.rows.length}</strong></li>
+              <li><span className="meta-line"><TriangleAlert size={15} aria-hidden /> متأخرون</span><strong className={att.data.totals.late ? 'text-warn' : ''}>{att.data.totals.late}</strong></li>
+              <li><span className="meta-line"><CalendarOff size={15} aria-hidden /> في إجازة</span><strong>{att.data.totals.leave}</strong></li>
+              {hr.data?.pending_leaves > 0 && <li><Link to="/leaves">طلبات إجازة بانتظار الاعتماد</Link><span className="badge badge-warn">{hr.data.pending_leaves}</span></li>}
+              {hr.data && hr.data.docs.length + hr.data.contracts.length > 0 && (
+                <li><Link to="/employees" className="meta-line"><FileWarning size={15} aria-hidden /> مستندات وعقود تحتاج تجديد</Link><span className="badge badge-err">{hr.data.docs.length + hr.data.contracts.length}</span></li>
+              )}
+            </ul>
+          ) : <Loading />}
         </section>
         <section className="card">
           <h3>تنبيهات المخزون</h3>

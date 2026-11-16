@@ -40,6 +40,14 @@ export default function Settings() {
           </div>
           <label className="switch"><input type="checkbox" checked={f.tax_inclusive === '1'} onChange={set('tax_inclusive')} /> الأسعار شاملة الضريبة</label>
         </section>
+        <section className="card">
+          <h3>الموارد البشرية</h3>
+          <div className="grid-2">
+            <Field label="سماحية التأخير (دقيقة)" hint="لا يُحتسب التأخير إذا كان ضمن هذه المدة"><input type="number" min="0" value={f.late_grace_minutes} onChange={set('late_grace_minutes')} /></Field>
+            <Field label="التنبيه قبل انتهاء المستندات (يوم)"><input type="number" min="1" value={f.doc_alert_days} onChange={set('doc_alert_days')} /></Field>
+          </div>
+          <label className="switch"><input type="checkbox" checked={f.late_deduction === '1'} onChange={set('late_deduction')} /> خصم دقائق التأخير من الراتب</label>
+        </section>
         <TablesSettings />
         {isNative && (
           <section className="card">
