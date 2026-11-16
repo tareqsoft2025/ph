@@ -3,6 +3,9 @@ import { Capacitor } from '@capacitor/core';
 
 // في تطبيق الأندرويد يجب تحديد عنوان الخادم، وفي المتصفح نستخدم نفس العنوان
 export const isNative = Capacitor.isNativePlatform();
+// النسخة التجريبية: الخادم كاملاً يعمل داخل المتصفح (vite build --mode demo)
+export const isDemo = import.meta.env.MODE === 'demo';
+const demo = isDemo ? import('./demo/server.js') : null;
 
 const safe = (fn, fallback = null) => {
   try { return fn(); } catch { return fallback; }
@@ -19,15 +22,24 @@ export function setServerUrl(url) {
   safe(() => (u ? localStorage.setItem('serverUrl', u) : localStorage.removeItem('serverUrl')));
   return u;
 }
-export const needsServerUrl = () => isNative && !getServerUrl();
+export const needsServerUrl = () => !isDemo && isNative && !getServerUrl();
 
-export const getToken = () => safe(() => localStorage.getItem('token'));
-export const setToken = (t) => safe(() => (t ? localStorage.setItem('token', t) : localStorage.removeItem('token')));
+// في النسخة التجريبية تُحفظ الجلسة لكل تبويب على حدة، ليعمل الكاشير والمطبخ في تبويبين معاً
+const tokenStore = () => (isDemo ? sessionStorage : localStorage);
+export const getToken = () => safe(() => tokenStore().getItem('token'));
+export const setToken = (t) => safe(() => (t ? tokenStore().setItem('token', t) : tokenStore().removeItem('token')));
 
 let onUnauthorized = () => {};
 export const setUnauthorizedHandler = (fn) => { onUnauthorized = fn; };
 
 export async function api(path, { method = 'GET', body, timeout = 15000 } = {}) {
+  if (isDemo) {
+    const { handle } = await demo;
+    const { status, data } = await handle(method, path, body, getToken());
+    if (status === 401 && path !== '/auth/login') onUnauthorized();
+    if (status >= 400) throw new Error(data?.error || `خطأ ${status}`);
+    return data;
+  }
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
   let res;
@@ -58,7 +70,30 @@ export async function testServer(url) {
 }
 
 let socket = null;
+
+// غلاف متزامن لناقل الأحداث التجريبي (يُحمَّل بشكل غير متزامن)
+const pending = [];
+let demoBus = null;
+const demoSocket = {
+  on(e, fn) { demoBus ? demoBus.on(e, fn) : pending.push(['on', e, fn]); return demoSocket; },
+  off(e, fn) { demoBus ? demoBus.off(e, fn) : pending.push(['off', e, fn]); return demoSocket; },
+  disconnect() {},
+};
+demo?.then(({ bus }) => {
+  demoBus = bus;
+  for (const [m, e, fn] of pending.splice(0)) bus[m](e, fn);
+});
+
+export async function resetDemoData() {
+  const { resetDemo } = await demo;
+  resetDemo();
+}
 export function connectSocket() {
+  if (isDemo) {
+    // يُستبدل لاحقاً بناقل الأحداث المحلي بعد تحميل الخادم التجريبي
+    socket = demoSocket;
+    return socket;
+  }
   if (socket) socket.disconnect();
   socket = io(getServerUrl() || undefined, { auth: { token: getToken() }, transports: ['websocket', 'polling'] });
   return socket;

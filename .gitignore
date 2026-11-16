@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-demo/
 *.db
 *.db-journal
 *.db-wal
