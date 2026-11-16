@@ -292,7 +292,7 @@ function closeOrder(orderId, user) {
   for (const u of usage) {
     const ing = get('SELECT name, unit, stock, min_stock FROM ingredients WHERE id = ?', u.ingredient_id);
     if (ing && ing.stock > ing.min_stock && ing.stock - u.used <= ing.min_stock) {
-      notify({ perms: ['inventory.manage'], type: 'low_stock', level: 'warning', link: '/inventory',
+      notify({ perms: ['inventory.manage'], roles: ['admin'], type: 'low_stock', level: 'warning', link: '/inventory',
         title: `مخزون منخفض: ${ing.name}`, body: `المتبقي ${+(ing.stock - u.used).toFixed(2)} ${ing.unit} (الحد الأدنى ${ing.min_stock})` });
     }
     run('UPDATE ingredients SET stock = stock - ? WHERE id = ?', u.used, u.ingredient_id);

@@ -57,13 +57,18 @@ test('attendance: self check-in/out, double check-in blocked, daily sheet and ma
   const cashier = await login('cashier', '1234');
   const me = (await api('/attendance/me', { token: cashier })).data;
   assert.ok(me.employee, 'cashier is linked to an employee');
-  const ci = await api('/attendance/check-in', { method: 'POST', token: cashier });
+  await api(`/employees/${me.employee.id}`, { method: 'PUT', token: admin, body: { early_checkin_minutes: 1440 } });
+  const punch = async (path, token) => {
+    const { nonce } = (await api('/attendance/challenge', { method: 'POST', token })).data;
+    return api(path, { method: 'POST', token, body: { nonce, device_id: 'device-cashier-0000000001', platform: 'android' } });
+  };
+  const ci = await punch('/attendance/check-in', cashier);
   assert.equal(ci.status, 200, JSON.stringify(ci.data));
-  assert.equal((await api('/attendance/check-in', { method: 'POST', token: cashier })).status, 400);
-  const co = await api('/attendance/check-out', { method: 'POST', token: cashier });
-  assert.equal(co.status, 200);
+  assert.equal((await punch('/attendance/check-in', cashier)).status, 400);
+  const co = await punch('/attendance/check-out', cashier);
+  assert.equal(co.status, 200, JSON.stringify(co.data));
   // admin has no employee file
-  assert.equal((await api('/attendance/check-in', { method: 'POST', token: admin })).status, 400);
+  assert.equal((await punch('/attendance/check-in', admin)).status, 400);
 
   const sheet = (await api('/attendance', { token: admin })).data;
   const row = sheet.rows.find((r) => r.employee_id === me.employee.id);

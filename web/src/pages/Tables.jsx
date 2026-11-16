@@ -1,10 +1,13 @@
 import { useNavigate } from 'react-router-dom';
-import { useData, useMoney, useNow, minutesSince, Loading, Empty, PageHead } from '../lib.jsx';
+import { ShoppingBag, Bike } from 'lucide-react';
+import { useApp, useData, useMoney, useNow, has, minutesSince, Loading, Empty, PageHead } from '../lib.jsx';
 import { UserRound, Clock, CalendarDays } from 'lucide-react';
 
 export default function Tables() {
   const navigate = useNavigate();
   const money = useMoney();
+  const { user } = useApp();
+  const canCreate = has(user, 'pos.create');
   const { data, loading } = useData('/tables', ['tables', 'orders']);
   useNow();
 
@@ -21,6 +24,8 @@ export default function Tables() {
         <span className="legend"><i className="dot free" /> فارغة {counts.free}</span>
         <span className="legend"><i className="dot occupied" /> مشغولة {counts.occupied}</span>
         <span className="legend"><i className="dot reserved" /> محجوزة {counts.reserved}</span>
+        {canCreate && <button className="btn" onClick={() => navigate('/pos?type=takeaway')}><ShoppingBag size={17} /> طلب سفري</button>}
+        {canCreate && <button className="btn" onClick={() => navigate('/pos?type=delivery')}><Bike size={17} /> طلب توصيل</button>}
       </PageHead>
       {areas.map((area) => (
         <section key={area} className="area">

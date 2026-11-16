@@ -6,6 +6,7 @@ import { need, hasPerm, PERMISSIONS, ROLES_EDITABLE, DEFAULTS, rolePerms, setRol
 import { bad, notFound, pick, updateSql, normalize, round2, today } from './util.js';
 import * as Orders from './orders.js';
 import { hrRoutes } from './hr.js';
+import { attendanceRoutes } from './attendance.js';
 import { setNotifyEmitter, notify, pushEnabled } from './notify.js';
 
 /**
@@ -562,6 +563,7 @@ export function buildRouter(emit) {
 
   // ───────────── الموارد البشرية ─────────────
   hrRoutes(r, changed);
+  attendanceRoutes(r, changed);
 
   // ───────────── الإشعارات ─────────────
   r.get('/notifications', (req, res) => {

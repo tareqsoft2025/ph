@@ -4,37 +4,51 @@ import { need, hasPerm } from './perms.js';
 import { bad, notFound, pick, updateSql, round2, today } from './util.js';
 import { notify } from './notify.js';
 
-const p2 = (n) => String(n).padStart(2, '0');
-const fmtDate = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
-const nowStamp = () => { const d = new Date(); return `${fmtDate(d)} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`; };
-const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
-const toMin = (hhmm) => { const [h, m] = String(hhmm).split(':').map(Number); return (h || 0) * 60 + (m || 0); };
-const stampMin = (ts) => toMin(String(ts).slice(11, 16));
-const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+export const p2 = (n) => String(n).padStart(2, '0');
+export const fmtDate = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+export const nowStamp = () => { const d = new Date(); return `${fmtDate(d)} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`; };
+export const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+export const toMin = (hhmm) => { const [h, m] = String(hhmm).split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+export const stampMin = (ts) => toMin(String(ts).slice(11, 16));
+export const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
 const isMonth = (s) => /^\d{4}-\d{2}$/.test(String(s || ''));
-const offDays = (emp) => String(emp.weekly_off ?? '').split(',').filter((x) => x !== '').map(Number);
+export const offDays = (emp) => String(emp.weekly_off ?? '').split(',').filter((x) => x !== '').map(Number);
 
-/** كل أيام الشهر حتى اليوم (لا نحسب الأيام المستقبلية) */
-function monthDays(month) {
-  const [y, m] = month.split('-').map(Number);
-  const last = new Date(y, m, 0).getDate();
+/** الأيام بين تاريخين (شاملة) حتى اليوم فقط */
+export function rangeDays(from, to) {
   const t = today();
+  const end = to < t ? to : t;
   const out = [];
-  for (let d = 1; d <= last; d++) {
-    const ds = `${month}-${p2(d)}`;
-    if (ds > t) break;
-    out.push(ds);
-  }
+  for (let d = parseDate(from); fmtDate(d) <= end; d.setDate(d.getDate() + 1)) out.push(fmtDate(d));
   return out;
 }
 
-function lateMinutes(emp, checkIn) {
-  const grace = Number(getSettings().late_grace_minutes) || 0;
+const monthRange = (month) => {
+  const [y, m] = month.split('-').map(Number);
+  return [`${month}-01`, `${month}-${p2(new Date(y, m, 0).getDate())}`];
+};
+
+/** سماحية التأخير: إعداد الموظف أو الإعداد العام */
+export const graceOf = (emp) => (emp.grace_minutes ?? null) !== null ? Number(emp.grace_minutes) : Number(getSettings().late_grace_minutes) || 0;
+
+/** دقائق التأخير عن بداية الدوام (إذا تجاوزت السماحية) */
+export function lateMinutes(emp, checkIn) {
   const diff = stampMin(checkIn) - toMin(emp.work_start);
-  return diff > grace ? diff : 0;
+  return diff > graceOf(emp) ? diff : 0;
 }
 
-function workedMinutes(checkIn, checkOut) {
+/** نهاية الدوام كدقائق من بداية يوم الحضور (تدعم الدوام الممتد بعد منتصف الليل) */
+const shiftEndAbs = (emp) => (toMin(emp.work_end) <= toMin(emp.work_start) ? toMin(emp.work_end) + 1440 : toMin(emp.work_end));
+const absMin = (ts, baseDate) => stampMin(ts) + (String(ts).slice(0, 10) > baseDate ? 1440 : 0);
+
+/** الانصراف المبكر والعمل الإضافي (بالدقائق) */
+export function leaveStats(emp, date, checkOut) {
+  if (!checkOut) return { early: 0, overtime: 0 };
+  const diff = absMin(checkOut, date) - shiftEndAbs(emp);
+  return { early: diff < 0 ? -diff : 0, overtime: diff > 15 ? diff : 0 };
+}
+
+export function workedMinutes(checkIn, checkOut) {
   if (!checkIn || !checkOut) return 0;
   let m = stampMin(checkOut) - stampMin(checkIn);
   if (String(checkOut).slice(0, 10) > String(checkIn).slice(0, 10)) m += 24 * 60; // وردية تمتد بعد منتصف الليل
@@ -45,7 +59,8 @@ const LEAVE_TYPES = ['annual', 'sick', 'unpaid', 'emergency'];
 const DOC_TYPES = ['id', 'passport', 'health', 'contract', 'license', 'other'];
 const EMP_FIELDS = ['user_id', 'name', 'job_title', 'department', 'phone', 'email', 'national_id', 'nationality', 'birth_date',
   'address', 'hire_date', 'contract_end', 'basic_salary', 'allowances', 'work_start', 'work_end', 'weekly_off',
-  'annual_leave_days', 'emergency_contact', 'bank_iban', 'notes'];
+  'annual_leave_days', 'emergency_contact', 'bank_iban', 'notes',
+  'grace_minutes', 'location_mode', 'location_ids', 'device_binding', 'early_checkin_minutes'];
 const MAX_FILE = 2.5 * 1024 * 1024;
 
 function employeeOf(user) {
@@ -60,13 +75,19 @@ function requireEmployee(id) {
 
 /** ملخص شهر لموظف: حضور، غياب، تأخير، ساعات، إجازات */
 export function monthSummary(emp, month) {
-  const days = monthDays(month);
-  const recs = Object.fromEntries(all('SELECT * FROM attendance WHERE employee_id = ? AND date LIKE ?', emp.id, `${month}-%`).map((r) => [r.date, r]));
+  const [from, to] = monthRange(month);
+  return rangeSummary(emp, from, to);
+}
+
+/** ملخص فترة لموظف */
+export function rangeSummary(emp, from, to) {
+  const days = rangeDays(from, to);
+  const recs = Object.fromEntries(all('SELECT * FROM attendance WHERE employee_id = ? AND date BETWEEN ? AND ?', emp.id, from, to).map((r) => [r.date, r]));
   const leaves = all("SELECT * FROM leaves WHERE employee_id = ? AND status = 'approved' AND start_date <= ? AND end_date >= ?",
-    emp.id, `${month}-31`, `${month}-01`);
+    emp.id, to, from);
   const leaveType = (d) => leaves.find((l) => l.start_date <= d && l.end_date >= d)?.type;
   const off = offDays(emp);
-  const s = { working_days: 0, present: 0, absent: 0, leave: 0, unpaid_leave: 0, late_days: 0, late_minutes: 0, worked_minutes: 0 };
+  const s = { working_days: 0, present: 0, absent: 0, leave: 0, unpaid_leave: 0, late_days: 0, late_minutes: 0, worked_minutes: 0, early_leave_days: 0, early_leave_minutes: 0, overtime_minutes: 0, flagged: 0, absent_dates: [] };
   for (const d of days) {
     if (emp.hire_date && d < emp.hire_date) continue;
     const isOff = off.includes(parseDate(d).getDay());
@@ -76,6 +97,10 @@ export function monthSummary(emp, month) {
       s.late_minutes += r.late_minutes;
       if (r.late_minutes > 0) s.late_days++;
       s.worked_minutes += r.worked_minutes;
+      s.early_leave_minutes += r.early_leave_minutes || 0;
+      if (r.early_leave_minutes > 0) s.early_leave_days++;
+      s.overtime_minutes += r.overtime_minutes || 0;
+      if (r.flags && r.flags !== '[]') s.flagged++;
       if (!isOff) s.working_days++;
       continue;
     }
@@ -85,7 +110,9 @@ export function monthSummary(emp, month) {
     if (lt) { s.leave++; if (lt === 'unpaid') s.unpaid_leave++; continue; }
     if (d === today() && !r) continue; // اليوم لم ينتهِ بعد
     s.absent++;
+    s.absent_dates.push(d);
   }
+  s.rate = s.working_days ? Math.round((s.present / s.working_days) * 100) : 100;
   return s;
 }
 
@@ -136,6 +163,7 @@ export function hrRoutes(r, changed) {
     const e = requireEmployee(Number(req.params.id));
     const u = e.user_id ? get('SELECT username, role FROM users WHERE id = ?', e.user_id) : null;
     e.username = u?.username; e.user_role = u?.role;
+    e.work_locations = all('SELECT id, name FROM work_locations WHERE active = 1 ORDER BY id');
     e.documents = all('SELECT id, doc_type, title, number, expiry_date, file_name, file_type, file_size, created_at FROM employee_documents WHERE employee_id = ? ORDER BY expiry_date IS NULL, expiry_date', e.id);
     e.leaves = all('SELECT * FROM leaves WHERE employee_id = ? ORDER BY start_date DESC LIMIT 50', e.id);
     const month = isMonth(req.query.month) ? req.query.month : today().slice(0, 7);
@@ -152,6 +180,11 @@ export function hrRoutes(r, changed) {
     if ('user_id' in f) f.user_id = f.user_id ? Number(f.user_id) : null;
     for (const k of ['birth_date', 'hire_date', 'contract_end']) if (k in f && f[k] && !isDate(f[k])) throw bad('صيغة التاريخ غير صحيحة');
     for (const k of ['work_start', 'work_end']) if (k in f && !/^\d{2}:\d{2}$/.test(f[k])) throw bad('صيغة الوقت غير صحيحة');
+    if ('grace_minutes' in f) f.grace_minutes = f.grace_minutes === '' || f.grace_minutes === null ? null : Math.max(0, Number(f.grace_minutes) || 0);
+    if ('location_mode' in f && !['geo', 'anywhere'].includes(f.location_mode)) f.location_mode = 'geo';
+    if ('location_ids' in f) f.location_ids = Array.isArray(f.location_ids) && f.location_ids.length ? JSON.stringify(f.location_ids.map(Number)) : null;
+    if ('device_binding' in f) f.device_binding = f.device_binding ? 1 : 0;
+    if ('early_checkin_minutes' in f) f.early_checkin_minutes = Math.max(0, Number(f.early_checkin_minutes) || 0);
     if ('weekly_off' in f) f.weekly_off = Array.isArray(f.weekly_off) ? f.weekly_off.join(',') : String(f.weekly_off ?? '');
     if (f.user_id && get('SELECT id FROM employees WHERE user_id = ? AND id != ?', f.user_id, Number(body.id) || 0)) {
       throw bad('حساب الدخول مرتبط بموظف آخر');
@@ -237,52 +270,15 @@ export function hrRoutes(r, changed) {
     res.json({ today: today(), docs, contracts, pending_leaves: pendingLeaves });
   });
 
-  // ───── الحضور والانصراف ─────
-  r.get('/attendance/me', (req, res) => {
-    const e = employeeOf(req.user);
-    if (!e) return res.json({ employee: null });
-    const rec = get('SELECT * FROM attendance WHERE employee_id = ? AND date = ?', e.id, today());
-    const month = today().slice(0, 7);
-    res.json({
-      employee: { id: e.id, name: e.name, job_title: e.job_title, work_start: e.work_start, work_end: e.work_end },
-      today: rec || null,
-      summary: monthSummary(e, month),
-      history: all('SELECT * FROM attendance WHERE employee_id = ? AND date LIKE ? ORDER BY date DESC', e.id, `${month}-%`),
-    });
-  });
-
-  r.post('/attendance/check-in', (req, res) => {
-    const e = employeeOf(req.user);
-    if (!e) throw bad('حسابك غير مرتبط بملف موظف، راجع المدير');
-    const t = today();
-    const rec = get('SELECT * FROM attendance WHERE employee_id = ? AND date = ?', e.id, t);
-    if (rec?.check_in) throw bad('سجّلت حضورك اليوم بالفعل');
-    const now = nowStamp();
-    const late = lateMinutes(e, now);
-    if (rec) run("UPDATE attendance SET check_in = ?, status = 'present', late_minutes = ?, source = 'self' WHERE id = ?", now, late, rec.id);
-    else run("INSERT INTO attendance(employee_id, date, check_in, late_minutes, source, created_by) VALUES(?,?,?,?, 'self', ?)", e.id, t, now, late, req.user.id);
-    changed('attendance');
-    res.json({ check_in: now, late_minutes: late });
-  });
-
-  r.post('/attendance/check-out', (req, res) => {
-    const e = employeeOf(req.user);
-    if (!e) throw bad('حسابك غير مرتبط بملف موظف، راجع المدير');
-    // آخر حضور مفتوح (يدعم الوردية الممتدة بعد منتصف الليل)
-    const rec = get('SELECT * FROM attendance WHERE employee_id = ? AND check_in IS NOT NULL AND check_out IS NULL ORDER BY date DESC LIMIT 1', e.id);
-    if (!rec) throw bad('لا يوجد تسجيل حضور مفتوح');
-    const now = nowStamp();
-    run('UPDATE attendance SET check_out = ?, worked_minutes = ? WHERE id = ?', now, workedMinutes(rec.check_in, now), rec.id);
-    changed('attendance');
-    res.json({ check_out: now, worked_minutes: workedMinutes(rec.check_in, now) });
-  });
-
+  // ───── الحضور والانصراف ─────  (التسجيل الذاتي الآمن في attendance.js)
   // كشف يومي لكل الموظفين
   r.get('/attendance', need('hr.attendance'), (req, res) => {
     const date = isDate(req.query.date) ? req.query.date : today();
     const dow = parseDate(date).getDay();
     const rows = all(`SELECT e.id AS employee_id, e.name, e.job_title, e.department, e.work_start, e.work_end, e.weekly_off,
         a.id, a.check_in, a.check_out, a.status, a.late_minutes, a.worked_minutes, a.note, a.source,
+        a.early_leave_minutes, a.overtime_minutes, a.flags, a.platform, a.in_distance,
+        (SELECT name FROM work_locations w WHERE w.id = a.in_location_id) AS location_name,
         (SELECT l.type FROM leaves l WHERE l.employee_id = e.id AND l.status = 'approved' AND l.start_date <= ? AND l.end_date >= ? LIMIT 1) AS leave_type
       FROM employees e LEFT JOIN attendance a ON a.employee_id = e.id AND a.date = ?
       WHERE e.status = 'active' AND (e.hire_date IS NULL OR e.hire_date <= ?)
@@ -312,11 +308,13 @@ export function hrRoutes(r, changed) {
     if (ci && co && co < ci) co = `${fmtDate(new Date(parseDate(date).getTime() + 864e5))} ${b.check_out}:00`;
     const late = ci ? lateMinutes(e, ci) : 0;
     const worked = workedMinutes(ci, co);
-    run(`INSERT INTO attendance(employee_id, date, check_in, check_out, status, late_minutes, worked_minutes, note, source, created_by)
-      VALUES(?,?,?,?,?,?,?,?, 'manager', ?)
+    const ls = leaveStats(e, date, co);
+    run(`INSERT INTO attendance(employee_id, date, check_in, check_out, status, late_minutes, worked_minutes, early_leave_minutes, overtime_minutes, note, source, created_by)
+      VALUES(?,?,?,?,?,?,?,?,?,?, 'manager', ?)
       ON CONFLICT(employee_id, date) DO UPDATE SET check_in = excluded.check_in, check_out = excluded.check_out, status = excluded.status,
-        late_minutes = excluded.late_minutes, worked_minutes = excluded.worked_minutes, note = excluded.note, source = 'manager', created_by = excluded.created_by`,
-      e.id, date, ci, co, status, late, worked, b.note || null, req.user.id);
+        late_minutes = excluded.late_minutes, worked_minutes = excluded.worked_minutes, early_leave_minutes = excluded.early_leave_minutes,
+        overtime_minutes = excluded.overtime_minutes, note = excluded.note, source = 'manager', created_by = excluded.created_by`,
+      e.id, date, ci, co, status, late, worked, ls.early, ls.overtime, b.note || null, req.user.id);
     audit(req.user.id, 'attendance.manual', 'employee', e.id, { date, status });
     changed('attendance');
     res.json({ ok: true });
@@ -370,7 +368,7 @@ export function hrRoutes(r, changed) {
     autoApprove ? 'approved' : 'pending', autoApprove ? req.user.id : null, autoApprove ? nowStamp() : null, req.user.id);
     audit(req.user.id, 'leave.request', 'employee', emp.id, { type: b.type, days });
     if (!autoApprove) {
-      notify({ perms: ['hr.leaves'], exclude: req.user.id, type: 'leave_request', level: 'info', link: '/leaves',
+      notify({ perms: ['hr.leaves'], roles: ['admin'], exclude: req.user.id, type: 'leave_request', level: 'info', link: '/leaves',
         title: `طلب إجازة من ${emp.name}`, body: `${days} ${days === 1 ? 'يوم' : 'أيام'} · من ${b.start_date} إلى ${b.end_date}` });
     }
     changed('hr', 'attendance');

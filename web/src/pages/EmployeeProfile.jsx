@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowRight, Pencil, UserX, UserCheck, FileText, Upload, Download, Trash2, Plus, Phone, IdCard, CalendarDays,
-  Clock, Wallet, Briefcase, MapPin, Mail, Siren, Landmark, FilePlus2,
+  Clock, Wallet, Briefcase, MapPin, Mail, Siren, Landmark, FilePlus2, Smartphone, RotateCcw, KeyRound, ShieldCheck, Globe,
 } from 'lucide-react';
 import { api, isDemo } from '../api.js';
 import {
@@ -24,6 +24,7 @@ export default function EmployeeProfile() {
   const [docOpen, setDocOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [attEdit, setAttEdit] = useState(null);
+  const [accOpen, setAccOpen] = useState(false);
   const [run, busy] = useAction();
 
   if (loading && !e) return <Loading />;
@@ -52,6 +53,11 @@ export default function EmployeeProfile() {
     if (!window.confirm(`حذف "${doc.title}"؟`)) return;
     if (await run(() => api(`/documents/${doc.id}`, { method: 'DELETE' }), 'تم الحذف')) reload();
   }
+  async function resetDevice() {
+    if (!window.confirm('إلغاء ربط الجهاز الحالي؟ سيُعتمد أول جهاز يسجّل منه الموظف بعد ذلك.')) return;
+    if (await run(() => api(`/employees/${e.id}/reset-device`, { method: 'POST' }), 'تم إلغاء ربط الجهاز')) reload();
+  }
+
   async function decide(l, status) {
     if (await run(() => api(`/leaves/${l.id}`, { method: 'PATCH', body: { status } }), 'تم')) reload();
   }
@@ -107,6 +113,18 @@ export default function EmployeeProfile() {
               <Info icon={CalendarDays} k="تاريخ الميلاد" v={e.birth_date} />
               <Info icon={MapPin} k="العنوان" v={e.address} />
               <Info icon={Siren} k="الطوارئ" v={e.emergency_contact} />
+            </dl>
+          </section>
+          <section className="card">
+            <h3>حساب الدخول والحضور</h3>
+            <dl className="info-list">
+              <div className="info-row"><dt><KeyRound size={16} /> حساب الدخول</dt><dd>{e.username ? <bdi dir="ltr">@{e.username}</bdi> : <button className="btn btn-sm btn-primary" onClick={() => setAccOpen(true)}><Plus size={15} /> إنشاء حساب</button>}</dd></div>
+              <div className="info-row"><dt>{e.location_mode === 'anywhere' ? <Globe size={16} /> : <MapPin size={16} />} مكان التسجيل</dt><dd>{e.location_mode === 'anywhere' ? 'من أي مكان' : (() => { const ids = e.location_ids ? JSON.parse(e.location_ids) : []; return ids.length ? e.work_locations.filter((l) => ids.includes(l.id)).map((l) => l.name).join('، ') : 'كل مواقع العمل'; })()}</dd></div>
+              <div className="info-row"><dt><Clock size={16} /> السماحية / الحضور المبكر</dt><dd>{e.grace_minutes ?? 'عام'} د · حتى {e.early_checkin_minutes} د قبل الدوام</dd></div>
+              <div className="info-row"><dt><Smartphone size={16} /> الجهاز المعتمد</dt>
+                <dd>{!e.device_binding ? 'غير مقيّد' : e.bound_device
+                  ? <span className="row gap-s"><span className="badge badge-ok"><ShieldCheck size={12} /> {e.bound_device.startsWith('android') ? 'جوال أندرويد' : 'متصفح'} · منذ {e.bound_device_at?.slice(0, 10)}</span><button className="btn btn-xs" onClick={resetDevice} title="إلغاء الربط"><RotateCcw size={13} /></button></span>
+                  : <span className="muted">يُعتمد أول جهاز يسجّل منه</span>}</dd></div>
             </dl>
           </section>
           <section className="card">
@@ -230,6 +248,7 @@ export default function EmployeeProfile() {
       {editing && <EmployeeForm emp={e} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); reload(); }} />}
       {docOpen && <DocForm empId={e.id} onClose={() => setDocOpen(false)} onSaved={() => { setDocOpen(false); reload(); }} />}
       {leaveOpen && <LeaveForm employeeId={e.id} manager onClose={() => setLeaveOpen(false)} onSaved={() => { setLeaveOpen(false); reload(); }} />}
+      {accOpen && <AccountForm emp={e} onClose={() => setAccOpen(false)} onSaved={() => { setAccOpen(false); reload(); }} />}
       {attEdit && <AttendanceForm rec={attEdit} name={e.name} onClose={() => setAttEdit(null)} onSaved={() => { setAttEdit(null); reload(); }} />}
     </div>
   );
@@ -292,6 +311,19 @@ function DocForm({ empId, onClose, onSaved }) {
         <small className="muted">{isDemo ? 'حتى 400 كيلوبايت في النسخة التجريبية' : 'حتى 2.5 ميجابايت'}</small>
       </label>
       {err && <div className="alert alert-err">{err}</div>}
+    </Modal>
+  );
+}
+
+function AccountForm({ emp, onClose, onSaved }) {
+  const [run, busy] = useAction();
+  const [f, setF] = useState({ username: '', password: '' });
+  const save = async () => { if (await run(() => api(`/employees/${emp.id}/account`, { method: 'POST', body: f }), 'تم إنشاء الحساب')) onSaved(); };
+  return (
+    <Modal title={`حساب دخول لـ ${emp.name}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>إلغاء</button><button className="btn btn-primary" onClick={save} disabled={busy}>إنشاء</button></>}>
+      <p className="muted small">حساب بدور "موظف": يسجّل حضوره وانصرافه ويطلب الإجازات من التطبيق أو المتصفح.</p>
+      <Field label="اسم المستخدم" hint="أحرف إنجليزية أو أرقام"><input dir="ltr" autoCapitalize="none" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} autoFocus /></Field>
+      <Field label="كلمة المرور"><input type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
     </Modal>
   );
 }

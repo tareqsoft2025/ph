@@ -37,7 +37,7 @@ export async function api(path, { method = 'GET', body, timeout = 15000 } = {}) 
     const { handle } = await demo;
     const { status, data } = await handle(method, path, body, getToken());
     if (status === 401 && path !== '/auth/login') onUnauthorized();
-    if (status >= 400) throw new Error(data?.error || `خطأ ${status}`);
+    if (status >= 400) throw Object.assign(new Error(data?.error || `خطأ ${status}`), { data, status });
     return data;
   }
   const ctrl = new AbortController();
@@ -58,7 +58,7 @@ export async function api(path, { method = 'GET', body, timeout = 15000 } = {}) 
   let data = null;
   try { data = await res.json(); } catch { /* empty */ }
   if (res.status === 401 && path !== '/auth/login') onUnauthorized();
-  if (!res.ok) throw new Error(data?.error || `خطأ ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(data?.error || `خطأ ${res.status}`), { data, status: res.status });
   return data;
 }
 
