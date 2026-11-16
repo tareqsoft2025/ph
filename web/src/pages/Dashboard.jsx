@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { useData, useMoney, Loading, PageHead, Empty, todayStr } from '../lib.jsx';
+import { useApp, useData, useMoney, has, Loading, PageHead, Empty, todayStr } from '../lib.jsx';
 import { Stat, Bars } from './Reports.jsx';
 import { TriangleAlert, CircleCheck, Plus, Fingerprint, CalendarOff, FileWarning } from 'lucide-react';
 
@@ -10,8 +10,9 @@ export default function Dashboard() {
   const tables = useData('/tables', ['tables']);
   const open = useData('/orders?status=open', ['orders']);
   const shift = useData('/shifts/current', ['shift']);
-  const att = useData('/attendance', ['attendance', 'hr']);
-  const hr = useData('/hr/alerts', ['hr']);
+  const { user } = useApp();
+  const att = useData(has(user, 'hr.attendance') ? '/attendance' : null, ['attendance', 'hr']);
+  const hr = useData(has(user, 'hr.employees') ? '/hr/alerts' : null, ['hr']);
 
   if (rep.loading) return <Loading />;
   const t = rep.data?.totals || {};
@@ -50,7 +51,7 @@ export default function Dashboard() {
                 <li><Link to="/employees" className="meta-line"><FileWarning size={15} aria-hidden /> مستندات وعقود تحتاج تجديد</Link><span className="badge badge-err">{hr.data.docs.length + hr.data.contracts.length}</span></li>
               )}
             </ul>
-          ) : <Loading />}
+          ) : att.loading ? <Loading /> : <Empty text="غير متاح لصلاحياتك" />}
         </section>
         <section className="card">
           <h3>تنبيهات المخزون</h3>

@@ -1,6 +1,6 @@
 // الموارد البشرية: الموظفون، المستندات، الحضور والانصراف، الإجازات، الرواتب
 import { get, all, run, getSettings, audit } from './db.js';
-import { allow } from './auth.js';
+import { need, hasPerm } from './perms.js';
 import { bad, notFound, pick, updateSql, round2, today } from './util.js';
 import { notify } from './notify.js';
 
@@ -115,7 +115,7 @@ function payslip(emp, month) {
 /** يسجّل مسارات الموارد البشرية على الموجّه */
 export function hrRoutes(r, changed) {
   // ───── الموظفون ─────
-  r.get('/employees', allow('manager'), (req, res) => {
+  r.get('/employees', need('hr.employees'), (req, res) => {
     const st = req.query.status || 'active';
     const t = today();
     const alertDays = Number(getSettings().doc_alert_days) || 30;
@@ -132,7 +132,7 @@ export function hrRoutes(r, changed) {
       ORDER BY e.status, e.name`, limit, t, t, t, ...(st === 'all' ? [] : [st])));
   });
 
-  r.get('/employees/:id', allow('manager'), (req, res) => {
+  r.get('/employees/:id', need('hr.employees'), (req, res) => {
     const e = requireEmployee(Number(req.params.id));
     const u = e.user_id ? get('SELECT username, role FROM users WHERE id = ?', e.user_id) : null;
     e.username = u?.username; e.user_role = u?.role;
@@ -159,7 +159,7 @@ export function hrRoutes(r, changed) {
     return f;
   }
 
-  r.post('/employees', allow('manager'), (req, res) => {
+  r.post('/employees', need('hr.employees'), (req, res) => {
     const f = cleanEmployee(req.body || {});
     if (!f.name) throw bad('أدخل اسم الموظف');
     const keys = Object.keys(f);
@@ -170,7 +170,7 @@ export function hrRoutes(r, changed) {
     res.status(201).json({ id });
   });
 
-  r.put('/employees/:id', allow('manager'), (req, res) => {
+  r.put('/employees/:id', need('hr.employees'), (req, res) => {
     const id = Number(req.params.id);
     requireEmployee(id);
     const f = cleanEmployee({ ...req.body, id });
@@ -181,7 +181,7 @@ export function hrRoutes(r, changed) {
     res.json({ ok: true });
   });
 
-  r.post('/employees/:id/status', allow('manager'), (req, res) => {
+  r.post('/employees/:id/status', need('hr.employees'), (req, res) => {
     const id = Number(req.params.id);
     requireEmployee(id);
     const status = req.body?.status === 'terminated' ? 'terminated' : 'active';
@@ -192,7 +192,7 @@ export function hrRoutes(r, changed) {
   });
 
   // ───── المستندات ─────
-  r.post('/employees/:id/documents', allow('manager'), (req, res) => {
+  r.post('/employees/:id/documents', need('hr.employees'), (req, res) => {
     const id = Number(req.params.id);
     requireEmployee(id);
     const b = req.body || {};
@@ -211,12 +211,12 @@ export function hrRoutes(r, changed) {
     changed('hr');
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
-  r.get('/documents/:id/file', allow('manager'), (req, res) => {
+  r.get('/documents/:id/file', need('hr.employees'), (req, res) => {
     const d = get('SELECT file_name, file_type, file_data FROM employee_documents WHERE id = ?', Number(req.params.id));
     if (!d?.file_data) throw notFound('لا يوجد ملف مرفق');
     res.json(d);
   });
-  r.delete('/documents/:id', allow('manager'), (req, res) => {
+  r.delete('/documents/:id', need('hr.employees'), (req, res) => {
     const d = get('SELECT employee_id, title FROM employee_documents WHERE id = ?', Number(req.params.id));
     if (!d) throw notFound();
     run('DELETE FROM employee_documents WHERE id = ?', Number(req.params.id));
@@ -225,7 +225,7 @@ export function hrRoutes(r, changed) {
     res.json({ ok: true });
   });
 
-  r.get('/hr/alerts', allow('manager'), (req, res) => {
+  r.get('/hr/alerts', need('hr.employees'), (req, res) => {
     const alertDays = Number(getSettings().doc_alert_days) || 30;
     const limit = fmtDate(new Date(Date.now() + alertDays * 864e5));
     const docs = all(`SELECT d.id, d.title, d.doc_type, d.expiry_date, e.id AS employee_id, e.name
@@ -278,7 +278,7 @@ export function hrRoutes(r, changed) {
   });
 
   // كشف يومي لكل الموظفين
-  r.get('/attendance', allow('manager'), (req, res) => {
+  r.get('/attendance', need('hr.attendance'), (req, res) => {
     const date = isDate(req.query.date) ? req.query.date : today();
     const dow = parseDate(date).getDay();
     const rows = all(`SELECT e.id AS employee_id, e.name, e.job_title, e.department, e.work_start, e.work_end, e.weekly_off,
@@ -300,7 +300,7 @@ export function hrRoutes(r, changed) {
   });
 
   // تسجيل أو تعديل يدوي من المدير
-  r.post('/attendance', allow('manager'), (req, res) => {
+  r.post('/attendance', need('hr.attendance'), (req, res) => {
     const b = req.body || {};
     const e = requireEmployee(Number(b.employee_id));
     const date = isDate(b.date) ? b.date : today();
@@ -322,13 +322,13 @@ export function hrRoutes(r, changed) {
     res.json({ ok: true });
   });
 
-  r.delete('/attendance/:id', allow('manager'), (req, res) => {
+  r.delete('/attendance/:id', need('hr.attendance'), (req, res) => {
     run('DELETE FROM attendance WHERE id = ?', Number(req.params.id));
     changed('attendance');
     res.json({ ok: true });
   });
 
-  r.get('/attendance/summary', allow('manager'), (req, res) => {
+  r.get('/attendance/summary', need('hr.attendance'), (req, res) => {
     const month = isMonth(req.query.month) ? req.query.month : today().slice(0, 7);
     const emps = all("SELECT * FROM employees WHERE status = 'active' ORDER BY name");
     res.json({ month, rows: emps.map((e) => ({ employee_id: e.id, name: e.name, job_title: e.job_title, ...monthSummary(e, month) })) });
@@ -336,7 +336,7 @@ export function hrRoutes(r, changed) {
 
   // ───── الإجازات ─────
   r.get('/leaves', (req, res) => {
-    const isMgr = ['admin', 'manager'].includes(req.user.role);
+    const isMgr = hasPerm(req.user, 'hr.leaves');
     const me = employeeOf(req.user);
     if (!isMgr && !me) return res.json({ rows: [], employee: null });
     const where = [];
@@ -356,7 +356,7 @@ export function hrRoutes(r, changed) {
 
   r.post('/leaves', (req, res) => {
     const b = req.body || {};
-    const isMgr = ['admin', 'manager'].includes(req.user.role);
+    const isMgr = hasPerm(req.user, 'hr.leaves');
     const emp = isMgr && b.employee_id ? requireEmployee(Number(b.employee_id)) : employeeOf(req.user);
     if (!emp) throw bad('حسابك غير مرتبط بملف موظف');
     if (!LEAVE_TYPES.includes(b.type)) throw bad('نوع الإجازة غير صحيح');
@@ -370,14 +370,14 @@ export function hrRoutes(r, changed) {
     autoApprove ? 'approved' : 'pending', autoApprove ? req.user.id : null, autoApprove ? nowStamp() : null, req.user.id);
     audit(req.user.id, 'leave.request', 'employee', emp.id, { type: b.type, days });
     if (!autoApprove) {
-      notify({ roles: ['manager', 'admin'], exclude: req.user.id, type: 'leave_request', level: 'info', link: '/leaves',
+      notify({ perms: ['hr.leaves'], exclude: req.user.id, type: 'leave_request', level: 'info', link: '/leaves',
         title: `طلب إجازة من ${emp.name}`, body: `${days} ${days === 1 ? 'يوم' : 'أيام'} · من ${b.start_date} إلى ${b.end_date}` });
     }
     changed('hr', 'attendance');
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
 
-  r.patch('/leaves/:id', allow('manager'), (req, res) => {
+  r.patch('/leaves/:id', need('hr.leaves'), (req, res) => {
     const l = get('SELECT * FROM leaves WHERE id = ?', Number(req.params.id));
     if (!l) throw notFound();
     const status = req.body?.status;
@@ -396,7 +396,7 @@ export function hrRoutes(r, changed) {
   r.delete('/leaves/:id', (req, res) => {
     const l = get('SELECT * FROM leaves WHERE id = ?', Number(req.params.id));
     if (!l) throw notFound();
-    const isMgr = ['admin', 'manager'].includes(req.user.role);
+    const isMgr = hasPerm(req.user, 'hr.leaves');
     const me = employeeOf(req.user);
     if (!isMgr && (!me || me.id !== l.employee_id || l.status !== 'pending')) throw bad('يمكنك إلغاء طلباتك المعلّقة فقط');
     run('DELETE FROM leaves WHERE id = ?', l.id);
@@ -405,7 +405,7 @@ export function hrRoutes(r, changed) {
   });
 
   // ───── الرواتب ─────
-  r.get('/payroll', allow('manager'), (req, res) => {
+  r.get('/payroll', need('hr.payroll'), (req, res) => {
     const month = isMonth(req.query.month) ? req.query.month : today().slice(0, 7);
     const emps = all("SELECT * FROM employees WHERE status = 'active' OR (terminated_at >= ?) ORDER BY name", `${month}-01`);
     const rows = emps.map((e) => payslip(e, month));
@@ -413,7 +413,7 @@ export function hrRoutes(r, changed) {
     res.json({ month, rows, totals: { gross: total('gross'), deductions: round2(total('absence_deduction') + total('late_deduction') + total('deduction') + total('advance')), bonus: total('bonus'), net: total('net') } });
   });
 
-  r.post('/payroll/adjustments', allow('manager'), (req, res) => {
+  r.post('/payroll/adjustments', need('hr.payroll'), (req, res) => {
     const b = req.body || {};
     requireEmployee(Number(b.employee_id));
     if (!['bonus', 'deduction', 'advance'].includes(b.type)) throw bad('النوع غير صحيح');
@@ -426,7 +426,7 @@ export function hrRoutes(r, changed) {
     changed('hr');
     res.status(201).json({ ok: true });
   });
-  r.delete('/payroll/adjustments/:id', allow('manager'), (req, res) => {
+  r.delete('/payroll/adjustments/:id', need('hr.payroll'), (req, res) => {
     run('DELETE FROM payroll_adjustments WHERE id = ?', Number(req.params.id));
     changed('hr');
     res.json({ ok: true });

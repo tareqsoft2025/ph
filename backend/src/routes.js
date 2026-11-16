@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { get, all, run, tx, getSettings, setSettings, audit } from './db.js';
 import { authenticate, allow, signToken, ROLES } from './auth.js';
+import { need, hasPerm, PERMISSIONS, ROLES_EDITABLE, DEFAULTS, rolePerms, setRolePerms, resetRolePerms, usersWithPerm } from './perms.js';
 import { bad, notFound, pick, updateSql, normalize, round2, today } from './util.js';
 import * as Orders from './orders.js';
 import { hrRoutes } from './hr.js';
@@ -32,9 +33,30 @@ export function buildRouter(emit) {
 
   r.get('/auth/me', (req, res) => res.json(req.user));
 
+  // ───────────── الصلاحيات ─────────────
+  r.get('/permissions', allow(), (req, res) => {
+    res.json({
+      permissions: PERMISSIONS,
+      roles: ROLES_EDITABLE.map((role) => ({ role, perms: rolePerms(role), defaults: DEFAULTS[role], customized: !!get('SELECT 1 AS x FROM role_permissions WHERE role = ?', role) })),
+    });
+  });
+  r.put('/permissions/:role', allow(), (req, res) => {
+    const role = req.params.role;
+    if (!ROLES_EDITABLE.includes(role)) throw bad('لا يمكن تعديل صلاحيات هذا الدور');
+    const before = rolePerms(role);
+    let after;
+    if (req.body?.reset) { resetRolePerms(role); after = rolePerms(role); } else {
+      if (!Array.isArray(req.body?.perms)) throw bad('قائمة الصلاحيات غير صحيحة');
+      after = setRolePerms(role, req.body.perms);
+    }
+    audit(req.user.id, 'permissions.update', 'role', null, { role, added: after.filter((k) => !before.includes(k)), removed: before.filter((k) => !after.includes(k)), reset: !!req.body?.reset });
+    changed('permissions');
+    res.json({ role, perms: after });
+  });
+
   // ───────────── الإعدادات ─────────────
   r.get('/settings', (req, res) => res.json(getSettings()));
-  r.put('/settings', allow('manager'), (req, res) => {
+  r.put('/settings', need('settings.manage'), (req, res) => {
     const s = setSettings(req.body || {});
     audit(req.user.id, 'settings.update');
     changed('settings');
@@ -42,13 +64,14 @@ export function buildRouter(emit) {
   });
 
   // ───────────── المستخدمون ─────────────
-  r.get('/users', allow('manager'), (req, res) => {
+  r.get('/users', need('users.manage', 'hr.employees'), (req, res) => {
     res.json(all('SELECT id, name, username, role, active, created_at FROM users ORDER BY id'));
   });
-  r.post('/users', allow(), (req, res) => {
+  r.post('/users', need('users.manage'), (req, res) => {
     const { name, username, password, role } = req.body || {};
     if (!name || !username || !password) throw bad('أكمل البيانات');
     if (!ROLES.includes(role)) throw bad('الدور غير صحيح');
+    if (role === 'admin' && req.user.role !== 'admin') throw bad('فقط المدير العام يمكنه إنشاء مدير عام');
     if (String(password).length < 4) throw bad('كلمة المرور قصيرة (4 أحرف على الأقل)');
     if (get('SELECT id FROM users WHERE username = ?', username)) throw bad('اسم المستخدم مستخدم مسبقاً');
     const info = run('INSERT INTO users(name, username, password_hash, role) VALUES(?,?,?,?)',
@@ -56,10 +79,13 @@ export function buildRouter(emit) {
     audit(req.user.id, 'user.create', 'user', Number(info.lastInsertRowid));
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
-  r.put('/users/:id', allow(), (req, res) => {
+  r.put('/users/:id', need('users.manage'), (req, res) => {
     const id = Number(req.params.id);
     const fields = pick(req.body, ['name', 'role', 'active']);
     if (fields.role && !ROLES.includes(fields.role)) throw bad('الدور غير صحيح');
+    const target = get('SELECT role FROM users WHERE id = ?', id);
+    if (!target) throw notFound();
+    if (req.user.role !== 'admin' && (target.role === 'admin' || fields.role === 'admin')) throw bad('لا يمكنك تعديل حساب المدير العام');
     if (id === req.user.id && (fields.active === false || fields.active === 0 || (fields.role && fields.role !== 'admin'))) {
       throw bad('لا يمكنك تعطيل حسابك أو تغيير دورك');
     }
@@ -69,7 +95,7 @@ export function buildRouter(emit) {
     }
     const u = updateSql('users', fields, id);
     if (u) run(u.sql, ...u.params);
-    audit(req.user.id, 'user.update', 'user', id);
+    audit(req.user.id, 'user.update', 'user', id, { ...fields, password_hash: undefined, password_changed: !!req.body.password });
     res.json({ ok: true });
   });
 
@@ -82,29 +108,32 @@ export function buildRouter(emit) {
     res.json({ categories, items });
   });
 
-  r.post('/categories', allow('manager'), (req, res) => {
+  r.post('/categories', need('menu.manage'), (req, res) => {
     const { name, icon, sort } = req.body || {};
     if (!name) throw bad('أدخل اسم الفئة');
     const info = run('INSERT INTO categories(name, icon, sort) VALUES(?,?,?)', name, icon || null, sort || 0);
+    audit(req.user.id, 'menu.category_create', 'category', Number(info.lastInsertRowid), { name });
     changed('menu');
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
-  r.put('/categories/:id', allow('manager'), (req, res) => {
+  r.put('/categories/:id', need('menu.manage'), (req, res) => {
     const u = updateSql('categories', pick(req.body, ['name', 'icon', 'sort']), Number(req.params.id));
     if (u) run(u.sql, ...u.params);
+    audit(req.user.id, 'menu.category_update', 'category', Number(req.params.id), pick(req.body, ['name']));
     changed('menu');
     res.json({ ok: true });
   });
-  r.delete('/categories/:id', allow('manager'), (req, res) => {
+  r.delete('/categories/:id', need('menu.manage'), (req, res) => {
     const id = Number(req.params.id);
     const { c } = get('SELECT COUNT(*) AS c FROM menu_items WHERE category_id = ? AND active = 1', id);
     if (c) throw bad('الفئة تحتوي أصنافاً، انقلها أو احذفها أولاً');
     run('UPDATE categories SET active = 0 WHERE id = ?', id);
+    audit(req.user.id, 'menu.category_delete', 'category', id);
     changed('menu');
     res.json({ ok: true });
   });
 
-  r.get('/items/:id', allow('manager'), (req, res) => {
+  r.get('/items/:id', need('menu.manage'), (req, res) => {
     const item = get('SELECT * FROM menu_items WHERE id = ?', Number(req.params.id));
     if (!item) throw notFound();
     item.modifiers = all('SELECT * FROM modifiers WHERE item_id = ?', item.id);
@@ -127,7 +156,7 @@ export function buildRouter(emit) {
       }
     }
   }
-  r.post('/items', allow('manager'), (req, res) => {
+  r.post('/items', need('menu.manage'), (req, res) => {
     const b = req.body || {};
     if (!b.name || !b.category_id) throw bad('أدخل الاسم والفئة');
     const id = tx(() => {
@@ -141,7 +170,7 @@ export function buildRouter(emit) {
     changed('menu');
     res.status(201).json({ id });
   });
-  r.put('/items/:id', allow('manager'), (req, res) => {
+  r.put('/items/:id', need('menu.manage'), (req, res) => {
     const id = Number(req.params.id);
     const before = get('SELECT price FROM menu_items WHERE id = ?', id);
     if (!before) throw notFound();
@@ -157,12 +186,13 @@ export function buildRouter(emit) {
     res.json({ ok: true });
   });
   // تفعيل/إيقاف الصنف سريعاً (مسموح للمطبخ أيضاً عند نفاد صنف)
-  r.patch('/items/:id/availability', allow('manager', 'kitchen', 'cashier'), (req, res) => {
+  r.patch('/items/:id/availability', need('menu.manage', 'menu.availability'), (req, res) => {
     run('UPDATE menu_items SET available = ? WHERE id = ?', req.body.available ? 1 : 0, Number(req.params.id));
+    audit(req.user.id, req.body.available ? 'item.available' : 'item.unavailable', 'item', Number(req.params.id));
     changed('menu');
     res.json({ ok: true });
   });
-  r.delete('/items/:id', allow('manager'), (req, res) => {
+  r.delete('/items/:id', need('menu.manage'), (req, res) => {
     run('UPDATE menu_items SET active = 0 WHERE id = ?', Number(req.params.id));
     audit(req.user.id, 'item.delete', 'item', Number(req.params.id));
     changed('menu');
@@ -170,7 +200,7 @@ export function buildRouter(emit) {
   });
 
   // ───────────── الطاولات ─────────────
-  r.get('/tables', (req, res) => {
+  r.get('/tables', need('tables.view', 'pos.create', 'payments.collect', 'settings.manage', 'reservations.manage'), (req, res) => {
     const tables = all(`
       SELECT t.*, o.id AS order_id, o.number AS order_number, o.code AS order_code, o.total AS order_total, o.created_at AS opened_at,
         o.guests, w.name AS waiter_name,
@@ -184,29 +214,31 @@ export function buildRouter(emit) {
       WHERE t.active = 1 ORDER BY t.area, t.id`);
     res.json(tables.map((t) => ({ ...t, status: t.order_id ? 'occupied' : t.reservation ? 'reserved' : 'free' })));
   });
-  r.post('/tables', allow('manager'), (req, res) => {
+  r.post('/tables', need('settings.manage'), (req, res) => {
     const { name, seats, area } = req.body || {};
     if (!name) throw bad('أدخل اسم الطاولة');
     const info = run('INSERT INTO dining_tables(name, seats, area) VALUES(?,?,?)', name, Number(seats) || 4, area || 'الصالة');
+    audit(req.user.id, 'settings.table_create', 'table', Number(info.lastInsertRowid), { name });
     changed('tables');
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
-  r.put('/tables/:id', allow('manager'), (req, res) => {
+  r.put('/tables/:id', need('settings.manage'), (req, res) => {
     const u = updateSql('dining_tables', pick(req.body, ['name', 'seats', 'area']), Number(req.params.id));
     if (u) run(u.sql, ...u.params);
     changed('tables');
     res.json({ ok: true });
   });
-  r.delete('/tables/:id', allow('manager'), (req, res) => {
+  r.delete('/tables/:id', need('settings.manage'), (req, res) => {
     const id = Number(req.params.id);
     if (get("SELECT id FROM orders WHERE table_id = ? AND status = 'open'", id)) throw bad('الطاولة عليها طلب مفتوح');
     run('UPDATE dining_tables SET active = 0 WHERE id = ?', id);
+    audit(req.user.id, 'settings.table_delete', 'table', id);
     changed('tables');
     res.json({ ok: true });
   });
 
   // ───────────── الطلبات ─────────────
-  r.get('/orders', (req, res) => {
+  r.get('/orders', need('orders.view', 'pos.create', 'payments.collect'), (req, res) => {
     const { status, type, date, from, to } = req.query;
     const where = [];
     const params = [];
@@ -215,7 +247,7 @@ export function buildRouter(emit) {
     if (date) { where.push('date(o.created_at) = ?'); params.push(date); }
     if (from) { where.push('date(o.created_at) >= ?'); params.push(from); }
     if (to) { where.push('date(o.created_at) <= ?'); params.push(to); }
-    if (req.user.role === 'waiter' && !status) { where.push("o.status = 'open'"); }
+    if (!hasPerm(req.user, 'orders.view') && !hasPerm(req.user, 'payments.collect') && !status) { where.push("o.status = 'open'"); }
     const rows = all(`
       SELECT o.*, t.name AS table_name, w.name AS waiter_name,
         (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status != 'cancelled') AS items_count,
@@ -229,49 +261,55 @@ export function buildRouter(emit) {
     res.json(rows);
   });
 
-  r.get('/orders/:id', (req, res) => res.json(Orders.getOrder(Number(req.params.id))));
+  r.get('/orders/:id', need('orders.view', 'pos.create', 'payments.collect', 'kitchen.view'), (req, res) => res.json(Orders.getOrder(Number(req.params.id))));
 
   const orderChanged = (id) => {
     changed('orders', 'tables');
     return Orders.getOrder(id);
   };
 
-  r.post('/orders', allow('cashier', 'waiter', 'manager'), (req, res) => {
+  r.post('/orders', need('pos.create'), (req, res) => {
     const id = Orders.createOrder(req.body || {}, req.user);
     if (req.body?.send) { Orders.sendToKitchen(id, req.user); changed('kitchen'); }
     res.status(201).json(orderChanged(id));
   });
-  r.post('/orders/:id/items', allow('cashier', 'waiter', 'manager'), (req, res) => {
+  r.post('/orders/:id/items', need('pos.create'), (req, res) => {
     const id = Number(req.params.id);
     Orders.addItems(id, req.body?.items, req.user);
     if (req.body?.send) { Orders.sendToKitchen(id, req.user); changed('kitchen'); }
     res.json(orderChanged(id));
   });
-  r.patch('/orders/:id/items/:lineId', allow('cashier', 'waiter', 'manager'), (req, res) => {
+  r.patch('/orders/:id/items/:lineId', need('pos.create', 'orders.cancel_item'), (req, res) => {
     const id = Number(req.params.id);
     Orders.updateItem(id, Number(req.params.lineId), req.body || {}, req.user);
     changed('kitchen');
     res.json(orderChanged(id));
   });
-  r.post('/orders/:id/send', allow('cashier', 'waiter', 'manager'), (req, res) => {
+  r.post('/orders/:id/send', need('pos.create'), (req, res) => {
     const id = Number(req.params.id);
     const count = Orders.sendToKitchen(id, req.user);
     if (count) changed('kitchen');
     res.json(orderChanged(id));
   });
-  r.post('/orders/:id/serve', allow('cashier', 'waiter', 'manager'), (req, res) => {
+  r.post('/orders/:id/serve', need('pos.create', 'payments.collect'), (req, res) => {
     const id = Number(req.params.id);
     const ch = run("UPDATE order_items SET status = 'served' WHERE order_id = ? AND status = 'ready'", id);
     Orders.kitchenProgress(id, 'served', req.user, Number(ch.changes));
     changed('kitchen');
     res.json(orderChanged(id));
   });
-  r.post('/orders/:id/discount', allow('cashier', 'manager'), (req, res) => {
+  r.post('/orders/:id/request-bill', need('pos.create'), (req, res) => {
+    const id = Number(req.params.id);
+    Orders.requestBill(id, req.user);
+    audit(req.user.id, 'order.request_bill', 'order', id);
+    res.json(orderChanged(id));
+  });
+  r.post('/orders/:id/discount', need('orders.discount'), (req, res) => {
     const id = Number(req.params.id);
     Orders.setDiscount(id, req.body || {}, req.user);
     res.json(orderChanged(id));
   });
-  r.put('/orders/:id', allow('cashier', 'waiter', 'manager'), (req, res) => {
+  r.put('/orders/:id', need('pos.create', 'payments.collect'), (req, res) => {
     const id = Number(req.params.id);
     const o = get('SELECT status FROM orders WHERE id = ?', id);
     if (!o) throw notFound();
@@ -280,26 +318,26 @@ export function buildRouter(emit) {
     if (u) run(u.sql, ...u.params);
     res.json(orderChanged(id));
   });
-  r.post('/orders/:id/pay', allow('cashier', 'manager'), (req, res) => {
+  r.post('/orders/:id/pay', need('payments.collect'), (req, res) => {
     const id = Number(req.params.id);
     const result = Orders.pay(id, req.body?.payments, req.user);
     if (result.closed) changed('inventory', 'kitchen');
     res.json({ ...result, order: orderChanged(id) });
   });
-  r.post('/orders/:id/cancel', allow('cashier', 'manager'), (req, res) => {
+  r.post('/orders/:id/cancel', need('orders.cancel'), (req, res) => {
     const id = Number(req.params.id);
     Orders.cancelOrder(id, req.body?.reason, req.user);
     changed('kitchen');
     res.json(orderChanged(id));
   });
-  r.post('/orders/:id/move', allow('cashier', 'waiter', 'manager'), (req, res) => {
+  r.post('/orders/:id/move', need('orders.move'), (req, res) => {
     const id = Number(req.params.id);
     Orders.moveTable(id, Number(req.body?.table_id), req.user);
     res.json(orderChanged(id));
   });
 
   // ───────────── شاشة المطبخ ─────────────
-  r.get('/kitchen', allow('kitchen', 'manager', 'cashier', 'waiter'), (req, res) => {
+  r.get('/kitchen', need('kitchen.view', 'kitchen.update'), (req, res) => {
     const { station } = req.query;
     const items = all(`
       SELECT oi.*, o.number, o.code, o.type, o.guests, o.customer_name, o.notes AS order_notes, t.name AS table_name,
@@ -334,7 +372,7 @@ export function buildRouter(emit) {
     }
     res.json(orders);
   });
-  r.patch('/kitchen/items/:id', allow('kitchen', 'manager'), (req, res) => {
+  r.patch('/kitchen/items/:id', need('kitchen.update'), (req, res) => {
     const { status } = req.body || {};
     if (!['new', 'preparing', 'ready', 'served'].includes(status)) throw bad('الحالة غير صحيحة');
     const item = get('SELECT order_id, status FROM order_items WHERE id = ?', Number(req.params.id));
@@ -345,7 +383,7 @@ export function buildRouter(emit) {
     changed('kitchen', 'orders', 'tables');
     res.json({ ok: true });
   });
-  r.post('/kitchen/orders/:id/bump', allow('kitchen', 'manager'), (req, res) => {
+  r.post('/kitchen/orders/:id/bump', need('kitchen.update'), (req, res) => {
     const { status = 'ready' } = req.body || {};
     if (!['preparing', 'ready', 'served'].includes(status)) throw bad('الحالة غير صحيحة');
     const from = { preparing: "('new')", ready: "('new','preparing')", served: "('ready')" }[status];
@@ -358,30 +396,31 @@ export function buildRouter(emit) {
   });
 
   // ───────────── المخزون ─────────────
-  r.get('/ingredients', allow('manager', 'kitchen'), (req, res) => {
+  r.get('/ingredients', need('inventory.view', 'inventory.manage', 'menu.manage'), (req, res) => {
     res.json(all('SELECT *, (stock <= min_stock) AS low FROM ingredients WHERE active = 1 ORDER BY name'));
   });
-  r.post('/ingredients', allow('manager'), (req, res) => {
+  r.post('/ingredients', need('inventory.manage'), (req, res) => {
     const b = req.body || {};
     if (!b.name) throw bad('أدخل اسم المادة');
     const info = run('INSERT INTO ingredients(name, unit, stock, min_stock, cost_per_unit) VALUES(?,?,?,?,?)',
       b.name, b.unit || 'كغ', Number(b.stock) || 0, Number(b.min_stock) || 0, Number(b.cost_per_unit) || 0);
+    audit(req.user.id, 'stock.ingredient_create', 'ingredient', Number(info.lastInsertRowid), { name: b.name });
     changed('inventory');
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
-  r.put('/ingredients/:id', allow('manager'), (req, res) => {
+  r.put('/ingredients/:id', need('inventory.manage'), (req, res) => {
     const u = updateSql('ingredients', pick(req.body, ['name', 'unit', 'min_stock', 'cost_per_unit']), Number(req.params.id));
     if (u) run(u.sql, ...u.params);
     changed('inventory');
     res.json({ ok: true });
   });
-  r.delete('/ingredients/:id', allow('manager'), (req, res) => {
+  r.delete('/ingredients/:id', need('inventory.manage'), (req, res) => {
     run('UPDATE ingredients SET active = 0 WHERE id = ?', Number(req.params.id));
     changed('inventory');
     res.json({ ok: true });
   });
   // حركة مخزون: شراء / تالف / تسوية جرد
-  r.post('/stock-movements', allow('manager', 'kitchen'), (req, res) => {
+  r.post('/stock-movements', need('inventory.receive', 'inventory.manage'), (req, res) => {
     const { ingredient_id, qty, type, unit_cost, note } = req.body || {};
     const ing = get('SELECT * FROM ingredients WHERE id = ?', ingredient_id);
     if (!ing) throw notFound('المادة غير موجودة');
@@ -402,10 +441,11 @@ export function buildRouter(emit) {
       run('INSERT INTO stock_movements(ingredient_id, qty, type, unit_cost, note, user_id) VALUES(?,?,?,?,?,?)',
         ing.id, delta, type, unit_cost ? Number(unit_cost) : null, note || null, req.user.id);
     });
+    audit(req.user.id, `stock.${type}`, 'ingredient', ing.id, { name: ing.name, qty: Math.round(delta * 1000) / 1000, unit: ing.unit, note: note || undefined });
     changed('inventory');
     res.status(201).json({ ok: true });
   });
-  r.get('/stock-movements', allow('manager'), (req, res) => {
+  r.get('/stock-movements', need('inventory.manage'), (req, res) => {
     const { ingredient_id } = req.query;
     res.json(all(`SELECT m.*, i.name AS ingredient_name, i.unit, u.name AS user_name
       FROM stock_movements m JOIN ingredients i ON i.id = m.ingredient_id LEFT JOIN users u ON u.id = m.user_id
@@ -423,17 +463,17 @@ export function buildRouter(emit) {
     const s = get('SELECT s.*, u.name AS user_name FROM shifts s JOIN users u ON u.id = s.user_id WHERE closed_at IS NULL ORDER BY s.id DESC LIMIT 1');
     res.json(s ? shiftSummary(s) : null);
   });
-  r.get('/shifts', allow('manager'), (req, res) => {
+  r.get('/shifts', need('reports.view'), (req, res) => {
     res.json(all('SELECT s.*, u.name AS user_name FROM shifts s JOIN users u ON u.id = s.user_id ORDER BY s.id DESC LIMIT 100'));
   });
-  r.post('/shifts/open', allow('cashier', 'manager'), (req, res) => {
+  r.post('/shifts/open', need('shifts.manage'), (req, res) => {
     if (get('SELECT id FROM shifts WHERE closed_at IS NULL')) throw bad('توجد وردية مفتوحة بالفعل');
     const info = run('INSERT INTO shifts(user_id, opening_cash) VALUES(?,?)', req.user.id, Number(req.body?.opening_cash) || 0);
     audit(req.user.id, 'shift.open', 'shift', Number(info.lastInsertRowid));
     changed('shift');
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
-  r.post('/shifts/close', allow('cashier', 'manager'), (req, res) => {
+  r.post('/shifts/close', need('shifts.manage'), (req, res) => {
     const s = get('SELECT * FROM shifts WHERE closed_at IS NULL ORDER BY id DESC LIMIT 1');
     if (!s) throw bad('لا توجد وردية مفتوحة');
     const summary = shiftSummary(s);
@@ -451,26 +491,28 @@ export function buildRouter(emit) {
     res.json(all(`SELECT r.*, t.name AS table_name FROM reservations r LEFT JOIN dining_tables t ON t.id = r.table_id
       WHERE date(r.reserved_at) = ? ORDER BY r.reserved_at`, date));
   });
-  r.post('/reservations', allow('cashier', 'waiter', 'manager'), (req, res) => {
+  r.post('/reservations', need('reservations.manage'), (req, res) => {
     const b = req.body || {};
     if (!b.customer_name || !b.reserved_at) throw bad('أدخل اسم العميل ووقت الحجز');
     const info = run('INSERT INTO reservations(table_id, customer_name, phone, party_size, reserved_at, notes) VALUES(?,?,?,?,?,?)',
       b.table_id || null, b.customer_name, b.phone || null, Number(b.party_size) || 2, String(b.reserved_at).replace('T', ' '), b.notes || null);
+    audit(req.user.id, 'reservation.create', 'reservation', Number(info.lastInsertRowid), { name: b.customer_name, at: b.reserved_at });
     changed('tables', 'reservations');
     res.status(201).json({ id: Number(info.lastInsertRowid) });
   });
-  r.put('/reservations/:id', allow('cashier', 'waiter', 'manager'), (req, res) => {
+  r.put('/reservations/:id', need('reservations.manage'), (req, res) => {
     const fields = pick(req.body, ['table_id', 'customer_name', 'phone', 'party_size', 'reserved_at', 'status', 'notes']);
     if (fields.reserved_at) fields.reserved_at = String(fields.reserved_at).replace('T', ' ');
     if (fields.status && !['booked', 'seated', 'cancelled', 'no_show'].includes(fields.status)) throw bad('الحالة غير صحيحة');
     const u = updateSql('reservations', fields, Number(req.params.id));
     if (u) run(u.sql, ...u.params);
+    audit(req.user.id, fields.status ? `reservation.${fields.status}` : 'reservation.update', 'reservation', Number(req.params.id));
     changed('tables', 'reservations');
     res.json({ ok: true });
   });
 
   // ───────────── العملاء ─────────────
-  r.get('/customers', (req, res) => {
+  r.get('/customers', need('customers.view'), (req, res) => {
     const q = req.query.q ? `%${req.query.q}%` : null;
     res.json(all(`SELECT c.*, (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id AND o.status='paid') AS orders_count,
       (SELECT COALESCE(SUM(total),0) FROM orders o WHERE o.customer_id = c.id AND o.status='paid') AS total_spent
@@ -478,7 +520,7 @@ export function buildRouter(emit) {
   });
 
   // ───────────── التقارير ─────────────
-  r.get('/reports/summary', allow('manager'), (req, res) => {
+  r.get('/reports/summary', need('reports.view'), (req, res) => {
     const from = req.query.from || today();
     const to = req.query.to || from;
     const range = "date(o.created_at) BETWEEN ? AND ?";
@@ -564,8 +606,30 @@ export function buildRouter(emit) {
     res.json({ ok: true, enabled: pushEnabled() });
   });
 
-  r.get('/audit', allow(), (req, res) => {
-    res.json(all(`SELECT a.*, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT 300`));
+  r.get('/audit', need('activity.view'), (req, res) => {
+    const { user_id, category, from, to, q, before } = req.query;
+    const where = [];
+    const params = [];
+    if (user_id) { where.push('a.user_id = ?'); params.push(Number(user_id)); }
+    if (category) { where.push('a.action LIKE ?'); params.push(`${category}.%`); }
+    if (from) { where.push('date(a.created_at) >= ?'); params.push(from); }
+    if (to) { where.push('date(a.created_at) <= ?'); params.push(to); }
+    if (before) { where.push('a.id < ?'); params.push(Number(before)); }
+    if (q) { where.push('(a.details LIKE ? OR o.code LIKE ? OR u.name LIKE ?)'); params.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+    const limit = Math.min(Number(req.query.limit) || 100, 300);
+    const rows = all(`SELECT a.*, u.name AS user_name, u.role AS user_role,
+        CASE WHEN a.entity = 'order' THEN o.code END AS order_code,
+        CASE WHEN a.entity = 'employee' THEN e.name WHEN a.entity = 'user' THEN tu.name WHEN a.entity = 'item' THEN mi.name END AS entity_name
+      FROM audit_log a
+      LEFT JOIN users u ON u.id = a.user_id
+      LEFT JOIN orders o ON a.entity = 'order' AND o.id = a.entity_id
+      LEFT JOIN employees e ON a.entity = 'employee' AND e.id = a.entity_id
+      LEFT JOIN users tu ON a.entity = 'user' AND tu.id = a.entity_id
+      LEFT JOIN menu_items mi ON a.entity = 'item' AND mi.id = a.entity_id
+      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+      ORDER BY a.id DESC LIMIT ?`, ...params, limit + 1);
+    const more = rows.length > limit;
+    res.json({ rows: rows.slice(0, limit).map((r) => ({ ...r, details: r.details ? JSON.parse(r.details) : null })), more });
   });
 
   return r;

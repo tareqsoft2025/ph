@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 import {
-  useApp, useData, useMoney, useAction, useToast, can, Modal, Field, Empty, Loading,
+  useApp, useData, useMoney, useAction, useToast, has, Modal, Field, Empty, Loading,
   ORDER_TYPES, ITEM_STATUS, PAY_METHODS,
 } from '../lib.jsx';
 import Receipt from '../components/Receipt.jsx';
 import OrderTimeline from '../components/OrderTimeline.jsx';
-import { Search, Utensils, SlidersHorizontal, Plus, StickyNote, ShoppingBag, Flame, CheckCheck, Printer, CreditCard, TriangleAlert, X, History, Minus, UserRound, Phone, MapPin, Armchair } from 'lucide-react';
+import { PayModal, DiscountModal } from '../components/PaymentModals.jsx';
+import { Search, Utensils, SlidersHorizontal, Plus, StickyNote, ShoppingBag, Flame, CheckCheck, Printer, CreditCard, TriangleAlert, X, History, Minus, UserRound, Phone, MapPin, Armchair, ReceiptText } from 'lucide-react';
 
 let draftSeq = 1;
 
@@ -35,7 +36,7 @@ export default function Pos() {
   const [printOrder, setPrintOrder] = useState(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [meta, setMeta] = useState({
-    type: params.get('type') || (user.role === 'waiter' ? 'dine_in' : 'takeaway'),
+    type: params.get('type') || (has(user, 'payments.collect') ? 'takeaway' : 'dine_in'),
     table_id: params.get('table') ? Number(params.get('table')) : '',
     customer_name: '', customer_phone: '', address: '', guests: params.get('table') ? 2 : '', notes: '',
   });
@@ -71,7 +72,11 @@ export default function Pos() {
   const price = (n) => (Number.isInteger(n) ? String(n) : Number(n).toFixed(2));
   const draftTotal = draft.reduce((a, d) => a + d.unit * d.qty, 0);
   const isOpen = !order || order.status === 'open';
-  const canPay = can(user, 'cashier', 'manager');
+  const canPay = has(user, 'payments.collect');
+  const canEdit = has(user, 'pos.create');
+  const canDiscount = has(user, 'orders.discount');
+  const canCancel = has(user, 'orders.cancel');
+  const canCancelItem = has(user, 'orders.cancel_item');
 
   function addToDraft(item, { modifiers = [], qty = 1, notes = '' } = {}) {
     if (!item.available) return toast('هذا الصنف غير متوفر حالياً', 'err');
@@ -113,7 +118,7 @@ export default function Pos() {
     if (!order) navigate(`/pos/${r.id}`, { replace: true });
     else orderQ.setData(r);
     if (thenPay) setPaying(true);
-    else if (send && user.role === 'waiter') navigate('/tables');
+    else if (send && !canPay) navigate('/tables');
   }
 
   async function lineAction(line, body) {
@@ -128,6 +133,11 @@ export default function Pos() {
     if (r) navigate('/orders');
   }
 
+  async function requestBill() {
+    const r = await run(() => api(`/orders/${order.id}/request-bill`, { method: 'POST' }), 'تم إبلاغ الكاشير بطلب الحساب');
+    if (r) orderQ.setData(r);
+  }
+
   async function serveReady() {
     const r = await run(() => api(`/orders/${order.id}/serve`, { method: 'POST' }), 'تم التقديم');
     if (r) orderQ.setData(r);
@@ -139,6 +149,9 @@ export default function Pos() {
   }
 
   if (menu.loading || (orderId && orderQ.loading && !order)) return <Loading />;
+  if (!orderId && !canEdit) {
+    return <Empty icon={ShoppingBag} text={canPay ? 'إنشاء الطلبات ليس من صلاحياتك. استخدم صفحة الكاشير لتحصيل الدفعات.' : 'ليس لديك صلاحية إنشاء الطلبات.'} />;
+  }
   if (orderId && orderQ.error) return <Empty icon={TriangleAlert} text={orderQ.error} />;
 
   const freeTables = (tables.data || []).filter((t) => t.status !== 'occupied' || t.order_id === order?.id);
@@ -181,7 +194,7 @@ export default function Pos() {
               const art = it.image || catIcon[it.category_id] || '';
               return (
                 <button key={it.id} className={`dish st-${it.station} ${it.available ? '' : 'unavailable'} ${inCart ? 'in-cart' : ''}`}
-                  onClick={() => isOpen && onItemClick(it)} disabled={!isOpen}
+                  onClick={() => isOpen && canEdit && onItemClick(it)} disabled={!isOpen || !canEdit}
                   aria-label={`${it.name}، ${money(it.price)}${it.available ? '' : '، غير متوفر'}`}>
                   <span className="dish-art" aria-hidden>
                     {/^(https?:|data:)/.test(art) ? <img src={art} alt="" loading="lazy" /> : art ? <span className="dish-emoji">{art}</span> : <Utensils size={30} strokeWidth={1.5} />}
@@ -299,7 +312,7 @@ export default function Pos() {
                     <button className="btn btn-xs" onClick={() => lineAction(l, { qty: l.qty + 1 })} disabled={busy} aria-label="زيادة">+</button>
                   </span>
                 )}
-                {isOpen && l.status !== 'cancelled' && l.status !== 'served' && (l.status === 'pending' || canPay) && (
+                {isOpen && l.status !== 'cancelled' && l.status !== 'served' && (l.status === 'pending' ? canEdit : canCancelItem) && (
                   <button className="btn btn-xs btn-danger-ghost" onClick={() => lineAction(l, { cancel: true })} disabled={busy}>إلغاء</button>
                 )}
               </div>
@@ -346,7 +359,7 @@ export default function Pos() {
 
         {isOpen && (
           <div className="cart-actions">
-            {(draft.length > 0 || pendingCount > 0) && (
+            {canEdit && (draft.length > 0 || pendingCount > 0) && (
               <div className="grid-2">
                 <button className="btn btn-primary btn-lg" onClick={() => submit({ send: true })} disabled={busy}><Flame size={19} /> إرسال للمطبخ</button>
                 <button className="btn btn-lg" onClick={() => submit({ send: false })} disabled={busy || !draft.length}>حفظ</button>
@@ -355,10 +368,15 @@ export default function Pos() {
             {order && (
               <div className="btn-row">
                 {readyCount > 0 && <button className="btn btn-ok" onClick={serveReady} disabled={busy}><CheckCheck size={18} /> تقديم ({readyCount})</button>}
-                {canPay && <button className="btn" onClick={() => setDiscountOpen(true)}>خصم</button>}
-                {order.type === 'dine_in' && <button className="btn" onClick={() => setMoveOpen(true)}>نقل طاولة</button>}
+                {canDiscount && <button className="btn" onClick={() => setDiscountOpen(true)}>خصم</button>}
+                {order.type === 'dine_in' && has(user, 'orders.move') && <button className="btn" onClick={() => setMoveOpen(true)}>نقل طاولة</button>}
+                {!canPay && canEdit && (
+                  <button className={`btn ${order.bill_requested_at ? '' : 'btn-primary'}`} onClick={requestBill} disabled={busy || !!order.bill_requested_at}>
+                    <ReceiptText size={17} /> {order.bill_requested_at ? 'طُلب الحساب' : 'طلب الحساب'}
+                  </button>
+                )}
                 <button className="btn" onClick={() => setPrintOrder(order)}><Printer size={17} /> طباعة</button>
-                {canPay && <button className="btn btn-danger-ghost" onClick={cancelOrder} disabled={busy || order.paid > 0}>إلغاء الطلب</button>}
+                {canCancel && <button className="btn btn-danger-ghost" onClick={cancelOrder} disabled={busy || order.paid > 0}>إلغاء الطلب</button>}
               </div>
             )}
             {canPay && (order || draft.length > 0) && (
@@ -439,100 +457,6 @@ function ModifierPicker({ item, money, onClose, onAdd }) {
       <Field label="ملاحظات للمطبخ">
         <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="مثال: بدون مايونيز" />
       </Field>
-    </Modal>
-  );
-}
-
-function PayModal({ order, money, onClose, onPaid }) {
-  const [run, busy] = useAction();
-  const remaining = Math.round((order.total - order.paid) * 100) / 100;
-  const [lines, setLines] = useState([]);
-  const [method, setMethod] = useState('cash');
-  const [amount, setAmount] = useState(String(remaining));
-  useEffect(() => { setLines([]); setAmount(String(remaining)); }, [remaining]);
-  const entered = lines.reduce((a, l) => a + l.amount, 0);
-  const left = Math.round((remaining - entered) * 100) / 100;
-  const pendingAmt = Number(amount) || 0;
-  const change = Math.max(0, Math.round((entered + pendingAmt - remaining) * 100) / 100);
-  const quick = [...new Set([left, Math.ceil(left / 10) * 10, Math.ceil(left / 50) * 50, Math.ceil(left / 100) * 100].filter((x) => x > 0))];
-
-  function addLine() {
-    if (!(pendingAmt > 0)) return;
-    setLines([...lines, { method, amount: pendingAmt }]);
-    const newLeft = Math.max(0, Math.round((left - pendingAmt) * 100) / 100);
-    setAmount(String(newLeft));
-  }
-
-  async function confirm() {
-    const payments = [...lines];
-    if (pendingAmt > 0) payments.push({ method, amount: pendingAmt });
-    if (!payments.length) return;
-    const r = await run(() => api(`/orders/${order.id}/pay`, { method: 'POST', body: { payments } }));
-    if (r) onPaid(r);
-  }
-
-  return (
-    <Modal title={`دفع طلب #${order.number}`} onClose={onClose} footer={
-      <button className="btn btn-ok btn-lg btn-block" onClick={confirm} disabled={busy}>
-        تأكيد الدفع {change > 0 ? `· الباقي للعميل ${money(change)}` : ''}
-      </button>
-    }>
-      <div className="pay-total">
-        <span>المطلوب</span>
-        <strong>{money(remaining)}</strong>
-      </div>
-      <div className="seg seg-lg" role="radiogroup" aria-label="طريقة الدفع">
-        {Object.entries(PAY_METHODS).map(([k, v]) => (
-          <button key={k} role="radio" aria-checked={method === k} className={method === k ? 'active' : ''} onClick={() => setMethod(k)}>{v}</button>
-        ))}
-      </div>
-      <Field label="المبلغ">
-        <input type="number" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="input-lg" />
-      </Field>
-      {method === 'cash' && (
-        <div className="quick-amounts">
-          {quick.map((v) => <button key={v} className="btn" onClick={() => setAmount(String(v))}>{v}</button>)}
-        </div>
-      )}
-      <button className="btn btn-ghost btn-block" onClick={addLine} disabled={!(pendingAmt > 0) || pendingAmt >= left}>+ تقسيم الدفع (إضافة طريقة أخرى)</button>
-      {lines.length > 0 && (
-        <ul className="pay-lines">
-          {lines.map((l, i) => (
-            <li key={i}><span>{PAY_METHODS[l.method]}</span><span>{money(l.amount)}</span>
-              <button className="btn btn-xs btn-danger-ghost" onClick={() => setLines(lines.filter((_, j) => j !== i))}>حذف</button></li>
-          ))}
-          <li className="muted"><span>المتبقي</span><span>{money(Math.max(0, left))}</span><span /></li>
-        </ul>
-      )}
-    </Modal>
-  );
-}
-
-function DiscountModal({ order, onClose, onDone }) {
-  const [run, busy] = useAction();
-  const [type, setType] = useState(order.discount_type || 'percent');
-  const [value, setValue] = useState(order.discount_value || '');
-  async function save(v) {
-    const r = await run(() => api(`/orders/${order.id}/discount`, { method: 'POST', body: { type, value: v } }), 'تم تطبيق الخصم');
-    if (r) onDone(r);
-  }
-  return (
-    <Modal title="خصم على الطلب" onClose={onClose} footer={
-      <>
-        {order.discount > 0 && <button className="btn btn-danger-ghost" onClick={() => save(0)} disabled={busy}>إزالة الخصم</button>}
-        <button className="btn btn-primary" onClick={() => save(Number(value) || 0)} disabled={busy}>تطبيق</button>
-      </>
-    }>
-      <div className="seg" role="radiogroup">
-        <button className={type === 'percent' ? 'active' : ''} onClick={() => setType('percent')}>نسبة %</button>
-        <button className={type === 'amount' ? 'active' : ''} onClick={() => setType('amount')}>مبلغ</button>
-      </div>
-      <Field label={type === 'percent' ? 'النسبة' : 'المبلغ'}>
-        <input type="number" min="0" value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
-      </Field>
-      {type === 'percent' && (
-        <div className="quick-amounts">{[5, 10, 15, 20, 25, 50].map((p) => <button key={p} className="btn" onClick={() => setValue(p)}>{p}%</button>)}</div>
-      )}
     </Modal>
   );
 }

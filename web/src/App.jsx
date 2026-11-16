@@ -2,12 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
-  UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, IdCard, Fingerprint, CalendarOff, Banknote, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff,
+  UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, IdCard, Fingerprint, CalendarOff, Banknote, HandCoins, History, KeyRound, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff,
 } from 'lucide-react';
 import {
   api, connectSocket, disconnectSocket, getToken, setToken, needsServerUrl, setUnauthorizedHandler, getServerUrl,
 } from './api.js';
-import { AppContext, ROLE_LABELS, can, Loading } from './lib.jsx';
+import { AppContext, ROLE_LABELS, has, Loading } from './lib.jsx';
 import { NotificationsProvider, NotificationBell } from './notifications.jsx';
 import { teardownPush } from './push.js';
 import Login from './pages/Login.jsx';
@@ -30,36 +30,44 @@ import EmployeeProfile from './pages/EmployeeProfile.jsx';
 import Attendance from './pages/Attendance.jsx';
 import Leaves from './pages/Leaves.jsx';
 import Payroll from './pages/Payroll.jsx';
+import Cashier from './pages/Cashier.jsx';
+import Activity from './pages/Activity.jsx';
+import Permissions from './pages/Permissions.jsx';
 
-// عناصر القائمة الجانبية مع الأدوار المسموح لها، مجمّعة في أقسام
+// عناصر القائمة الجانبية مع الصلاحيات المطلوبة (يكفي امتلاك واحدة)
 const NAV = [
   { group: 'العمليات اليومية', items: [
-    { to: '/dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, roles: ['manager'] },
-    { to: '/pos', label: 'نقطة البيع', icon: ReceiptText, roles: ['cashier', 'waiter', 'manager'] },
-    { to: '/tables', label: 'الطاولات', icon: Armchair, roles: ['cashier', 'waiter', 'manager'] },
-    { to: '/orders', label: 'الطلبات', icon: ClipboardList, roles: ['cashier', 'waiter', 'manager'] },
-    { to: '/kitchen', label: 'شاشة المطبخ', icon: ChefHat, roles: ['kitchen', 'manager'] },
-    { to: '/reservations', label: 'الحجوزات', icon: CalendarDays, roles: ['cashier', 'waiter', 'manager'] },
-    { to: '/shifts', label: 'الورديات', icon: Wallet, roles: ['cashier', 'manager'] },
+    { to: '/dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, perms: ['reports.view'] },
+    { to: '/cashier', label: 'الكاشير', icon: Banknote, perms: ['payments.collect'] },
+    { to: '/pos', label: 'نقطة البيع', icon: ReceiptText, perms: ['pos.create'] },
+    { to: '/tables', label: 'الطاولات', icon: Armchair, perms: ['tables.view', 'pos.create'] },
+    { to: '/orders', label: 'الطلبات', icon: ClipboardList, perms: ['orders.view', 'pos.create', 'payments.collect'] },
+    { to: '/kitchen', label: 'شاشة المطبخ', icon: ChefHat, perms: ['kitchen.view', 'kitchen.update'] },
+    { to: '/reservations', label: 'الحجوزات', icon: CalendarDays, perms: ['reservations.manage'] },
+    { to: '/shifts', label: 'الورديات', icon: Wallet, perms: ['shifts.manage', 'reports.view'] },
   ] },
   { group: 'الموارد البشرية', items: [
-    { to: '/attendance', label: 'الحضور والانصراف', icon: Fingerprint, roles: ['cashier', 'waiter', 'kitchen', 'manager'] },
-    { to: '/leaves', label: 'الإجازات', icon: CalendarOff, roles: ['cashier', 'waiter', 'kitchen', 'manager'] },
-    { to: '/employees', label: 'الموظفون', icon: IdCard, roles: ['manager'] },
-    { to: '/payroll', label: 'الرواتب', icon: Banknote, roles: ['manager'] },
+    { to: '/attendance', label: 'الحضور والانصراف', icon: Fingerprint, perms: ['*'] },
+    { to: '/leaves', label: 'الإجازات', icon: CalendarOff, perms: ['*'] },
+    { to: '/employees', label: 'الموظفون', icon: IdCard, perms: ['hr.employees'] },
+    { to: '/payroll', label: 'الرواتب', icon: HandCoins, perms: ['hr.payroll'] },
   ] },
   { group: 'الإدارة', items: [
-    { to: '/menu', label: 'قائمة الطعام', icon: UtensilsCrossed, roles: ['manager'] },
-    { to: '/inventory', label: 'المخزون', icon: Package, roles: ['manager', 'kitchen'] },
-    { to: '/customers', label: 'العملاء', icon: UsersIcon, roles: ['cashier', 'manager'] },
-    { to: '/reports', label: 'التقارير', icon: ChartColumn, roles: ['manager'] },
-    { to: '/users', label: 'المستخدمون', icon: ShieldCheck, roles: ['manager'] },
-    { to: '/settings', label: 'الإعدادات', icon: SettingsIcon, roles: ['manager'] },
+    { to: '/menu', label: 'قائمة الطعام', icon: UtensilsCrossed, perms: ['menu.manage'] },
+    { to: '/inventory', label: 'المخزون', icon: Package, perms: ['inventory.view', 'inventory.receive', 'inventory.manage'] },
+    { to: '/customers', label: 'العملاء', icon: UsersIcon, perms: ['customers.view'] },
+    { to: '/reports', label: 'التقارير', icon: ChartColumn, perms: ['reports.view'] },
+    { to: '/activity', label: 'سجل الحركات', icon: History, perms: ['activity.view'] },
+    { to: '/users', label: 'المستخدمون', icon: ShieldCheck, perms: ['users.manage'] },
+    { to: '/permissions', label: 'الصلاحيات', icon: KeyRound, perms: ['__admin'] },
+    { to: '/settings', label: 'الإعدادات', icon: SettingsIcon, perms: ['settings.manage'] },
   ] },
 ];
 const ALL_NAV = NAV.flatMap((g) => g.items);
+const allowed = (user, n) => n.perms.includes('*') || (n.perms.includes('__admin') ? user.role === 'admin' : has(user, ...n.perms));
 
-const HOME = { admin: '/dashboard', manager: '/dashboard', cashier: '/pos', waiter: '/tables', kitchen: '/kitchen' };
+// الصفحة الرئيسية المفضلة لكل دور (إن كانت مسموحة)
+const PREFERRED = { admin: '/dashboard', manager: '/dashboard', cashier: '/cashier', waiter: '/tables', kitchen: '/kitchen' };
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -86,6 +94,8 @@ export default function App() {
     sock.on('connect', () => setOnline(true));
     sock.on('disconnect', () => setOnline(false));
     sock.on('settings', () => api('/settings').then(setSettings).catch(() => {}));
+    // تحديث الصلاحيات فوراً عند تعديلها من المدير
+    sock.on('permissions', () => api('/auth/me').then(setUser).catch(() => {}));
     setSettings(s);
     setUser(me);
   }, []);
@@ -107,8 +117,9 @@ export default function App() {
     );
   }
 
-  const groups = NAV.map((g) => ({ ...g, items: g.items.filter((n) => can(user, ...n.roles)) })).filter((g) => g.items.length);
-  const home = HOME[user.role];
+  const groups = NAV.map((g) => ({ ...g, items: g.items.filter((n) => allowed(user, n)) })).filter((g) => g.items.length);
+  const pref = ALL_NAV.find((n) => n.to === PREFERRED[user.role]);
+  const home = pref && allowed(user, pref) ? pref.to : (groups[0]?.items[0]?.to || '/attendance');
   const current = ALL_NAV.find((n) => location.pathname.startsWith(n.to));
 
   return (
@@ -179,6 +190,9 @@ export default function App() {
               <Route path="/attendance" element={<Attendance />} />
               <Route path="/leaves" element={<Leaves />} />
               <Route path="/payroll" element={<Payroll />} />
+              <Route path="/cashier" element={<Cashier />} />
+              <Route path="/activity" element={<Activity />} />
+              <Route path="/permissions" element={<Permissions />} />
               <Route path="*" element={<Navigate to={home} replace />} />
             </Routes>
           </div>

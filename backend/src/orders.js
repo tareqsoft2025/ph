@@ -2,6 +2,7 @@
 import { get, all, run, tx, getSettings, audit } from './db.js';
 import { bad, notFound, round2 } from './util.js';
 import { notify } from './notify.js';
+import { hasPerm } from './perms.js';
 
 const TYPE_LABEL = { dine_in: 'صالة', takeaway: 'سفري', delivery: 'توصيل' };
 
@@ -173,12 +174,14 @@ export function updateItem(orderId, lineId, data, user) {
   const sent = line.status !== 'pending';
 
   if (data.cancel) {
-    if (sent && !['admin', 'manager', 'cashier'].includes(user.role)) throw bad('إلغاء صنف أُرسل للمطبخ يحتاج صلاحية الكاشير أو المدير');
+    if (sent && !hasPerm(user, 'orders.cancel_item')) throw bad('إلغاء صنف أُرسل للمطبخ يحتاج صلاحية خاصة');
+    if (!sent && !hasPerm(user, 'pos.create')) throw bad('ليس لديك صلاحية تعديل الطلب');
     if (sent) run("UPDATE order_items SET status = 'cancelled' WHERE id = ?", lineId);
     else run('DELETE FROM order_items WHERE id = ?', lineId);
     audit(user.id, 'order.cancel_item', 'order', orderId, { line: lineId, name: line.name, qty: line.qty, sent });
     logEvent(orderId, 'item_cancelled', user.id, `إلغاء ${line.qty}× ${line.name}`);
   } else {
+    if (!hasPerm(user, 'pos.create')) throw bad('ليس لديك صلاحية تعديل الطلب');
     if (sent && data.qty !== undefined && Number(data.qty) !== line.qty) throw bad('لا يمكن تعديل كمية صنف أُرسل للمطبخ، ألغِه وأضف من جديد');
     const qty = data.qty !== undefined ? Math.max(1, parseInt(data.qty, 10) || 1) : line.qty;
     run('UPDATE order_items SET qty = ?, notes = ? WHERE id = ?', qty, data.notes !== undefined ? data.notes : line.notes, lineId);
@@ -199,7 +202,7 @@ export function sendToKitchen(orderId, user) {
     logEvent(orderId, 'sent', user.id, `أُرسل ${qty} صنف للمطبخ`, { items: lines });
     const { code, where } = orderLabel(orderId);
     notify({
-      roles: ['kitchen'], type: 'order_new', level: 'info', link: '/kitchen',
+      perms: ['kitchen.update'], type: 'order_new', level: 'info', link: '/kitchen',
       title: `طلب جديد ${code}`, body: `${where} · ${qty} صنف · من ${user.name}`,
     });
   }
@@ -270,6 +273,16 @@ function closeOrder(orderId, user) {
   run("UPDATE orders SET status = 'paid', closed_at = datetime('now','localtime'), shift_id = COALESCE(shift_id, (SELECT id FROM shifts WHERE closed_at IS NULL ORDER BY id DESC LIMIT 1)) WHERE id = ?", orderId);
   // الأصناف التي لم تُرسل تُعتبر مقدّمة
   run("UPDATE order_items SET status = 'served' WHERE order_id = ? AND status = 'pending'", orderId);
+  // طلب الصالة ينتهي بالدفع: كل الأصناف مقدّمة وتُحرَّر الطاولة
+  const o0 = get('SELECT type, table_id FROM orders WHERE id = ?', orderId);
+  if (o0.type === 'dine_in') {
+    const r = run("UPDATE order_items SET status = 'served' WHERE order_id = ? AND status IN ('new','preparing','ready')", orderId);
+    if (Number(r.changes) || !get("SELECT id FROM order_events WHERE order_id = ? AND type = 'served'", orderId)) {
+      logEvent(orderId, 'served', user.id, 'تم التقديم');
+    }
+    const t = get('SELECT name FROM dining_tables WHERE id = ?', o0.table_id);
+    if (t) logEvent(orderId, 'table_released', user.id, `تحرير ${t.name}`);
+  }
   // خصم المخزون حسب الوصفات
   const usage = all(`
     SELECT r.ingredient_id, SUM(r.qty * oi.qty) AS used
@@ -279,7 +292,7 @@ function closeOrder(orderId, user) {
   for (const u of usage) {
     const ing = get('SELECT name, unit, stock, min_stock FROM ingredients WHERE id = ?', u.ingredient_id);
     if (ing && ing.stock > ing.min_stock && ing.stock - u.used <= ing.min_stock) {
-      notify({ roles: ['manager', 'admin'], type: 'low_stock', level: 'warning', link: '/inventory',
+      notify({ perms: ['inventory.manage'], type: 'low_stock', level: 'warning', link: '/inventory',
         title: `مخزون منخفض: ${ing.name}`, body: `المتبقي ${+(ing.stock - u.used).toFixed(2)} ${ing.unit} (الحد الأدنى ${ing.min_stock})` });
     }
     run('UPDATE ingredients SET stock = stock - ? WHERE id = ?', u.used, u.ingredient_id);
@@ -327,10 +340,11 @@ export function kitchenProgress(orderId, status, user, changed) {
   const pending = get("SELECT COUNT(*) AS c FROM order_items WHERE order_id = ? AND status IN ('new','preparing')", orderId).c;
   if (status === 'ready' && pending === 0) {
     logEvent(orderId, 'ready', user.id, 'الطلب جاهز للتقديم');
+    audit(user.id, 'kitchen.ready', 'order', orderId);
     const o = get('SELECT waiter_id, type FROM orders WHERE id = ?', orderId);
     const { code, where } = orderLabel(orderId);
     notify({
-      userIds: [o.waiter_id], roles: o.type === 'dine_in' ? [] : ['cashier'],
+      userIds: [o.waiter_id], perms: o.type === 'dine_in' ? [] : ['payments.collect'],
       type: 'order_ready', level: 'success', link: `/pos/${orderId}`,
       title: `الطلب ${code} جاهز`, body: `${where} · جهّزه ${user.name}`,
     });
@@ -340,4 +354,17 @@ export function kitchenProgress(orderId, status, user, changed) {
   } else if (status === 'served') {
     logEvent(orderId, 'served', user.id, msg);
   }
+}
+
+/** النادل يطلب الحساب: يُشعر الكاشير */
+export function requestBill(orderId, user) {
+  const order = get('SELECT * FROM orders WHERE id = ?', orderId);
+  assertOpen(order);
+  run("UPDATE orders SET bill_requested_at = datetime('now','localtime') WHERE id = ?", orderId);
+  logEvent(orderId, 'bill_requested', user.id, 'طُلب الحساب');
+  const { code, where } = orderLabel(orderId);
+  notify({
+    perms: ['payments.collect'], exclude: user.id, type: 'bill_request', level: 'warning', link: `/cashier?order=${orderId}`,
+    title: `${where} تطلب الحساب`, body: `${code} · ${order.total} · من ${user.name}`,
+  });
 }

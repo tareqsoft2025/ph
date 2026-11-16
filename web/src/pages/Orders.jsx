@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useData, useMoney, useApp, Loading, Empty, PageHead, ORDER_TYPES, todayStr, timeOf, minutesSince, useNow } from '../lib.jsx';
+import { useData, useMoney, useApp, has, Loading, Empty, PageHead, ORDER_TYPES, todayStr, timeOf, minutesSince, useNow } from '../lib.jsx';
 import { Plus, History, Search } from 'lucide-react';
 import OrderTimeline from '../components/OrderTimeline.jsx';
 
@@ -33,7 +33,7 @@ export default function Orders() {
       <div className="filters">
         <div className="seg">
           {[['open', 'المفتوحة'], ['paid', 'المدفوعة'], ['cancelled', 'الملغاة']].map(([k, v]) => (
-            (user.role !== 'waiter' || k === 'open') &&
+            (has(user, 'orders.view', 'payments.collect') || k === 'open') &&
             <button key={k} className={status === k ? 'active' : ''} onClick={() => setStatus(k)}>{v}</button>
           ))}
         </div>

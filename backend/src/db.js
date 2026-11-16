@@ -7,6 +7,7 @@ function migrate() {
   const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
   if (!cols('orders').includes('code')) db.exec('ALTER TABLE orders ADD COLUMN code TEXT');
   if (!cols('order_items').includes('sent_by')) db.exec('ALTER TABLE order_items ADD COLUMN sent_by INTEGER');
+  if (!cols('orders').includes('bill_requested_at')) db.exec('ALTER TABLE orders ADD COLUMN bill_requested_at TEXT');
   db.exec(`UPDATE orders SET code = 'ORD-' || substr(replace(date(created_at), '-', ''), 3) || '-' || printf('%04d', number) WHERE code IS NULL`);
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_code ON orders(code)');
 }

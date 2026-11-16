@@ -41,6 +41,8 @@ export function useMoney() {
 }
 
 export const can = (user, ...roles) => !!user && (user.role === 'admin' || roles.includes(user.role));
+/** هل يملك المستخدم أياً من الصلاحيات */
+export const has = (user, ...perms) => !!user && (user.role === 'admin' || perms.some((p) => user.perms?.includes(p)));
 
 /** جلب بيانات مع إعادة الجلب عند أحداث لحظية */
 export function useData(path, events = [], deps = []) {
