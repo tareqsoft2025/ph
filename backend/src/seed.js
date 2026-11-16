@@ -1,6 +1,5 @@
 // بيانات أولية: المستخدمون، الفئات، الأصناف، الطاولات، المخزون
 import bcrypt from 'bcryptjs';
-import { fileURLToPath } from 'node:url';
 import { get, run, tx } from './db.js';
 
 export function ensureSeed() {
@@ -74,8 +73,4 @@ function seed() {
   for (let i = 1; i <= 10; i++) run('INSERT INTO dining_tables(name, seats, area) VALUES(?,?,?)', `طاولة ${i}`, i % 3 === 0 ? 6 : 4, 'الصالة');
   for (let i = 1; i <= 4; i++) run('INSERT INTO dining_tables(name, seats, area) VALUES(?,?,?)', `ت ${i}`, 4, 'الجلسات الخارجية');
   for (let i = 1; i <= 3; i++) run('INSERT INTO dining_tables(name, seats, area) VALUES(?,?,?)', `VIP ${i}`, 8, 'العائلات');
-}
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  if (!ensureSeed()) console.log('البيانات موجودة مسبقاً');
 }

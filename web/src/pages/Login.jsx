@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, isNative, getServerUrl } from '../api.js';
+import { api, isNative, isDemo, getServerUrl, resetDemoData } from '../api.js';
 
 export default function Login({ onLogin, onChangeServer }) {
   const [username, setUsername] = useState('');
@@ -35,8 +35,27 @@ export default function Login({ onLogin, onChangeServer }) {
           <span className="field-label">كلمة المرور</span>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
         </label>
+        {isDemo && (
+          <div className="demo-box">
+            <strong>نسخة تجريبية</strong>
+            <span>تعمل بالكامل داخل المتصفح، والبيانات محفوظة على هذا الجهاز فقط.</span>
+            <div className="demo-users">
+              {[['admin', 'admin123', 'المدير'], ['cashier', '1234', 'الكاشير'], ['waiter', '1234', 'النادل'], ['kitchen', '1234', 'المطبخ']].map(([u, p, l]) => (
+                <button type="button" key={u} className="chip" onClick={() => { setUsername(u); setPassword(p); }}>{l}</button>
+              ))}
+            </div>
+            <small className="muted">اضغط على دور لتعبئة بيانات الدخول</small>
+          </div>
+        )}
         {error && <div className="alert alert-err">{error}</div>}
         <button className="btn btn-primary btn-lg btn-block" disabled={busy}>{busy ? 'جارِ الدخول…' : 'دخول'}</button>
+        {isDemo && (
+          <button type="button" className="btn btn-link" onClick={async () => {
+            if (!window.confirm('مسح كل البيانات التجريبية والبدء من جديد؟')) return;
+            await resetDemoData();
+            window.location.reload();
+          }}>إعادة ضبط البيانات التجريبية</button>
+        )}
         {isNative && (
           <button type="button" className="btn btn-link" onClick={onChangeServer}>
             الخادم: {getServerUrl()} — تغيير

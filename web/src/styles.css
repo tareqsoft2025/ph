@@ -236,6 +236,10 @@ input[type='date'], input[type='search'] { width: auto; }
 .auth-card { width: min(400px, 100%); background: var(--surface); border-radius: 20px; padding: 2rem; box-shadow: var(--shadow); text-align: center; display: flex; flex-direction: column; gap: .8rem; }
 .auth-card .field { text-align: start; }
 
+.demo-box { display: flex; flex-direction: column; gap: .4rem; padding: .8rem; border-radius: var(--radius); background: var(--primary-soft); text-align: center; }
+.demo-box strong { color: var(--primary); }
+.demo-users { display: flex; gap: .4rem; justify-content: center; flex-wrap: wrap; }
+
 /* ───────── الحقول والنوافذ ───────── */
 .field { display: flex; flex-direction: column; gap: .3rem; margin-bottom: .7rem; }
 .field-label { font-weight: 600; font-size: .9rem; }
