@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 import { useData, useMoney, useAction, Modal, Field, Loading, Empty, PageHead, STATIONS } from '../lib.jsx';
+import { Pencil, Trash2, Plus, Image as ImageIcon } from 'lucide-react';
 
 export default function MenuAdmin() {
   const money = useMoney();
@@ -22,8 +23,8 @@ export default function MenuAdmin() {
   return (
     <div>
       <PageHead title="قائمة الطعام" sub={`${data.items.length} صنف في ${data.categories.length} فئات`}>
-        <button className="btn" onClick={() => setEditCat({})}>+ فئة</button>
-        <button className="btn btn-primary" onClick={() => setEditItem({ category_id: current, price: '', station: 'kitchen', available: 1, modifiers: [], recipe: [] })}>+ صنف</button>
+        <button className="btn" onClick={() => setEditCat({})}><Plus size={18} /> فئة</button>
+        <button className="btn btn-primary" onClick={() => setEditItem({ category_id: current, price: '', station: 'kitchen', available: 1, modifiers: [], recipe: [] })}><Plus size={18} /> صنف</button>
       </PageHead>
       <div className="split">
         <aside className="list-panel">
@@ -33,7 +34,7 @@ export default function MenuAdmin() {
                 <span>{c.icon} {c.name}</span>
                 <span className="muted">{data.items.filter((i) => i.category_id === c.id).length}</span>
               </button>
-              <button className="icon-btn" onClick={() => setEditCat(c)} aria-label="تعديل الفئة">✎</button>
+              <button className="icon-btn" onClick={() => setEditCat(c)} aria-label="تعديل الفئة"><Pencil size={16} /></button>
             </div>
           ))}
         </aside>
@@ -53,7 +54,7 @@ export default function MenuAdmin() {
                         <input type="checkbox" checked={!!i.available} onChange={(e) => run(() => api(`/items/${i.id}/availability`, { method: 'PATCH', body: { available: e.target.checked } }))} />
                       </label>
                     </td>
-                    <td><button className="btn btn-sm" onClick={() => openItem(i.id)}>تعديل</button></td>
+                    <td><button className="btn btn-sm btn-ghost" onClick={() => openItem(i.id)}><Pencil size={15} /> تعديل</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -147,7 +148,7 @@ function ItemForm({ item, categories, onClose, onSaved }) {
         <div className="inline-row inline-row-img">
           <input dir="auto" value={f.image} onChange={(e) => set('image', e.target.value)} placeholder="🍔 أو https://…" />
           <span className="img-preview" aria-hidden>
-            {/^(https?:|data:)/.test(f.image) ? <img src={f.image} alt="" /> : (f.image || '🍽️')}
+            {/^(https?:|data:)/.test(f.image) ? <img src={f.image} alt="" /> : (f.image || <ImageIcon size={20} />)}
           </span>
         </div>
       </Field>
@@ -157,7 +158,7 @@ function ItemForm({ item, categories, onClose, onSaved }) {
         <div key={i} className="inline-row">
           <input placeholder="الاسم" value={m.name} onChange={(e) => set('modifiers', f.modifiers.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} />
           <input type="number" placeholder="السعر" value={m.price} onChange={(e) => set('modifiers', f.modifiers.map((x, j) => (j === i ? { ...x, price: e.target.value } : x)))} />
-          <button className="icon-btn" onClick={() => set('modifiers', f.modifiers.filter((_, j) => j !== i))} aria-label="حذف">✕</button>
+          <button className="icon-btn" onClick={() => set('modifiers', f.modifiers.filter((_, j) => j !== i))} aria-label="حذف"><Trash2 size={17} /></button>
         </div>
       ))}
       <button className="btn btn-ghost btn-sm" onClick={() => set('modifiers', [...f.modifiers, { name: '', price: 0 }])}>+ إضافة خيار</button>
@@ -170,7 +171,7 @@ function ItemForm({ item, categories, onClose, onSaved }) {
             {(ingredients.data || []).map((g) => <option key={g.id} value={g.id}>{g.name} ({g.unit})</option>)}
           </select>
           <input type="number" step="0.001" placeholder="الكمية" value={r.qty} onChange={(e) => set('recipe', f.recipe.map((x, j) => (j === i ? { ...x, qty: e.target.value } : x)))} />
-          <button className="icon-btn" onClick={() => set('recipe', f.recipe.filter((_, j) => j !== i))} aria-label="حذف">✕</button>
+          <button className="icon-btn" onClick={() => set('recipe', f.recipe.filter((_, j) => j !== i))} aria-label="حذف"><Trash2 size={17} /></button>
         </div>
       ))}
       <button className="btn btn-ghost btn-sm" onClick={() => set('recipe', [...f.recipe, { ingredient_id: '', qty: '' }])}>+ إضافة مادة</button>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, getSocket } from '../api.js';
 import { useData, useAction, useNow, minutesSince, Loading, Empty, STATIONS, ORDER_TYPES } from '../lib.jsx';
+import { Bell, BellOff, CircleCheck, Clock, StickyNote, Check } from 'lucide-react';
 
 /** تنبيه صوتي قصير عند وصول طلب جديد */
 function beep() {
@@ -49,9 +50,9 @@ export default function Kitchen() {
             <button key={k} className={station === k ? 'active' : ''} onClick={() => setStation(k)}>{v}</button>
           ))}
         </div>
-        <label className="switch"><input type="checkbox" checked={sound} onChange={(e) => setSound(e.target.checked)} /> 🔔 تنبيه صوتي</label>
+        <label className="switch"><input type="checkbox" checked={sound} onChange={(e) => setSound(e.target.checked)} /> {sound ? <Bell size={16} /> : <BellOff size={16} />} تنبيه صوتي</label>
       </div>
-      {loading ? <Loading /> : !data?.length ? <Empty icon="✅" text="لا توجد طلبات قيد التحضير" /> : (
+      {loading ? <Loading /> : !data?.length ? <Empty icon={CircleCheck} text="لا توجد طلبات قيد التحضير" /> : (
         <div className="kds-grid">
           {data.map((o) => {
             const mins = minutesSince(o.sent_at);
@@ -62,9 +63,9 @@ export default function Kitchen() {
                 <header>
                   <strong>#{o.number}</strong>
                   <span>{o.table_name || ORDER_TYPES[o.type]}</span>
-                  <span className="t-timer">⏱ {mins} د</span>
+                  <span className="t-timer"><Clock size={15} aria-hidden /> {mins} د</span>
                 </header>
-                {o.notes && <div className="ticket-note">📝 {o.notes}</div>}
+                {o.notes && <div className="ticket-note"><StickyNote size={15} aria-hidden /> {o.notes}</div>}
                 <ul>
                   {o.items.map((i) => (
                     <li key={i.id} className={`k-item k-${i.status}`} onClick={() => setItem(i.id, next[i.status])} role="button" tabIndex={0}>
@@ -72,15 +73,15 @@ export default function Kitchen() {
                       <span className="k-name">
                         {i.name}
                         {i.modifiers.length > 0 && <small>{i.modifiers.map((m) => m.name).join('، ')}</small>}
-                        {i.notes && <small className="note">📝 {i.notes}</small>}
+                        {i.notes && <small className="note"><StickyNote size={13} aria-hidden /> {i.notes}</small>}
                       </span>
-                      <span className="k-state">{i.status === 'new' ? 'جديد' : i.status === 'preparing' ? 'يُحضّر' : 'جاهز ✓'}</span>
+                      <span className="k-state">{i.status === 'new' ? 'جديد' : i.status === 'preparing' ? 'يُحضّر' : 'جاهز'}</span>
                     </li>
                   ))}
                 </ul>
                 <footer>
                   {o.items.some((i) => i.status === 'new') && <button className="btn" onClick={() => bump(o.order_id, 'preparing')}>بدء التحضير</button>}
-                  {!allReady && <button className="btn btn-ok" onClick={() => bump(o.order_id, 'ready')}>✓ الطلب جاهز</button>}
+                  {!allReady && <button className="btn btn-ok" onClick={() => bump(o.order_id, 'ready')}><Check size={17} /> الطلب جاهز</button>}
                   {allReady && <span className="muted">بانتظار التقديم</span>}
                 </footer>
               </article>

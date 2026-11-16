@@ -1,4 +1,5 @@
 import { useApp, useMoney, Modal, ORDER_TYPES, PAY_METHODS } from '../lib.jsx';
+import { Printer } from 'lucide-react';
 
 /** معاينة الفاتورة وطباعتها (طابعة حرارية 80مم) */
 export default function Receipt({ order, onClose }) {
@@ -9,7 +10,7 @@ export default function Receipt({ order, onClose }) {
     <Modal title="الفاتورة" onClose={onClose} footer={
       <>
         <button className="btn" onClick={onClose}>إغلاق</button>
-        <button className="btn btn-primary" onClick={() => window.print()}>🖨️ طباعة</button>
+        <button className="btn btn-primary" onClick={() => window.print()}><Printer size={18} /> طباعة</button>
       </>
     }>
       <div className="receipt" id="receipt">

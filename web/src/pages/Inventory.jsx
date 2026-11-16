@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 import { useData, useMoney, useAction, useApp, can, Modal, Field, Loading, Empty, PageHead } from '../lib.jsx';
+import { Pencil, Plus } from 'lucide-react';
 
 const MOVE_TYPES = { purchase: 'شراء / استلام', waste: 'تالف / هدر', adjust: 'تسوية جرد', sale: 'بيع' };
 
@@ -22,7 +23,7 @@ export default function Inventory() {
   return (
     <div>
       <PageHead title="المخزون" sub={`قيمة المخزون: ${money(value)}`}>
-        {isManager && <button className="btn btn-primary" onClick={() => setEdit({})}>+ مادة خام</button>}
+        {isManager && <button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={18} /> مادة خام</button>}
       </PageHead>
       <div className="filters">
         <div className="seg">
@@ -49,7 +50,7 @@ export default function Inventory() {
                       <button className="btn btn-sm" onClick={() => setMove({ ing: i, type: 'purchase' })}>+ استلام</button>
                       <button className="btn btn-sm" onClick={() => setMove({ ing: i, type: 'waste' })}>تالف</button>
                       {isManager && <button className="btn btn-sm" onClick={() => setMove({ ing: i, type: 'adjust' })}>جرد</button>}
-                      {isManager && <button className="btn btn-sm btn-ghost" onClick={() => setEdit(i)}>✎</button>}
+                      {isManager && <button className="btn btn-sm btn-ghost" onClick={() => setEdit(i)} aria-label="تعديل"><Pencil size={15} /></button>}
                     </td>
                   </tr>
                 ))}

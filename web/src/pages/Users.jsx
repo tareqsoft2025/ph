@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 import { useData, useAction, useApp, Modal, Field, Loading, PageHead, ROLE_LABELS } from '../lib.jsx';
+import { Plus } from 'lucide-react';
 
 export default function Users() {
   const { user } = useApp();
@@ -12,7 +13,7 @@ export default function Users() {
   return (
     <div>
       <PageHead title="المستخدمون والصلاحيات">
-        {isAdmin && <button className="btn btn-primary" onClick={() => setEdit({ role: 'waiter' })}>+ مستخدم</button>}
+        {isAdmin && <button className="btn btn-primary" onClick={() => setEdit({ role: 'waiter' })}><Plus size={18} /> مستخدم</button>}
       </PageHead>
       {!isAdmin && <div className="alert alert-warn">إضافة المستخدمين وتعديلهم متاحة للمدير العام فقط.</div>}
       <div className="table-wrap">
