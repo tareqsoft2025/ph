@@ -17,6 +17,23 @@ const ACTION = { order_new: 'شاشة المطبخ', order_ready: 'فتح الط
 const safeGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const safeSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
 
+// إشعارات تحتاج تصرفاً سريعاً: تبقى ظاهرة وتُكرَّر نغمتها وتومض في عنوان التبويب حتى لو كانت الصفحة في الخلفية
+const PRIORITY = new Set(['qr_request', 'online_confirm', 'online_order', 'bill_request']);
+let titleTimer = null; let baseTitle = '';
+function flashTitle(text) {
+  if (!document.hidden) return;
+  if (!titleTimer) baseTitle = document.title;
+  clearInterval(titleTimer);
+  let on = false;
+  titleTimer = setInterval(() => { document.title = (on = !on) ? `🔔 ${text}` : baseTitle; }, 1000);
+  const stop = () => {
+    if (document.hidden) return;
+    clearInterval(titleTimer); titleTimer = null; document.title = baseTitle;
+    document.removeEventListener('visibilitychange', stop);
+  };
+  document.addEventListener('visibilitychange', stop);
+}
+
 /** نغمة قصيرة: نغمتان صاعدتان للجاهز، ونغمة للطلب الجديد */
 function chime(kind) {
   try {
@@ -50,7 +67,7 @@ async function deviceNotify(n) {
       return;
     }
     if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
-      const sys = new Notification(n.title, { body: n.body || '', icon: './icon.svg', tag: `${n.type}-${n.title}`, lang: 'ar', dir: 'rtl' });
+      const sys = new Notification(n.title, { body: n.body || '', icon: './icon.svg', tag: `${n.type}-${n.title}`, lang: 'ar', dir: 'rtl', requireInteraction: PRIORITY.has(n.type) });
       sys.onclick = () => { window.focus(); sys.close(); };
     }
   } catch { /* غير مدعوم */ }
@@ -91,35 +108,58 @@ export function NotificationsProvider({ user, children }) {
   const soundRef = useRef(sound);
   soundRef.current = sound;
 
+  const lastId = useRef(null);       // آخر إشعار عُرض (null = لم يُحمَّل بعد، فلا نعرض القديم)
+  const active = useRef(new Set());  // الإشعارات الظاهرة الآن
+
+  const dismiss = useCallback((id) => { active.current.delete(id); setToasts((t) => t.filter((x) => x.id !== id)); }, []);
+
+  // عرض الإشعارات الجديدة فوراً (مصدرها الحدث اللحظي، ومعها فحص دوري كشبكة أمان)
+  const present = useCallback((list) => {
+    const max = list.reduce((m, r) => Math.max(m, r.id), 0);
+    if (lastId.current === null) { lastId.current = max; return; }
+    const fresh = list.filter((r) => r.id > lastId.current && !r.read_at).sort((a, b) => a.id - b.id);
+    lastId.current = Math.max(lastId.current, max);
+    for (const r of fresh) {
+      const id = Math.random();
+      const hot = PRIORITY.has(r.type);
+      active.current.add(id);
+      setToasts((t) => [...t.slice(-3), { ...r, id, hot }]);
+      setTimeout(() => dismiss(id), hot ? 60000 : 8000);
+      if (soundRef.current) {
+        chime(r.level);
+        if (hot) { let k = 0; const iv = setInterval(() => { if (!active.current.has(id) || ++k > 3) { clearInterval(iv); return; } chime(r.level); }, 6000); }
+      }
+      if (navigator.vibrate) navigator.vibrate(hot ? [200, 100, 200, 100, 300] : r.level === 'success' ? [80, 60, 80] : 120);
+      if (hot) flashTitle(r.title);
+      deviceNotify(r);
+    }
+  }, [dismiss]);
+
   const load = useCallback(async () => {
     try {
       const d = await api('/notifications');
       setRows(d.rows);
       setUnread(d.unread);
+      present(d.rows);
     } catch { /* ignore */ }
-  }, []);
-
-  const dismiss = useCallback((id) => setToasts((t) => t.filter((x) => x.id !== id)), []);
+  }, [present]);
 
   useEffect(() => {
+    lastId.current = null;
     load();
     const s = getSocket();
-    if (!s) return undefined;
-    const onNotify = (n) => {
-      if (!n?.user_ids?.includes(user.id)) return;
-      const id = Math.random();
-      setToasts((t) => [...t.slice(-3), { ...n, id }]);
-      setTimeout(() => dismiss(id), 8000);
-      if (soundRef.current) chime(n.level);
-      if (navigator.vibrate) navigator.vibrate(n.level === 'success' ? [80, 60, 80] : 120);
-      deviceNotify(n);
-      load();
+    // الحدث اللحظي يجلب القائمة فوراً فيظهر الإشعار في نفس اللحظة
+    const onNotify = (n) => { if (n?.user_ids?.includes(user.id)) load(); };
+    const vis = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', vis);
+    window.addEventListener('online', vis);
+    const poll = setInterval(load, 15000);   // شبكة أمان إن انقطع الاتصال اللحظي
+    if (s) { s.on('notify', onNotify); s.on('connect', load); s.on('notifications', load); }
+    return () => {
+      document.removeEventListener('visibilitychange', vis); window.removeEventListener('online', vis); clearInterval(poll);
+      if (s) { s.off('notify', onNotify); s.off('connect', load); s.off('notifications', load); }
     };
-    s.on('notify', onNotify);
-    s.on('connect', load);
-    s.on('notifications', load);
-    return () => { s.off('notify', onNotify); s.off('connect', load); s.off('notifications', load); };
-  }, [user.id, load, dismiss]);
+  }, [user.id, load]);
 
   const markRead = useCallback(async (ids) => {
     await api('/notifications/read', { method: 'POST', body: ids ? { ids } : {} }).catch(() => {});
@@ -141,11 +181,12 @@ export function NotificationsProvider({ user, children }) {
   return (
     <NotifContext.Provider value={{ rows, unread, markRead, clearRead, open, sound, toggleSound, reload: load, push, enablePush }}>
       {children}
+      <PermNudge />
       <div className="ntoasts" aria-live="polite">
         {toasts.map((t) => {
           const Icon = ICONS[t.type] || Info;
           return (
-            <div key={t.id} className={`ntoast ntoast-${t.level}`} role="status">
+            <div key={t.id} className={`ntoast ntoast-${t.level} ${t.hot ? 'ntoast-hot' : ''}`} role={t.hot ? 'alert' : 'status'}>
               <span className="ntoast-icon" aria-hidden><Icon size={20} /></span>
               <div className="ntoast-body">
                 <span className="ntoast-kicker">{TYPE_LABEL[t.type] || 'إشعار'} · الآن</span>
@@ -158,7 +199,7 @@ export function NotificationsProvider({ user, children }) {
                 )}
               </div>
               <button className="icon-btn ntoast-close" onClick={() => dismiss(t.id)} aria-label="إغلاق"><X size={16} /></button>
-              <span className="ntoast-timer" aria-hidden />
+              <span className="ntoast-timer" aria-hidden style={t.hot ? { animationDuration: '60s' } : undefined} />
             </div>
           );
         })}
@@ -276,6 +317,25 @@ export function NotificationBell() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** دعوة لتفعيل إشعارات المتصفح (تصل والصفحة في تبويب آخر) */
+function PermNudge() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    if (isNative || safeGet('notifAsk') === '1') return;
+    devicePermission().then((p) => setShow(p === 'default')).catch(() => {});
+  }, []);
+  if (!show) return null;
+  const later = () => { safeSet('notifAsk', '1'); setShow(false); };
+  return (
+    <div className="perm-nudge" role="region" aria-label="تفعيل الإشعارات">
+      <BellRing size={20} aria-hidden />
+      <span>فعّل إشعارات المتصفح ليصلك كل طلب وطلب QR فوراً حتى والصفحة في تبويب آخر.</span>
+      <button className="btn btn-primary btn-sm" onClick={async () => { await requestDevicePermission(); later(); }}>تفعيل</button>
+      <button className="icon-btn" onClick={later} aria-label="لاحقاً"><X size={16} /></button>
     </div>
   );
 }

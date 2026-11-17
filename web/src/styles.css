@@ -1835,3 +1835,14 @@ body { background: var(--bg) radial-gradient(900px 420px at 100% -10%, color-mix
 .qf-text small { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
 .t-focus > .table-card { outline: 3px solid var(--primary); outline-offset: 3px; animation: focuspulse 1.6s ease-in-out 3; }
 @keyframes focuspulse { 50% { outline-color: transparent; transform: translateY(-4px); } }
+
+/* ═════════ ظهور مباشر للإشعارات المهمة ═════════ */
+.ntoast-hot { border-inline-start-width: 6px; box-shadow: 0 12px 36px rgba(0,0,0,.28), 0 0 0 2px color-mix(in srgb, var(--warn) 55%, transparent); animation: slidein 260ms var(--ease), hotpulse 1.6s ease-in-out 3 280ms; }
+.ntoast-hot .ntoast-body strong { font-size: var(--text-base); }
+.ntoast-hot .ntoast-action { background: var(--primary); color: var(--primary-ink); }
+@keyframes hotpulse { 50% { transform: scale(1.025); } }
+.perm-nudge { position: fixed; bottom: max(var(--s-4), env(safe-area-inset-bottom)); inset-inline: var(--s-4); max-width: 560px; margin-inline: auto; z-index: 250; display: flex; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-4); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); animation: rise 300ms var(--ease); }
+.perm-nudge span { flex: 1; font-size: var(--text-sm); line-height: 1.5; }
+.perm-nudge svg { color: var(--accent); flex-shrink: 0; }
+@media (max-width: 960px) { .perm-nudge { bottom: calc(76px + env(safe-area-inset-bottom)); } }
+@media (prefers-reduced-motion: reduce) { .ntoast-hot { animation: none; } }
