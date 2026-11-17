@@ -30,6 +30,9 @@ export default function CustomerOrder() {
   const [picking, setPicking] = useState(null);
   const [sheet, setSheet] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [askedAt, setAskedAt] = useState(0);
+  const [askErr, setAskErr] = useState('');
+  const [, force] = useState(0);
   const [form, setForm] = useState(() => ({ name: safe(() => localStorage.getItem('ph-co-name'), '') || '', phone: safe(() => localStorage.getItem('ph-co-phone'), '') || '', guests: 2, notes: '' }));
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState('');
@@ -51,6 +54,11 @@ export default function CustomerOrder() {
     return () => clearInterval(t);
   }, [waitingOpen, tableToken]);
 
+  const askOpen = async () => {
+    setAskErr('');
+    try { await api(`/public/table/${tableToken}/request-open`, { method: 'POST', body: { device_id: deviceId() } }); setAskedAt(Date.now()); setTimeout(() => force((n) => n + 1), 61000); }
+    catch (e) { setAskErr(e.message); }
+  };
   const cur = cfg?.currency;
   const items = useMemo(() => {
     if (!menu) return [];
@@ -98,7 +106,7 @@ export default function CustomerOrder() {
   if (!cfg.enabled) return <Shell cfg={cfg}><div className="co-state"><Ban size={44} aria-hidden /><h2>الطلب عبر QR متوقف حالياً</h2><p>نادِ النادل لتقديم طلبك.</p></div></Shell>;
   const mine = done && cfg.table.busy && done.code === cfg.open_code;
   if (done && !adding && (mine || !cfg.table.busy)) return <Shell cfg={cfg}><Tracker order={done} cur={cur} phone={cfg.phone} onAdd={() => setAdding(true)} onClosed={() => { safe(() => localStorage.removeItem(lastKey(tableToken))); setDone(null); setCfg({ ...cfg, table: { ...cfg.table, busy: false } }); }} /></Shell>;
-  if (waitingOpen) return <Shell cfg={cfg}><div className="co-state"><HandPlatter size={44} aria-hidden /><h2>أهلاً بك! {cfg.table.name}</h2><p>سيفتح النادل الطاولة لك للطلب خلال لحظات. ستظهر القائمة تلقائياً.</p><p className="muted small">أو نادِ النادل إن تأخر ذلك.</p></div></Shell>;
+  if (waitingOpen) return <Shell cfg={cfg}><div className="co-state"><HandPlatter size={44} aria-hidden /><h2>أهلاً بك! {cfg.table.name}</h2><p>الطلب من هاتفك يبدأ عندما يفتح النادل الطاولة. ستظهر القائمة تلقائياً بمجرد فتحها.</p>{askedAt && Date.now() - askedAt < 60000 ? <div className="co-sent"><CircleCheckBig size={18} aria-hidden /> تم إبلاغ النادل، ستفتح القائمة خلال لحظات</div> : <button className="btn btn-primary btn-lg" onClick={askOpen}><BellRing size={18} /> {askedAt ? 'تنبيه النادل مرة أخرى' : 'اطلب من النادل فتح الطاولة'}</button>}{askErr && <div className="alert alert-err">{askErr}</div>}</div></Shell>;
   if (cfg.table.busy && !mine) return <Shell cfg={cfg}><div className="co-state"><Armchair size={44} aria-hidden /><h2>{cfg.table.name} عليها طلب مفتوح</h2><p>لإضافة أصناف نادِ النادل.</p></div></Shell>;
 
   return (

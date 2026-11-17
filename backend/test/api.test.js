@@ -225,6 +225,16 @@ test('table QR ordering: per-table secret token, table opening, waiter confirmat
   const post = (tok, body) => api(`/public/table/${tok}/orders`, { method: 'POST', body });
   const good = (extra = {}) => ({ guests: 2, customer_name: 'زبون QR', customer_phone: '0551230001', device_id: 'dev-A', items: [{ item_id: item.id, qty: 1 }], ...extra });
 
+  // طلب الزبون من النادل فتح الطاولة: إشعار + علامة على الطاولة، مع تهدئة
+  const req1 = await api(`/public/table/${t1.token}/request-open`, { method: 'POST', body: { device_id: 'dev-A' } });
+  assert.equal(req1.status, 200);
+  assert.ok(!req1.data.already);
+  assert.equal((await api(`/public/table/${t1.token}/request-open`, { method: 'POST', body: {} })).data.already, true, 'repeat is throttled');
+  assert.ok((await api('/notifications', { token: waiter })).data.rows.some((n) => n.type === 'qr_request' && n.title.includes(t1.name)), 'waiter is notified');
+  assert.ok((await api('/notifications', { token: admin })).data.rows.some((n) => n.type === 'qr_request'), 'admin is notified');
+  assert.equal((await api('/tables', { token: waiter })).data.find((t) => t.id === t1.id).qr_requested, 1, 'table card is flagged');
+  assert.equal((await api(`/public/table/${'b'.repeat(24)}/request-open`, { method: 'POST', body: {} })).status, 404);
+
   // 1) الطاولة مغلقة حتى يفتحها النادل
   const closed = await post(t1.token, good());
   assert.equal(closed.status, 403);
@@ -232,6 +242,7 @@ test('table QR ordering: per-table secret token, table opening, waiter confirmat
   assert.equal((await api(`/tables/${t1.id}/qr/open`, { method: 'POST', token: kitchen })).status, 403, 'kitchen cannot open tables');
   assert.equal((await api(`/tables/${t1.id}/qr/open`, { method: 'POST', token: waiter })).status, 200);
   assert.equal((await api('/public/table/' + t1.token)).data.table.open, true);
+  assert.equal((await api('/tables', { token: waiter })).data.find((t) => t.id === t1.id).qr_requested, 0, 'opening clears the request');
 
   // 2) أول طلب لجوال جديد يحتاج تأكيداً: لا يصل المطبخ قبل القبول
   assert.equal((await post(t1.token, good({ customer_name: '', customer_phone: '' }))).status, 400);

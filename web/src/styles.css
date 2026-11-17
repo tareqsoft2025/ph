@@ -1822,3 +1822,6 @@ body { background: var(--bg) radial-gradient(900px 420px at 100% -10%, color-mix
 .co-steps li span { transition: background 400ms var(--ease), border-color 400ms var(--ease), color 400ms var(--ease), transform 400ms cubic-bezier(.2,1.5,.4,1); }
 .co-steps li.done span, .co-steps li.cur span { transform: scale(1.08); }
 @media (prefers-reduced-motion: reduce) { .co-flash, .co-live.on i { animation: none; } }
+
+.t-qr.req { border-style: solid; border-color: var(--warn); background: var(--warn-soft); color: var(--warn); animation: pulse 1.2s infinite; }
+.co-sent { display: inline-flex; align-items: center; gap: 8px; padding: var(--s-3) var(--s-4); border-radius: var(--radius-lg); background: var(--ok-soft); color: var(--ok); font-weight: 700; }
