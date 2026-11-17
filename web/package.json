@@ -10,7 +10,8 @@
     "deploy:demo": "vite build --mode demo && rm -rf ../docs/assets ../docs/index.html ../docs/icon.svg && cp -r dist-demo/. ../docs/ && touch ../docs/.nojekyll",
     "preview": "vite preview",
     "cap:sync": "npm run build && npx cap sync android",
-    "apk": "npm run cap:sync && cd android && ./gradlew assembleRelease"
+    "apk": "npm run cap:sync && cd android && ./gradlew assembleRelease",
+    "release": "bash ../scripts/release.sh"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",

@@ -48,11 +48,24 @@ app.use(express.json({ limit: '5mb' })); // يتسع لمستندات الموظ
 app.use('/api', buildRouter(emit));
 app.use('/api', (req, res) => res.status(404).json({ error: 'المسار غير موجود' }));
 
+// تنزيل تطبيق الأندرويد من مجلد apk/ في المشروع
+const apkDir = join(__dirname, '..', '..', 'apk');
+app.get('/apk/restaurant-app.apk', (req, res, next) => {
+  const file = join(apkDir, 'restaurant-app.apk');
+  if (!existsSync(file)) return next();
+  res.download(file, 'restaurant-app.apk', { headers: { 'Content-Type': 'application/vnd.android.package-archive', 'Cache-Control': 'no-cache' } });
+});
+app.get('/apk/version.json', (req, res, next) => {
+  const file = join(apkDir, 'version.json');
+  if (!existsSync(file)) return next();
+  res.set('Cache-Control', 'no-cache').sendFile(file);
+});
+
 // تقديم واجهة الويب المبنية
 const webDist = join(__dirname, '..', '..', 'web', 'dist');
 if (existsSync(webDist)) {
   app.use(express.static(webDist));
-  app.get(/^\/(?!api|socket\.io).*/, (req, res) => res.sendFile(join(webDist, 'index.html')));
+  app.get(/^\/(?!api|apk|socket\.io).*/, (req, res) => res.sendFile(join(webDist, 'index.html')));
 }
 
 // معالج الأخطاء
