@@ -7,6 +7,8 @@ function migrate() {
   const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
   if (!cols('orders').includes('code')) db.exec('ALTER TABLE orders ADD COLUMN code TEXT');
   if (!cols('order_items').includes('sent_by')) db.exec('ALTER TABLE order_items ADD COLUMN sent_by INTEGER');
+  if (!cols('orders').includes('source')) db.exec("ALTER TABLE orders ADD COLUMN source TEXT NOT NULL DEFAULT 'staff'");
+  if (!cols('orders').includes('track_token')) db.exec('ALTER TABLE orders ADD COLUMN track_token TEXT');
   if (!cols('orders').includes('bill_requested_at')) db.exec('ALTER TABLE orders ADD COLUMN bill_requested_at TEXT');
   db.exec(`UPDATE orders SET code = 'ORD-' || substr(replace(date(created_at), '-', ''), 3) || '-' || printf('%04d', number) WHERE code IS NULL`);
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_code ON orders(code)');
@@ -91,6 +93,10 @@ const DEFAULT_SETTINGS = {
   delivery_fee: '10',
   receipt_footer: 'شكراً لزيارتكم',
   loyalty_points_per_unit: '1', // نقطة لكل وحدة عملة
+  online_ordering: '1',          // السماح للزبائن بالطلب عبر الرابط العام (يمكن إيقافه في أي وقت)
+  online_dine_in: '1',           // طلب من الطاولة (QR)
+  online_takeaway: '1',          // طلب سفري
+  online_delivery: '1',          // طلب توصيل
   late_grace_minutes: '10',      // سماحية التأخير بالدقائق
   late_deduction: '1',           // خصم التأخير من الراتب (1/0)
   doc_alert_days: '30',          // التنبيه قبل انتهاء المستندات بأيام

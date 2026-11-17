@@ -14,6 +14,7 @@ import AttendanceGate from './components/AttendanceGate.jsx';
 import { teardownPush } from './push.js';
 import { getTheme, setTheme, nextTheme } from './theme.js';
 import Login from './pages/Login.jsx';
+import CustomerOrder from './pages/CustomerOrder.jsx';
 import ServerSetup from './pages/ServerSetup.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Pos from './pages/Pos.jsx';
@@ -113,6 +114,8 @@ export default function App() {
     startSession().catch(() => setToken(null)).finally(() => setBooting(false));
   }, [serverMissing, startSession]);
 
+  // صفحة الطلب العامة للزبائن: بلا تسجيل دخول
+  if ((location.pathname === '/order' || location.pathname.startsWith('/order/'))) return <CustomerOrder />;
   if (booting) return <div className="center-screen"><Loading /></div>;
   if (serverMissing) return <ServerSetup onDone={() => setServerMissing(false)} />;
   if (!user) {

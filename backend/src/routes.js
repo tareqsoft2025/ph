@@ -30,6 +30,91 @@ export function buildRouter(emit) {
     res.json({ token: signToken(user), user: { id: user.id, name: user.name, username: user.username, role: user.role } });
   });
 
+  // ───────────── الطلب العام عبر الرابط (بلا تسجيل دخول) ─────────────
+  const hits = new Map();
+  const limited = (req, key, max, windowMs) => {
+    const ip = String(req.headers?.['x-forwarded-for'] || req.ip || 'local').split(',')[0].trim();
+    const k = `${key}:${ip}`;
+    const now = Date.now();
+    const arr = (hits.get(k) || []).filter((t) => now - t < windowMs);
+    arr.push(now);
+    hits.set(k, arr);
+    if (hits.size > 5000) for (const [kk, v] of hits) if (!v.some((t) => now - t < windowMs)) hits.delete(kk);
+    return arr.length > max;
+  };
+  const onlineOn = () => getSettings().online_ordering === '1';
+  const clip = (v, n) => String(v ?? '').trim().slice(0, n);
+  const PUBLIC_USER = { id: null, name: 'الزبون (رابط الطلب)', role: 'public' };
+
+  r.get('/public/config', (req, res) => {
+    const s = getSettings();
+    const out = {
+      enabled: s.online_ordering === '1',
+      name: s.restaurant_name, currency: s.currency, phone: s.phone, delivery_fee: Number(s.delivery_fee) || 0,
+      types: { dine_in: s.online_dine_in === '1', takeaway: s.online_takeaway === '1', delivery: s.online_delivery === '1' },
+      table: null,
+    };
+    const tid = Number(req.query.table);
+    if (out.enabled && tid) {
+      const t = get('SELECT id, name, seats, area FROM dining_tables WHERE id = ? AND active = 1', tid);
+      if (t) out.table = { ...t, busy: !!get("SELECT 1 AS x FROM orders WHERE table_id = ? AND status = 'open'", tid) };
+    }
+    res.json(out);
+  });
+
+  r.get('/public/menu', (req, res) => {
+    if (!onlineOn()) return res.status(403).json({ error: 'الطلب عبر الرابط متوقف حالياً', reason: 'disabled' });
+    const categories = all('SELECT id, name, icon FROM categories WHERE active = 1 ORDER BY sort, id');
+    const items = all('SELECT id, category_id, name, description, price, image, available FROM menu_items WHERE active = 1 ORDER BY sort, id');
+    const mods = all('SELECT id, item_id, name, price FROM modifiers ORDER BY id');
+    for (const it of items) it.modifiers = mods.filter((m) => m.item_id === it.id).map(({ id, name, price }) => ({ id, name, price }));
+    res.json({ categories, items });
+  });
+
+  r.post('/public/orders', (req, res) => {
+    if (!onlineOn()) return res.status(403).json({ error: 'الطلب عبر الرابط متوقف حالياً', reason: 'disabled' });
+    if (limited(req, 'po', 6, 10 * 60 * 1000)) return res.status(429).json({ error: 'طلبات كثيرة، حاول بعد قليل' });
+    const s = getSettings();
+    const b = req.body || {};
+    const type = b.type;
+    if (!['dine_in', 'takeaway', 'delivery'].includes(type) || s[`online_${type}`] !== '1') throw bad('هذا النوع من الطلبات غير متاح حالياً');
+    const items = Array.isArray(b.items) ? b.items : [];
+    if (!items.length) throw bad('أضف أصنافاً للطلب');
+    if (items.length > 40 || items.reduce((a, i) => a + (Math.min(Number(i.qty) || 1, 99)), 0) > 80) throw bad('عدد الأصناف كبير جداً، تواصل مع المطعم');
+    const data = {
+      type,
+      table_id: type === 'dine_in' ? Number(b.table_id) || null : null,
+      guests: type === 'dine_in' ? Math.min(Math.max(parseInt(b.guests, 10) || 1, 1), 30) : null,
+      customer_name: clip(b.customer_name, 60),
+      customer_phone: clip(b.customer_phone, 20),
+      address: clip(b.address, 200),
+      notes: clip(b.notes, 300) || null,
+      items: items.map((i) => ({ item_id: Number(i.item_id), qty: Math.min(Math.max(parseInt(i.qty, 10) || 1, 1), 20), modifier_ids: Array.isArray(i.modifier_ids) ? i.modifier_ids.slice(0, 10).map(Number) : [], notes: clip(i.notes, 100) || null })),
+    };
+    if (type === 'dine_in' && !get('SELECT 1 AS x FROM dining_tables WHERE id = ? AND active = 1', data.table_id)) throw bad('الطاولة غير صحيحة');
+    const token = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+    const id = Orders.createOrder(data, PUBLIC_USER);
+    run("UPDATE orders SET source = 'online', track_token = ? WHERE id = ?", token, id);
+    Orders.logEvent(id, 'online', null, 'طلب من رابط الزبون');
+    Orders.sendToKitchen(id, PUBLIC_USER);
+    const o = Orders.getOrder(id);
+    const { where } = Orders.orderLabel(id);
+    notify({ perms: ['payments.collect'], type: 'online_order', level: 'info', link: `/cashier?order=${id}`, title: `طلب جديد من الرابط ${o.code}`, body: `${where} · ${o.items.length} صنف · ${o.total}` });
+    changed('orders', 'kitchen', 'tables');
+    res.status(201).json({ code: o.code, token, total: o.total, type: o.type });
+  });
+
+  r.get('/public/orders/:code', (req, res) => {
+    if (limited(req, 'pg', 120, 60 * 1000)) return res.status(429).json({ error: 'طلبات كثيرة، حاول بعد قليل' });
+    const o = get('SELECT * FROM orders WHERE code = ? AND source = ?', String(req.params.code), 'online');
+    if (!o || !o.track_token || o.track_token !== String(req.query.t || '')) return res.status(404).json({ error: 'الطلب غير موجود' });
+    const full = Orders.getOrder(o.id);
+    res.json({
+      code: full.code, type: full.type, status: full.status, table_name: full.table_name, total: full.total, created_at: full.created_at,
+      items: full.items.filter((i) => i.status !== 'cancelled').map((i) => ({ name: i.name, qty: i.qty, status: i.status })),
+    });
+  });
+
   r.use(authenticate);
   r.use(attendanceGate);
 
@@ -374,7 +459,7 @@ export function buildRouter(emit) {
   r.get('/kitchen', need('kitchen.view', 'kitchen.update'), (req, res) => {
     const { station } = req.query;
     const items = all(`
-      SELECT oi.*, o.number, o.code, o.type, o.guests, o.customer_name, o.notes AS order_notes, t.name AS table_name,
+      SELECT oi.*, o.number, o.code, o.source, o.type, o.guests, o.customer_name, o.notes AS order_notes, t.name AS table_name,
         w.name AS waiter_name, sb.name AS sent_by_name, sb.role AS sent_by_role
       FROM order_items oi
       JOIN orders o ON o.id = oi.order_id
@@ -388,7 +473,7 @@ export function buildRouter(emit) {
     for (const it of items) {
       if (!map.has(it.order_id)) {
         map.set(it.order_id, {
-          order_id: it.order_id, number: it.number, code: it.code, type: it.type, table_name: it.table_name,
+          order_id: it.order_id, number: it.number, code: it.code, source: it.source, type: it.type, table_name: it.table_name,
           guests: it.guests, customer_name: it.customer_name,
           waiter_name: it.waiter_name, sent_by_name: it.sent_by_name || it.waiter_name, sent_by_role: it.sent_by_role,
           notes: it.order_notes, sent_at: it.sent_at, items: [],

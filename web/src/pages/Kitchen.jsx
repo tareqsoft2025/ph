@@ -157,7 +157,7 @@ export default function Kitchen() {
                       </header>
                       <div className="kt-meta">
                         <span className="kt-code" dir="ltr">{o.code}</span>
-                        <span className="kt-by"><Send size={13} aria-hidden /> {o.sent_by_name}{o.sent_by_role ? ` · ${ROLE_LABELS[o.sent_by_role]}` : ''}</span>
+                        <span className="kt-by"><Send size={13} aria-hidden /> {o.sent_by_name || (o.source === 'online' ? 'الزبون (رابط الطلب)' : '—')}{o.sent_by_role ? ` · ${ROLE_LABELS[o.sent_by_role]}` : ''}</span>
                         {o.guests ? <span className="kt-by"><Users size={13} aria-hidden /> {o.guests}</span> : null}
                         <span className="kt-by" dir="ltr">{timeOf(o.sent_at)}</span>
                       </div>

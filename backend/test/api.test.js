@@ -199,3 +199,36 @@ test('bill request notifies cashier; custom permissions are enforced', async () 
   assert.ok(ordersLog.some((a) => a.order_code === o.code), 'order code resolved');
   assert.equal((await api('/audit', { token: waiter })).status, 403);
 });
+
+test('public ordering link: menu, order → kitchen, tracking, and can be disabled any time', async () => {
+  const admin = await login('admin', 'admin123');
+  const kitchen = await login('kitchen', '1234');
+  const cfg = (await api('/public/config')).data;
+  assert.equal(cfg.enabled, true);
+  const menu = (await api('/public/menu')).data;
+  assert.ok(menu.items.length && menu.items.every((i) => !('station' in i)));
+  const item = menu.items.find((i) => i.available);
+  const bad = await api('/public/orders', { method: 'POST', body: { type: 'takeaway', customer_name: '', customer_phone: '', items: [{ item_id: item.id, qty: 1 }] } });
+  assert.equal(bad.status, 400);
+  const empty = await api('/public/orders', { method: 'POST', body: { type: 'takeaway', customer_name: 'زبون', customer_phone: '0501234567', items: [] } });
+  assert.equal(empty.status, 400);
+  const ok = await api('/public/orders', { method: 'POST', body: { type: 'takeaway', customer_name: 'زبون الرابط', customer_phone: '0501234567', items: [{ item_id: item.id, qty: 2 }] } });
+  assert.equal(ok.status, 201, JSON.stringify(ok.data));
+  const { code, token } = ok.data;
+  const k = (await api('/kitchen', { token: kitchen })).data;
+  assert.ok(k.some((o) => o.code === code), 'order reaches the kitchen');
+  const tr = await api(`/public/orders/${code}?t=${token}`);
+  assert.equal(tr.status, 200);
+  assert.equal(tr.data.items[0].qty, 2);
+  assert.equal((await api(`/public/orders/${code}?t=wrong`)).status, 404, 'tracking needs the token');
+  const staffView = (await api('/orders?status=open', { token: admin })).data.find((o) => o.code === code);
+  assert.equal(staffView.source, 'online');
+  // إيقاف الرابط
+  await api('/settings', { method: 'PUT', token: admin, body: { online_ordering: '0' } });
+  assert.equal((await api('/public/menu')).status, 403);
+  assert.equal((await api('/public/orders', { method: 'POST', body: { type: 'takeaway', customer_name: 'زبون', customer_phone: '0501234567', items: [{ item_id: item.id, qty: 1 }] } })).status, 403);
+  await api('/settings', { method: 'PUT', token: admin, body: { online_ordering: '1' } });
+  // نوع الطلب المعطّل
+  await api('/settings', { method: 'PUT', token: admin, body: { online_delivery: '0' } });
+  assert.equal((await api('/public/orders', { method: 'POST', body: { type: 'delivery', customer_name: 'زبون', customer_phone: '0501234567', address: 'x', items: [{ item_id: item.id, qty: 1 }] } })).status, 400);
+});

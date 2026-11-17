@@ -95,7 +95,7 @@ export default function Cashier() {
                 <button key={o.id} className={`cq-item ${selectedId === o.id ? 'active' : ''} ${o.bill_requested_at ? 'bill' : ''}`} onClick={() => select(o.id)}>
                   <span className="cq-icon" aria-hidden><Icon size={18} /></span>
                   <span className="cq-main">
-                    <strong>{o.type === 'dine_in' ? o.table_name : ORDER_TYPES[o.type]}{o.customer_name ? ` · ${o.customer_name}` : ''}</strong>
+                    <strong>{o.type === 'dine_in' ? o.table_name : ORDER_TYPES[o.type]}{o.customer_name ? ` · ${o.customer_name}` : ''}{o.source === 'online' && <span className="badge badge-warn src-online">رابط</span>}</strong>
                     <small><bdi dir="ltr">{o.code}</bdi> · {o.items_count} صنف · <Clock size={11} aria-hidden /> {minutesSince(o.created_at)} د</small>
                   </span>
                   <span className="cq-side">

@@ -344,7 +344,7 @@ export function kitchenProgress(orderId, status, user, changed) {
     const o = get('SELECT waiter_id, type FROM orders WHERE id = ?', orderId);
     const { code, where } = orderLabel(orderId);
     notify({
-      userIds: [o.waiter_id], perms: o.type === 'dine_in' ? [] : ['payments.collect'],
+      userIds: [o.waiter_id], perms: o.type === 'dine_in' && o.waiter_id ? [] : o.type === 'dine_in' ? ['pos.create', 'payments.collect'] : ['payments.collect'],
       type: 'order_ready', level: 'success', link: `/pos/${orderId}`,
       title: `الطلب ${code} جاهز`, body: `${where} · جهّزه ${user.name}`,
     });
