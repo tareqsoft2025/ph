@@ -37,6 +37,7 @@ export async function api(path, { method = 'GET', body, timeout = 15000 } = {}) 
     const { handle } = await demo;
     const { status, data } = await handle(method, path, body, getToken());
     if (status === 401 && path !== '/auth/login') onUnauthorized();
+    if (status === 403 && data?.reason === 'attendance_required') window.dispatchEvent(new CustomEvent('ph:attendance-required', { detail: data }));
     if (status >= 400) throw Object.assign(new Error(data?.error || `خطأ ${status}`), { data, status });
     return data;
   }
@@ -58,6 +59,7 @@ export async function api(path, { method = 'GET', body, timeout = 15000 } = {}) 
   let data = null;
   try { data = await res.json(); } catch { /* empty */ }
   if (res.status === 401 && path !== '/auth/login') onUnauthorized();
+  if (res.status === 403 && data?.reason === 'attendance_required') window.dispatchEvent(new CustomEvent('ph:attendance-required', { detail: data }));
   if (!res.ok) throw Object.assign(new Error(data?.error || `خطأ ${res.status}`), { data, status: res.status });
   return data;
 }

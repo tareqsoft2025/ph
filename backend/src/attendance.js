@@ -5,7 +5,7 @@ import { need, hasPerm } from './perms.js';
 import { bad, notFound, today } from './util.js';
 import { notify } from './notify.js';
 import {
-  nowStamp, fmtDate, parseDate, toMin, isDate, lateMinutes, leaveStats, workedMinutes, monthSummary, rangeSummary, graceOf,
+  nowStamp, fmtDate, parseDate, toMin, offDays, isDate, lateMinutes, leaveStats, workedMinutes, monthSummary, rangeSummary, graceOf,
 } from './hr.js';
 
 // ───── أدوات ─────
@@ -159,6 +159,44 @@ function recordFailure(req, emp, action, err) {
   }
 }
 
+/**
+ * هل يجب على هذا المستخدم تسجيل الحضور قبل استخدام النظام الآن؟
+ * يُطبَّق على من له ملف موظف فقط، في يوم عمل، خارج الإجازة، وضمن وقت الدوام
+ * (من قبل الدوام بمدة السماح المبكر حتى نهايته) ولم يسجّل حضوره بعد.
+ */
+export function attendanceStatus(user) {
+  const none = { required: false };
+  if (getSettings().att_required_before_work !== '1') return none;
+  const emp = employeeOf(user);
+  if (!emp) return none;
+  const t = today();
+  const rec = get('SELECT status, check_in FROM attendance WHERE employee_id = ? AND date = ?', emp.id, t);
+  if (rec?.check_in || rec?.status === 'leave' || rec?.status === 'absent') return none;
+  // وردية ممتدة بدأت أمس وما زالت مفتوحة
+  if (get("SELECT id FROM attendance WHERE employee_id = ? AND check_in IS NOT NULL AND check_out IS NULL AND date = date(?, '-1 day')", emp.id, t)) return none;
+  if (offDays(emp).includes(parseDate(t).getDay())) return none;
+  if (get("SELECT id FROM leaves WHERE employee_id = ? AND status = 'approved' AND start_date <= ? AND end_date >= ?", emp.id, t, t)) return none;
+  const d = new Date();
+  const nowMin = d.getHours() * 60 + d.getMinutes();
+  const start = toMin(emp.work_start);
+  const end = toMin(emp.work_end);
+  const early = Number(emp.early_checkin_minutes ?? 60);
+  const inWindow = end > start ? nowMin >= start - early && nowMin <= end : nowMin >= start - early;
+  return inWindow ? { required: true, employee: emp.name, work_start: emp.work_start } : none;
+}
+
+// مسارات مسموحة قبل تسجيل الحضور: الدخول، والحضور نفسه، والإعدادات والإشعارات
+const GATE_OPEN = [/^\/auth\//, /^\/attendance\/(me|challenge|check-in|check-out)$/, /^\/settings$/, /^\/notifications/, /^\/push\//, /^\/health$/];
+
+/** يمنع استخدام باقي النظام قبل تسجيل الحضور (حماية من جهة الخادم لا الواجهة فقط) */
+export function attendanceGate(req, res, next) {
+  if (req.user.role === 'admin' || GATE_OPEN.some((re) => re.test(req.path))) return next();
+  if (attendanceStatus(req.user).required) {
+    return res.status(403).json({ error: 'سجّل حضورك أولاً قبل البدء بالعمل', reason: 'attendance_required' });
+  }
+  return next();
+}
+
 export function attendanceRoutes(r, changed) {
   // بيانات حضوري + متطلبات التسجيل
   r.get('/attendance/me', (req, res) => {
@@ -183,6 +221,7 @@ export function attendanceRoutes(r, changed) {
         max_accuracy: Number(st.att_max_accuracy) || 100,
       },
       server_time: nowStamp(),
+      required: attendanceStatus(req.user).required,
     });
   });
 

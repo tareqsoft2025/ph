@@ -10,6 +10,7 @@ import {
 import { AppContext, ROLE_LABELS, has, Loading } from './lib.jsx';
 import { NotificationsProvider, NotificationBell } from './notifications.jsx';
 import ApkDownload from './components/ApkDownload.jsx';
+import AttendanceGate from './components/AttendanceGate.jsx';
 import { teardownPush } from './push.js';
 import Login from './pages/Login.jsx';
 import ServerSetup from './pages/ServerSetup.jsx';
@@ -126,6 +127,7 @@ export default function App() {
   return (
     <AppContext.Provider value={{ user, settings, setSettings, logout }}>
       <NotificationsProvider user={user}>
+      <AttendanceGate>
       <div className={`shell ${menuOpen ? 'menu-open' : ''} ${location.pathname.startsWith('/kitchen') ? 'route-kitchen' : ''}`}>
         <aside className="sidebar" aria-label="القائمة الرئيسية">
           <div className="brand">
@@ -200,6 +202,7 @@ export default function App() {
           </div>
         </main>
       </div>
+      </AttendanceGate>
       </NotificationsProvider>
     </AppContext.Provider>
   );

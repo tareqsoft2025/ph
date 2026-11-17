@@ -11,7 +11,7 @@ async function api(path, { method = 'GET', body, token } = {}) {
 }
 const login = async (u, p) => (await api('/auth/login', { method: 'POST', body: { username: u, password: p } })).data.token;
 before(async () => {
-  proc = spawn(process.execPath, ['--no-warnings', 'src/server.js'], { env: { ...process.env, PORT, DB_PATH: ':memory:', ATT_RATE_LIMIT: '14' } });
+  proc = spawn(process.execPath, ['--no-warnings', 'src/server.js'], { env: { ...process.env, PORT, DB_PATH: ':memory:', ATT_RATE_LIMIT: '14', ATT_REQUIRED_DEFAULT: '0' } });
   for (let i = 0; i < 50; i++) { try { if ((await fetch(BASE + '/health')).ok) return; } catch {} await new Promise((r) => setTimeout(r, 100)); }
   throw new Error('server did not start');
 });
