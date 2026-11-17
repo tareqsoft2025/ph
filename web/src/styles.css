@@ -1601,3 +1601,17 @@ body { background: var(--bg) radial-gradient(900px 420px at 100% -10%, color-mix
   .shell:not(.focus) .content { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
 @media (max-width: 960px) { .bn-item { min-width: 0; } .bn-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; } }
+
+/* ═════════ إصلاحات الشاشات ═════════ */
+.perm .perm-name { min-width: 150px; }
+.perm tbody .perm-name { position: sticky; inset-inline-start: 0; z-index: 1; background: var(--surface); box-shadow: -1px 0 0 var(--border) inset; }
+.perm thead .perm-name { position: sticky; inset-inline-start: 0; z-index: 2; }
+.topbar-title span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.topbar-title { min-width: 0; }
+@media (max-width: 960px) {
+  .topbar .apk-btn .apk-text, .topbar .apk-btn .apk-dl { display: none; }
+  .topbar .apk-btn { padding: 0; width: 40px; justify-content: center; }
+  .conn .conn-label { display: none; }
+  .conn { padding: 4px; }
+  .topbar { gap: var(--s-2); }
+}
