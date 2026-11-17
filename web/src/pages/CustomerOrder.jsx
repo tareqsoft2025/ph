@@ -358,7 +358,9 @@ function Tracker({ order, cur, phone, billAllowed, onAdd, onClosed }) {
       <p className="muted small"><Clock size={13} aria-hidden /> احتفظ بهذه الصفحة مفتوحة وستتحدث الحالة تلقائياً.{phone ? <> للاستفسار <bdi dir="ltr">{phone}</bdi></> : null}</p>
       {closed ? <button className="btn btn-block" onClick={onClosed}>طلب جديد</button> : (
         <>
-          {billAllowed && !pend && data && !data.bill && data.items.length > 0 && <button className="btn btn-ok btn-lg btn-block" onClick={() => setBillOpen(true)}><Receipt size={19} /> طلب الحساب</button>}
+          {billAllowed && !pend && data && !data.bill && data.items.length > 0 && (st >= 2
+            ? <button className="btn btn-ok btn-lg btn-block" onClick={() => setBillOpen(true)}><Receipt size={19} /> طلب الحساب</button>
+            : <div className="co-billwait" role="status"><Receipt size={18} aria-hidden /><div><strong>طلب الحساب</strong><small>يتاح بعد تجهيز طلبك في المطبخ</small></div><span className="co-billwait-lock" aria-hidden>🔒</span></div>)}
           {!data?.bill && <button className="btn btn-primary btn-block" onClick={onAdd}><Plus size={17} /> إضافة أصناف لطلبي</button>}
         </>
       )}

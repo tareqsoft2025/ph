@@ -915,6 +915,80 @@ export function buildRouter(emit) {
     res.json({ ok: true, enabled: pushEnabled() });
   });
 
+  // ───────────── المركز المباشر للإدارة: لقطة كاملة لحظية (طاولات + مراحل الطلبات + مؤشرات) ─────────────
+  r.get('/live', need('reports.view'), (req, res) => {
+    const tables = all(`SELECT t.id, t.name, t.seats, t.area,
+        CASE WHEN t.qr_open_until > datetime('now','localtime') THEN 1 ELSE 0 END AS qr_open,
+        CASE WHEN t.qr_request_at > datetime('now','localtime','-15 minutes') AND COALESCE(t.qr_open_until, '') <= datetime('now','localtime') THEN 1 ELSE 0 END AS qr_requested,
+        CASE WHEN t.qr_open_until > datetime('now','localtime') THEN (SELECT name FROM users WHERE id = t.qr_opened_by) END AS qr_opened_by_name,
+        (SELECT r.customer_name || ' ' || substr(r.reserved_at, 12, 5) FROM reservations r
+          WHERE r.table_id = t.id AND r.status = 'booked' AND date(r.reserved_at) = date('now','localtime') ORDER BY r.reserved_at LIMIT 1) AS reservation
+      FROM dining_tables t WHERE t.active = 1 ORDER BY t.id`);
+    const open = all(`SELECT o.id, o.code, o.type, o.table_id, o.source, o.total, o.guests, o.created_at, o.customer_name, o.bill_requested_at, o.bill_method,
+        o.pending_confirm, w.name AS waiter_name FROM orders o LEFT JOIN users w ON w.id = o.waiter_id WHERE o.status = 'open' ORDER BY o.id`);
+    const lines = all(`SELECT oi.order_id, oi.name, oi.qty, oi.status, oi.sent_at, oi.ready_at FROM order_items oi
+      JOIN orders o ON o.id = oi.order_id WHERE o.status = 'open' AND oi.status != 'cancelled'`);
+    const nowMs = Date.now();
+    const ts = (s) => (s ? new Date(String(s).replace(' ', 'T')).getTime() : null);
+    const byOrder = new Map(open.map((o) => [o.id, { ...o, items: { draft: 0, new: 0, preparing: 0, ready: 0, served: 0 }, lines: [], oldest_sent_at: null }]));
+    for (const l of lines) {
+      const o = byOrder.get(l.order_id); if (!o) continue;
+      const k = l.status === 'pending' ? 'draft' : l.status;
+      o.items[k] = (o.items[k] || 0) + 1;
+      o.lines.push({ name: l.name, qty: l.qty, status: l.status });
+      if ((l.status === 'new' || l.status === 'preparing') && l.sent_at && (!o.oldest_sent_at || l.sent_at < o.oldest_sent_at)) o.oldest_sent_at = l.sent_at;
+    }
+    // مرحلة واحدة لكل طلب
+    const LATE_MIN = 15;
+    const stageOf = (o) => {
+      const i = o.items; const total = i.draft + i.new + i.preparing + i.ready + i.served;
+      if (o.pending_confirm) return 'confirm';
+      if (o.bill_requested_at) return 'bill';
+      if (!total) return 'draft';
+      if (i.new) return 'new';
+      if (i.preparing) return 'preparing';
+      if (i.draft && !i.ready && !i.served) return 'draft';
+      if (i.ready) return 'ready';
+      return 'served';
+    };
+    const orders = [...byOrder.values()].map((o) => {
+      const stage = stageOf(o);
+      const since = ts(o.oldest_sent_at);
+      const late = since && (nowMs - since) / 60000 > LATE_MIN && (stage === 'new' || stage === 'preparing');
+      return { ...o, stage, late: !!late, age_min: Math.max(0, Math.round((nowMs - ts(o.created_at)) / 60000)) };
+    });
+    const ordersByTable = new Map(orders.filter((o) => o.table_id).map((o) => [o.table_id, o]));
+    const floor = tables.map((t) => {
+      const o = ordersByTable.get(t.id) || null;
+      return { ...t, status: o ? 'occupied' : t.reservation ? 'reserved' : 'free', order_id: o?.id || null };
+    });
+    const stages = { confirm: 0, draft: 0, new: 0, preparing: 0, ready: 0, served: 0, bill: 0 };
+    orders.forEach((o) => { stages[o.stage]++; });
+    const today = "date('now','localtime')";
+    const paid = get(`SELECT COUNT(*) AS c, COALESCE(SUM(total), 0) AS s FROM orders WHERE status = 'paid' AND date(closed_at) = ${today}`);
+    const cancelled = get(`SELECT COUNT(*) AS c FROM orders WHERE status = 'cancelled' AND date(closed_at) = ${today}`).c;
+    const prep = get(`SELECT AVG((julianday(ready_at) - julianday(sent_at)) * 1440) AS m FROM order_items WHERE ready_at IS NOT NULL AND sent_at IS NOT NULL AND date(sent_at) = ${today}`).m;
+    const hourly = Array.from({ length: 24 }, (_, h) => ({ h, sales: 0, orders: 0 }));
+    for (const x of all(`SELECT CAST(strftime('%H', closed_at) AS INTEGER) AS h, SUM(total) AS s, COUNT(*) AS c FROM orders WHERE status = 'paid' AND date(closed_at) = ${today} GROUP BY h`)) {
+      hourly[x.h].sales = round2(x.s); hourly[x.h].orders = x.c;
+    }
+    const byType = all(`SELECT type, COUNT(*) AS c FROM orders WHERE status != 'cancelled' AND date(created_at) = ${today} GROUP BY type`);
+    const bySource = all(`SELECT source, COUNT(*) AS c FROM orders WHERE status != 'cancelled' AND date(created_at) = ${today} GROUP BY source`);
+    res.json({
+      now: new Date().toISOString(), late_minutes: LATE_MIN,
+      floor, orders, stages,
+      kpis: {
+        sales_today: round2(paid.s), paid_today: paid.c, cancelled_today: cancelled,
+        open_orders: orders.length, guests_now: orders.reduce((a, o) => a + (o.guests || 0), 0),
+        occupied: floor.filter((t) => t.status === 'occupied').length, tables: floor.length,
+        avg_prep_min: prep == null ? null : round2(prep), avg_ticket: paid.c ? round2(paid.s / paid.c) : 0,
+        late: orders.filter((o) => o.late).length, bills: stages.bill, confirms: stages.confirm,
+        qr_requests: floor.filter((t) => t.qr_requested).length,
+      },
+      hourly, by_type: byType, by_source: bySource,
+    });
+  });
+
   r.get('/audit', need('activity.view'), (req, res) => {
     const { user_id, category, from, to, q, before } = req.query;
     const where = [];

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
+  LayoutDashboard, Radio, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
   UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, IdCard, Fingerprint, CalendarOff, Banknote, HandCoins, History, KeyRound, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff, Sun, Moon, SunMoon, Ellipsis, PanelRightClose, PanelRightOpen,
 } from 'lucide-react';
 import {
@@ -17,6 +17,7 @@ import Login from './pages/Login.jsx';
 import CustomerOrder, { NoQr } from './pages/CustomerOrder.jsx';
 import ServerSetup from './pages/ServerSetup.jsx';
 import Dashboard from './pages/Dashboard.jsx';
+import Live from './pages/Live.jsx';
 import Pos from './pages/Pos.jsx';
 import Tables from './pages/Tables.jsx';
 import Orders from './pages/Orders.jsx';
@@ -42,6 +43,7 @@ import Permissions from './pages/Permissions.jsx';
 const NAV = [
   { group: 'العمليات اليومية', items: [
     { to: '/dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, perms: ['reports.view'] },
+    { to: '/live', label: 'المركز المباشر', icon: Radio, perms: ['reports.view'] },
     { to: '/cashier', label: 'الكاشير', icon: Banknote, perms: ['payments.collect'] },
     { to: '/tables', label: 'الطاولات', icon: Armchair, perms: ['tables.view', 'pos.create'] },
     { to: '/orders', label: 'الطلبات', icon: ClipboardList, perms: ['orders.view', 'pos.create', 'payments.collect'] },
@@ -196,6 +198,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Navigate to={home} replace />} />
               <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/live" element={<Live />} />
               <Route path="/pos/:orderId?" element={<Pos />} />
               <Route path="/tables" element={<Tables />} />
               <Route path="/orders" element={<Orders />} />

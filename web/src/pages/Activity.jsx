@@ -15,7 +15,7 @@ const CATEGORIES = [
 
 
 /** وصف عربي مقروء لكل عملية */
-function describe(a, money) {
+export function describe(a, money) {
   const d = a.details || {};
   const code = a.order_code ? ` ${a.order_code}` : '';
   const name = a.entity_name || d.name || d.title || '';
@@ -82,7 +82,7 @@ function describe(a, money) {
   return M[a.action] || [History, a.action];
 }
 
-const tone = (action) => (/cancel|delete|waste|terminated|rejected|unavailable/.test(action) ? 'err'
+export const tone = (action) => (/cancel|delete|waste|terminated|rejected|unavailable/.test(action) ? 'err'
   : /pay|ready|approved|create|open|available/.test(action) ? 'ok'
     : /discount|price|permissions|role|adjust/.test(action) ? 'warn' : 'info');
 

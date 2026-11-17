@@ -371,6 +371,16 @@ test('customer bill request: payment method + name/phone reach the cashier and a
   const { code, token } = o.data;
   const bill = (body, t = token) => api(`/public/orders/${code}/bill?t=${t}`, { method: 'POST', body });
 
+  // لا طلب حساب قبل تجهيز الطلب في المطبخ
+  const early = await bill({ method: 'cash' });
+  assert.equal(early.status, 400);
+  assert.match(early.data.error, /بعد تجهيز/);
+  const kitchenTok = await login('kitchen', '1234');
+  const kid = (await api('/kitchen', { token: kitchenTok })).data.find((k) => k.code === code).order_id;
+  await api(`/kitchen/orders/${kid}/bump`, { method: 'POST', token: kitchenTok, body: { status: 'preparing' } });
+  assert.equal((await bill({ method: 'cash' })).status, 400, 'still blocked while preparing');
+  await api(`/kitchen/orders/${kid}/bump`, { method: 'POST', token: kitchenTok, body: { status: 'ready' } });
+
   assert.equal((await bill({ method: 'wallet', name: 'سامي', phone: '0561112233' }, 'wrong')).status, 404, 'needs the order token');
   assert.equal((await bill({ method: 'crypto' })).status, 400, 'unknown method');
   assert.equal((await bill({ method: 'jawwalpay', name: 'سامي', phone: '' })).status, 400, 'Jawwal Pay needs the phone number');
@@ -404,4 +414,18 @@ test('customer bill request: payment method + name/phone reach the cashier and a
   await api('/settings', { method: 'PUT', token: admin, body: { qr_allow_bill: '0' } });
   assert.equal((await bill({ method: 'cash' })).status, 400);
   await api('/settings', { method: 'PUT', token: admin, body: { qr_allow_bill: '1', qr_confirm_mode: 'smart', qr_require_open: '1' } });
+});
+
+test('live command-center snapshot: floor, stages, KPIs; managers only', async () => {
+  const admin = await login('admin', 'admin123');
+  const waiter = await login('waiter', '1234');
+  assert.equal((await api('/live', { token: waiter })).status, 403);
+  const live = (await api('/live', { token: admin })).data;
+  assert.ok(live.floor.length >= 10 && live.floor.every((t) => ['free', 'occupied', 'reserved'].includes(t.status)));
+  assert.equal(live.hourly.length, 24);
+  for (const k of ['confirm', 'draft', 'new', 'preparing', 'ready', 'served', 'bill']) assert.ok(k in live.stages, `stage ${k}`);
+  assert.equal(Object.values(live.stages).reduce((a, b) => a + b, 0), live.kpis.open_orders, 'every open order sits in exactly one stage');
+  assert.equal(live.kpis.tables, live.floor.length);
+  assert.ok(live.orders.every((o) => o.stage && 'items' in o && 'age_min' in o));
+  assert.ok(live.kpis.sales_today >= 0 && live.kpis.paid_today >= 0);
 });

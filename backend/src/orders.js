@@ -434,6 +434,8 @@ export function customerBill(orderId, { method, name, phone }) {
   assertOpen(order);
   if (order.pending_confirm) throw bad('طلبك بانتظار تأكيد النادل، انتظر قليلاً');
   if (!get("SELECT 1 AS x FROM order_items WHERE order_id = ? AND status != 'cancelled'", orderId)) throw bad('لا توجد أصناف في الطلب');
+  // لا يُطلب الحساب إلا بعد أن يجهّز المطبخ كل الأصناف
+  if (get("SELECT 1 AS x FROM order_items WHERE order_id = ? AND status NOT IN ('ready', 'served', 'cancelled')", orderId)) throw bad('يتاح طلب الحساب بعد تجهيز طلبك في المطبخ');
   if (!BILL_METHODS[method]) throw bad('اختر طريقة الدفع');
   const nm = String(name || '').trim().slice(0, 60);
   const ph = String(phone || '').trim().slice(0, 20);
