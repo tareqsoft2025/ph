@@ -230,7 +230,9 @@ test('table QR ordering: per-table secret token, table opening, waiter confirmat
   assert.equal(req1.status, 200);
   assert.ok(!req1.data.already);
   assert.equal((await api(`/public/table/${t1.token}/request-open`, { method: 'POST', body: {} })).data.already, true, 'repeat is throttled');
-  assert.ok((await api('/notifications', { token: waiter })).data.rows.some((n) => n.type === 'qr_request' && n.title.includes(t1.name)), 'waiter is notified');
+  const reqNote = (await api('/notifications', { token: waiter })).data.rows.find((n) => n.type === 'qr_request' && n.title.includes(t1.name));
+  assert.ok(reqNote, 'waiter is notified');
+  assert.equal(reqNote.link, `/tables?table=${t1.id}`, 'notification links straight to the table');
   assert.ok((await api('/notifications', { token: admin })).data.rows.some((n) => n.type === 'qr_request'), 'admin is notified');
   assert.equal((await api('/tables', { token: waiter })).data.find((t) => t.id === t1.id).qr_requested, 1, 'table card is flagged');
   assert.equal((await api(`/public/table/${'b'.repeat(24)}/request-open`, { method: 'POST', body: {} })).status, 404);
@@ -243,6 +245,8 @@ test('table QR ordering: per-table secret token, table opening, waiter confirmat
   assert.equal((await api(`/tables/${t1.id}/qr/open`, { method: 'POST', token: waiter })).status, 200);
   assert.equal((await api('/public/table/' + t1.token)).data.table.open, true);
   assert.equal((await api('/tables', { token: waiter })).data.find((t) => t.id === t1.id).qr_requested, 0, 'opening clears the request');
+  assert.equal((await api('/tables', { token: waiter })).data.find((t) => t.id === t1.id).qr_opened_by_name, 'النادل أحمد', 'who opened the table is recorded');
+  assert.ok((await api('/notifications', { token: cashier })).data.rows.some((n) => n.type === 'qr_request_taken' && n.title.includes('النادل أحمد')), 'colleagues learn who took the request');
 
   // 2) أول طلب لجوال جديد يحتاج تأكيداً: لا يصل المطبخ قبل القبول
   assert.equal((await post(t1.token, good({ customer_name: '', customer_phone: '' }))).status, 400);
@@ -263,6 +267,15 @@ test('table QR ordering: per-table secret token, table opening, waiter confirmat
   assert.equal(conf.status, 200, JSON.stringify(conf.data));
   assert.equal(conf.data.pending_confirm, 0);
   assert.ok((await api('/kitchen', { token: kitchen })).data.some((o) => o.code === code && o.table_name === t1.name), 'reaches kitchen after confirmation');
+  const det = (await api(`/orders/${staffOrder.id}`, { token: cashier })).data;
+  assert.equal(det.waiter_name, 'النادل أحمد', 'the waiter who opened the table owns the order');
+  assert.ok(det.events.some((e) => e.type === 'online' && /فتحها النادل أحمد/.test(e.message)), 'timeline records who opened the table');
+  assert.ok(det.events.some((e) => e.type === 'confirmed' && e.user_name === 'النادل أحمد'), 'timeline records who confirmed');
+  const acts = (await api('/audit?category=qr', { token: admin })).data.rows;
+  assert.ok(acts.some((a) => a.action === 'qr.request_open' && a.entity_name === t1.name), 'audit: customer request');
+  assert.ok(acts.some((a) => a.action === 'qr.table_open' && a.user_name === 'النادل أحمد' && a.details.answered_request), 'audit: who opened and that it answered a request');
+  assert.ok(acts.some((a) => a.action === 'qr.order' && a.details.table === t1.name && a.details.needs_confirm === true), 'audit: the QR order details');
+  assert.ok((await api('/audit?category=order', { token: admin })).data.rows.some((a) => a.action === 'order.confirm' && a.user_name === 'النادل أحمد'), 'audit: who confirmed');
   assert.equal((await api(`/orders/${staffOrder.id}/confirm`, { method: 'POST', token: waiter })).status, 400, 'cannot confirm twice');
   assert.equal((await api(`/public/orders/${code}?t=wrong`)).status, 404, 'tracking needs the token');
 

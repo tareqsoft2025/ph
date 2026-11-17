@@ -1,12 +1,14 @@
 import {
   FilePlus2, ListPlus, Send, Flame, CircleCheckBig, HandPlatter, Ban, Percent, ArrowRightLeft, Banknote, BadgeCheck, CircleX,
-  Copy, Phone, UserRound, Users, MapPin, Armchair, Check,
+  Copy, Phone, UserRound, Users, MapPin, Armchair, Check, QrCode,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useData, useMoney, Modal, Loading, ORDER_TYPES, PAY_METHODS, ROLE_LABELS, timeOf, ITEM_STATUS } from '../lib.jsx';
 
 const EVENT = {
   created: [FilePlus2, 'إنشاء الطلب'],
+  online: [QrCode, 'طلب من رمز QR'],
+  confirmed: [BadgeCheck, 'تأكيد الموظف'],
   items_added: [ListPlus, 'إضافة أصناف'],
   sent: [Send, 'إرسال للمطبخ'],
   preparing: [Flame, 'بدء التحضير'],
@@ -129,7 +131,7 @@ export default function OrderTimeline({ orderId, onClose }) {
                         {e.type === 'sent' && e.data?.items && (
                           <span className="muted small">{e.data.items.map((x) => `${x.qty}× ${x.name}`).join('، ')}</span>
                         )}
-                        {e.user_name && <small className="muted">بواسطة {e.user_name}{e.user_role ? ` (${ROLE_LABELS[e.user_role]})` : ''}</small>}
+                        {(e.user_name || ['online', 'created', 'items_added', 'sent'].includes(e.type) && o.source === 'online') && <small className="muted">بواسطة {e.user_name || 'الزبون (QR)'}{e.user_role ? ` (${ROLE_LABELS[e.user_role]})` : ''}</small>}
                       </div>
                     </li>
                   );

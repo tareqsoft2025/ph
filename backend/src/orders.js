@@ -282,7 +282,7 @@ function closeOrder(orderId, user) {
     if (Number(r.changes) || !get("SELECT id FROM order_events WHERE order_id = ? AND type = 'served'", orderId)) {
       logEvent(orderId, 'served', user.id, 'تم التقديم');
     }
-    run('UPDATE dining_tables SET qr_open_until = NULL WHERE id = ?', o0.table_id);
+    run('UPDATE dining_tables SET qr_open_until = NULL, qr_opened_by = NULL WHERE id = ?', o0.table_id);
     const t = get('SELECT name FROM dining_tables WHERE id = ?', o0.table_id);
     if (t) logEvent(orderId, 'table_released', user.id, `تحرير ${t.name}`);
   }
@@ -315,7 +315,7 @@ export function cancelOrder(orderId, reason, user) {
   assertOpen(order);
   if (order.paid > 0) throw bad('لا يمكن إلغاء طلب عليه دفعات');
   run("UPDATE orders SET status = 'cancelled', pending_confirm = 0, cancel_reason = ?, closed_at = datetime('now','localtime') WHERE id = ?", reason || null, orderId);
-  if (order.table_id) run('UPDATE dining_tables SET qr_open_until = NULL WHERE id = ?', order.table_id);
+  if (order.table_id) run('UPDATE dining_tables SET qr_open_until = NULL, qr_opened_by = NULL WHERE id = ?', order.table_id);
   run("UPDATE order_items SET status = 'cancelled' WHERE order_id = ? AND status NOT IN ('served')", orderId);
   audit(user.id, 'order.cancel', 'order', orderId, { reason });
   logEvent(orderId, 'cancelled', user.id, reason ? `إلغاء الطلب: ${reason}` : 'إلغاء الطلب');
@@ -331,8 +331,8 @@ export function moveTable(orderId, tableId, user) {
   // جلسة QR تنتقل مع الزبون: تُفتح الطاولة الجديدة وتُغلق القديمة
   const oldOpen = get('SELECT qr_open_until FROM dining_tables WHERE id = ?', order.table_id)?.qr_open_until;
   if (oldOpen || order.source === 'online') {
-    run("UPDATE dining_tables SET qr_open_until = COALESCE(?, datetime('now','localtime','+2 hours')) WHERE id = ?", oldOpen || null, tableId);
-    run('UPDATE dining_tables SET qr_open_until = NULL WHERE id = ?', order.table_id);
+    run("UPDATE dining_tables SET qr_open_until = COALESCE(?, datetime('now','localtime','+2 hours')), qr_opened_by = (SELECT qr_opened_by FROM dining_tables WHERE id = ?) WHERE id = ?", oldOpen || null, order.table_id, tableId);
+    run('UPDATE dining_tables SET qr_open_until = NULL, qr_opened_by = NULL WHERE id = ?', order.table_id);
   }
   audit(user.id, 'order.move_table', 'order', orderId, { from: order.table_id, to: tableId });
   const names = all('SELECT id, name FROM dining_tables WHERE id IN (?, ?)', order.table_id, tableId);
@@ -387,7 +387,7 @@ export function confirmOrder(orderId, user) {
   const n = sendToKitchen(orderId, user);
   run('UPDATE orders SET pending_confirm = 0 WHERE id = ?', orderId);
   logEvent(orderId, 'confirmed', user.id, 'تأكيد طلب الزبون وإرساله للمطبخ');
-  audit(user.id, 'order.confirm', 'order', orderId, { items: n });
+  audit(user.id, 'order.confirm', 'order', orderId, { items: n, table: get('SELECT name FROM dining_tables WHERE id = ?', order.table_id)?.name || null });
   return n;
 }
 
