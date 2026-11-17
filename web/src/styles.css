@@ -1782,7 +1782,12 @@ body { background: var(--bg) radial-gradient(900px 420px at 100% -10%, color-mix
   body:has(.qr-sheet) * { visibility: hidden !important; }
   body:has(.qr-sheet) .qr-sheet, body:has(.qr-sheet) .qr-sheet * { visibility: visible !important; }
   body:has(.qr-sheet) .qr-sheet { position: absolute; inset: 0 0 auto 0; }
-  body:has(.qr-sheet) .qr-actions { display: none !important; }
+  body:has(.qr-sheet) .qr-actions, body:has(.qr-sheet) .qr-card-actions { display: none !important; }
+  body:has(.qr-sheet.one) .qr-card:not(.sel) { display: none !important; }
+  body:has(.qr-sheet.one) .qr-grid { grid-template-columns: 1fr; max-width: 80mm; margin-inline: auto; }
   body:has(.qr-sheet) .qr-grid { grid-template-columns: repeat(3, 1fr); }
 }
 .src-online { margin-inline-start: var(--s-1); font-weight: 700; }
+
+.qr-card-actions { display: flex; gap: var(--s-1); margin-top: var(--s-1); }
+.qr-card-actions .btn { min-height: 32px; }
