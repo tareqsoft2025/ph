@@ -7,9 +7,9 @@ import {
 } from '../lib.jsx';
 import Receipt from '../components/Receipt.jsx';
 import OrderTimeline from '../components/OrderTimeline.jsx';
-import TableHero from '../components/TableHero.jsx';
+import TableHero, { AnimatedMoney } from '../components/TableHero.jsx';
 import { PayModal, DiscountModal } from '../components/PaymentModals.jsx';
-import { Search, Utensils, SlidersHorizontal, Plus, StickyNote, ShoppingBag, Flame, CheckCheck, Printer, CreditCard, TriangleAlert, X, History, Minus, UserRound, Phone, MapPin, Armchair, ReceiptText } from 'lucide-react';
+import { Search, Utensils, SlidersHorizontal, ChefHat, Plus, StickyNote, ShoppingBag, Flame, CheckCheck, Printer, CreditCard, TriangleAlert, X, History, Minus, UserRound, Phone, MapPin, ReceiptText, ChevronUp, Percent, ArrowLeftRight, Ban } from 'lucide-react';
 
 let draftSeq = 1;
 
@@ -44,6 +44,8 @@ export default function Pos() {
   const [tried, setTried] = useState(false);
   const submitted = useRef(false); // بعد إنشاء الطلب لا نعيد التوجيه لطلب الطاولة
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [totalsOpen, setTotalsOpen] = useState(false);
+  const [bump, setBump] = useState(0);
 
   // التحقق من بيانات العميل حسب نوع الطلب
   const metaErrors = {};
@@ -93,8 +95,15 @@ export default function Pos() {
   const canCancel = has(user, 'orders.cancel');
   const canCancelItem = has(user, 'orders.cancel_item');
 
+  const decItem = (id) => setDraft((d) => {
+    const i = d.findLastIndex((x) => x.item_id === id);
+    if (i < 0) return d;
+    return d[i].qty <= 1 ? d.filter((_, k) => k !== i) : d.map((x, k) => (k === i ? { ...x, qty: x.qty - 1 } : x));
+  });
+
   function addToDraft(item, { modifiers = [], qty = 1, notes = '' } = {}) {
     if (!item.available) return toast('هذا الصنف غير متوفر حالياً', 'err');
+    setBump((b) => b + 1);
     const unit = item.price + modifiers.reduce((a, m) => a + m.price, 0);
     setDraft((d) => {
       const key = `${item.id}|${modifiers.map((m) => m.id).sort().join(',')}|${notes}`;
@@ -221,24 +230,26 @@ export default function Pos() {
               const inCart = draft.filter((d) => d.item_id === it.id).reduce((a, d) => a + d.qty, 0);
               const art = it.image || catIcon[it.category_id] || '';
               return (
-                <button key={it.id} className={`dish st-${it.station} ${it.available ? '' : 'unavailable'} ${inCart ? 'in-cart' : ''}`}
-                  onClick={() => isOpen && canEdit && onItemClick(it)} disabled={!isOpen || !canEdit}
-                  aria-label={`${it.name}، ${money(it.price)}${it.available ? '' : '، غير متوفر'}`}>
-                  <span className="dish-art" aria-hidden>
-                    {/^(https?:|data:)/.test(art) ? <img src={art} alt="" loading="lazy" /> : art ? <span className="dish-emoji">{art}</span> : <Utensils size={30} strokeWidth={1.5} />}
-                  </span>
-                  <span className="dish-body">
-                    <span className="dish-name">{it.name}</span>
-                    {it.description && <span className="dish-desc">{it.description}</span>}
-                    {it.modifiers?.length > 0 && <span className="dish-opts"><SlidersHorizontal size={13} aria-hidden /> {it.modifiers.length} خيارات إضافية</span>}
-                    <span className="dish-foot">
-                      <span className="dish-price"><b>{price(it.price)}</b> <small>{settings?.currency}</small></span>
-                      <span className="dish-add" aria-hidden><Plus size={18} strokeWidth={2.4} /></span>
+                <div key={it.id} className="dish-cell">
+                  <button className={`dish st-${it.station} ${it.available ? '' : 'unavailable'} ${inCart ? 'in-cart' : ''}`}
+                    onClick={() => isOpen && canEdit && onItemClick(it)} disabled={!isOpen || !canEdit}
+                    aria-label={`${it.name}، ${money(it.price)}${it.available ? '' : '، غير متوفر'}`}>
+                    <span className="dish-art" aria-hidden>
+                      {/^(https?:|data:)/.test(art) ? <img src={art} alt="" loading="lazy" /> : art ? <span className="dish-emoji">{art}</span> : <Utensils size={26} strokeWidth={1.5} />}
                     </span>
-                  </span>
-                  {!it.available && <span className="dish-flag">نفد اليوم</span>}
-                  {inCart > 0 && <span className="dish-qty">{inCart}</span>}
-                </button>
+                    <span className="dish-body">
+                      <span className="dish-name">{it.name}</span>
+                      {it.modifiers?.length > 0 && <span className="dish-opts"><SlidersHorizontal size={12} aria-hidden /> {it.modifiers.length} خيارات</span>}
+                      <span className="dish-foot">
+                        <span className="dish-price"><b>{price(it.price)}</b> <small>{settings?.currency}</small></span>
+                        <span className="dish-add" aria-hidden><Plus size={16} strokeWidth={2.6} /></span>
+                      </span>
+                    </span>
+                    {!it.available && <span className="dish-flag">نفد اليوم</span>}
+                    {inCart > 0 && <span key={inCart} className="dish-qty">{inCart}</span>}
+                  </button>
+                  {inCart > 0 && isOpen && <button className="dish-minus" onClick={() => decItem(it.id)} aria-label={`إنقاص ${it.name}`}><Minus size={14} strokeWidth={2.6} /></button>}
+                </div>
               );
             })}
           </div>
@@ -299,8 +310,31 @@ export default function Pos() {
         )}
 
         <div className="cart-lines">
+          {draft.length > 0 && (
+            <>
+              <div className="divider divider-new"><Flame size={12} aria-hidden /> {order ? 'إضافات جديدة' : 'الطلب'} · لم يُرسل</div>
+              {draft.map((d) => (
+                <div key={d.uid} className="line line-draft">
+                  <div className="line-main">
+                    <div className="qty-ctl">
+                      <button className="btn btn-xs" onClick={() => setDraft((x) => (d.qty <= 1 ? x.filter((y) => y.uid !== d.uid) : x.map((y) => (y.uid === d.uid ? { ...y, qty: y.qty - 1 } : y))))} aria-label="إنقاص">−</button>
+                      <span>{d.qty}</span>
+                      <button className="btn btn-xs" onClick={() => setDraft((x) => x.map((y) => (y.uid === d.uid ? { ...y, qty: y.qty + 1 } : y)))} aria-label="زيادة">+</button>
+                    </div>
+                    <div className="line-text">
+                      <strong>{d.name}</strong>
+                      {d.modifiers.length > 0 && <small>{d.modifiers.map((m) => m.name).join('، ')}</small>}
+                      {d.notes && <small className="note"><StickyNote size={13} aria-hidden /> {d.notes}</small>}
+                    </div>
+                    <span className="line-price">{money(d.unit * d.qty)}</span>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+          {order?.items.length > 0 && draft.length > 0 && <div className="divider"><ChefHat size={12} aria-hidden /> في الطلب</div>}
           {order?.items.map((l) => (
-            <div key={l.id} className={`line ${l.status === 'cancelled' ? 'line-cancelled' : ''}`}>
+            <div key={l.id} className={`line line-st-${l.status} ${l.status === 'cancelled' ? 'line-cancelled' : ''}`}>
               <div className="line-main">
                 <span className="line-qty">{l.qty}×</span>
                 <div className="line-text">
@@ -311,84 +345,72 @@ export default function Pos() {
                 <span className="line-price">{money(l.price * l.qty)}</span>
               </div>
               <div className="line-foot">
-                <span className={`status status-${l.status}`}>{ITEM_STATUS[l.status]}</span>
-                {isOpen && l.status === 'pending' && (
-                  <span className="row gap-s">
-                    <button className="btn btn-xs" onClick={() => lineAction(l, { qty: l.qty - 1 })} disabled={l.qty <= 1 || busy} aria-label="إنقاص">−</button>
-                    <button className="btn btn-xs" onClick={() => lineAction(l, { qty: l.qty + 1 })} disabled={busy} aria-label="زيادة">+</button>
-                  </span>
-                )}
-                {isOpen && l.status !== 'cancelled' && l.status !== 'served' && (l.status === 'pending' ? canEdit : canCancelItem) && (
-                  <button className="btn btn-xs btn-danger-ghost" onClick={() => lineAction(l, { cancel: true })} disabled={busy}>إلغاء</button>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {draft.length > 0 && order && <div className="divider">إضافات جديدة</div>}
-          {draft.map((d) => (
-            <div key={d.uid} className="line line-draft">
-              <div className="line-main">
-                <div className="qty-ctl">
-                  <button className="btn btn-xs" onClick={() => setDraft((x) => x.map((y) => (y.uid === d.uid ? { ...y, qty: y.qty + 1 } : y)))} aria-label="زيادة">+</button>
-                  <span>{d.qty}</span>
-                  <button className="btn btn-xs" onClick={() => setDraft((x) => (d.qty <= 1 ? x.filter((y) => y.uid !== d.uid) : x.map((y) => (y.uid === d.uid ? { ...y, qty: y.qty - 1 } : y))))} aria-label="إنقاص">−</button>
-                </div>
-                <div className="line-text">
-                  <strong>{d.name}</strong>
-                  {d.modifiers.length > 0 && <small>{d.modifiers.map((m) => m.name).join('، ')}</small>}
-                  {d.notes && <small className="note"><StickyNote size={13} aria-hidden /> {d.notes}</small>}
-                </div>
-                <span className="line-price">{money(d.unit * d.qty)}</span>
+                <span className={`status status-${l.status}`}><i className="st-dot" aria-hidden />{ITEM_STATUS[l.status]}</span>
+                <span className="row gap-s">
+                  {isOpen && l.status === 'pending' && (
+                    <span className="qty-ctl">
+                      <button className="btn btn-xs" onClick={() => lineAction(l, { qty: l.qty - 1 })} disabled={l.qty <= 1 || busy} aria-label="إنقاص">−</button>
+                      <button className="btn btn-xs" onClick={() => lineAction(l, { qty: l.qty + 1 })} disabled={busy} aria-label="زيادة">+</button>
+                    </span>
+                  )}
+                  {isOpen && l.status !== 'cancelled' && l.status !== 'served' && (l.status === 'pending' ? canEdit : canCancelItem) && (
+                    <button className="btn btn-xs btn-danger-ghost" onClick={() => lineAction(l, { cancel: true })} disabled={busy}>إلغاء</button>
+                  )}
+                </span>
               </div>
             </div>
           ))}
           {!order?.items.length && !draft.length && <Empty icon={ShoppingBag} text="اختر الأصناف من القائمة" />}
         </div>
 
-        <div className="cart-totals">
+        <div className={`cart-totals ${totalsOpen ? 'open' : ''}`}>
           {order ? (
             <>
-              <Row k="المجموع" v={money(order.subtotal)} />
-              {order.discount > 0 && <Row k="الخصم" v={`− ${money(order.discount)}`} />}
-              {order.service > 0 && <Row k="رسوم الخدمة" v={money(order.service)} />}
-              {order.delivery_fee > 0 && <Row k="رسوم التوصيل" v={money(order.delivery_fee)} />}
-              <Row k="الضريبة" v={money(order.tax)} />
-              <Row k="الإجمالي" v={money(order.total)} big />
-              {order.paid > 0 && <Row k="المدفوع" v={money(order.paid)} />}
+              <div className="tot-details">
+                <Row k="المجموع" v={money(order.subtotal)} />
+                {order.discount > 0 && <Row k="الخصم" v={`− ${money(order.discount)}`} />}
+                {order.service > 0 && <Row k="رسوم الخدمة" v={money(order.service)} />}
+                {order.delivery_fee > 0 && <Row k="رسوم التوصيل" v={money(order.delivery_fee)} />}
+                <Row k="الضريبة" v={money(order.tax)} />
+                {order.paid > 0 && <Row k="المدفوع" v={money(order.paid)} />}
+              </div>
+              <button type="button" className="tot-toggle" onClick={() => setTotalsOpen((o) => !o)} aria-expanded={totalsOpen}>
+                <span>الإجمالي <ChevronUp size={14} aria-hidden className="chev" /></span>
+                <strong key={bump}><AnimatedMoney value={order.total} /></strong>
+              </button>
               {draft.length > 0 && <Row k="إضافات غير محفوظة" v={money(draftTotal)} />}
             </>
           ) : (
-            <Row k="المجموع (قبل الضريبة)" v={money(draftTotal)} big />
+            <Row k="المجموع (قبل الضريبة)" v={<AnimatedMoney value={draftTotal} />} big />
           )}
         </div>
 
         {isOpen && (
           <div className="cart-actions">
             {canEdit && (draft.length > 0 || pendingCount > 0) && (
-              <div className="grid-2">
+              <div className="act-main">
                 <button className="btn btn-primary btn-lg" onClick={() => submit({ send: true })} disabled={busy}><Flame size={19} /> إرسال للمطبخ</button>
                 <button className="btn btn-lg" onClick={() => submit({ send: false })} disabled={busy || !draft.length}>حفظ</button>
               </div>
             )}
+            {order && readyCount > 0 && <button className="btn btn-ok btn-block" onClick={serveReady} disabled={busy}><CheckCheck size={18} /> تقديم ({readyCount})</button>}
+            {canPay && (order || draft.length > 0) && (
+              <button className="btn btn-ok btn-lg btn-block" disabled={busy} onClick={() => (draft.length || !order ? submit({ send: true, thenPay: true }) : setPaying(true))}>
+                <CreditCard size={19} /> الدفع {order ? `(${money(order.total - order.paid + (draft.length ? draftTotal : 0))})` : ''}
+              </button>
+            )}
             {order && (
-              <div className="btn-row">
-                {readyCount > 0 && <button className="btn btn-ok" onClick={serveReady} disabled={busy}><CheckCheck size={18} /> تقديم ({readyCount})</button>}
-                {canDiscount && <button className="btn" onClick={() => setDiscountOpen(true)}>خصم</button>}
-                {order.type === 'dine_in' && has(user, 'orders.move') && <button className="btn" onClick={() => setMoveOpen(true)}>نقل طاولة</button>}
+              <div className="act-tools">
                 {!canPay && canEdit && (
                   <button className={`btn ${order.bill_requested_at ? '' : 'btn-primary'}`} onClick={requestBill} disabled={busy || !!order.bill_requested_at}>
                     <ReceiptText size={17} /> {order.bill_requested_at ? 'طُلب الحساب' : 'طلب الحساب'}
                   </button>
                 )}
-                <button className="btn" onClick={() => setPrintOrder(order)}><Printer size={17} /> طباعة</button>
-                {canCancel && <button className="btn btn-danger-ghost" onClick={cancelOrder} disabled={busy || order.paid > 0}>إلغاء الطلب</button>}
+                {canDiscount && <button className="btn btn-tool" onClick={() => setDiscountOpen(true)} title="خصم" aria-label="خصم"><Percent size={17} /><span>خصم</span></button>}
+                {order.type === 'dine_in' && has(user, 'orders.move') && <button className="btn btn-tool" onClick={() => setMoveOpen(true)} title="نقل طاولة" aria-label="نقل طاولة"><ArrowLeftRight size={17} /><span>نقل</span></button>}
+                <button className="btn btn-tool" onClick={() => setPrintOrder(order)} title="طباعة" aria-label="طباعة"><Printer size={17} /><span>طباعة</span></button>
+                {canCancel && <button className="btn btn-tool btn-danger-ghost" onClick={cancelOrder} disabled={busy || order.paid > 0} title="إلغاء الطلب" aria-label="إلغاء الطلب"><Ban size={17} /><span>إلغاء</span></button>}
               </div>
-            )}
-            {canPay && (order || draft.length > 0) && (
-              <button className="btn btn-ok btn-lg btn-block" disabled={busy} onClick={() => (draft.length || !order ? submit({ send: true, thenPay: true }) : setPaying(true))}>
-                <CreditCard size={19} /> الدفع {order ? `(${money(order.total - order.paid + (draft.length ? draftTotal : 0))})` : ''}
-              </button>
             )}
           </div>
         )}
