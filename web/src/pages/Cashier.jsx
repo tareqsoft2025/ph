@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search, ReceiptText, CreditCard, Percent, Printer, History, Armchair, ShoppingBag, Bike, Clock, BellRing,
-  CircleCheckBig, Wallet, Banknote, Smartphone, UserRound, Phone, MapPin, Users, Inbox, LockOpen,
+  CircleCheckBig, Wallet, Banknote, Smartphone, UserRound, Phone, MapPin, Users, Inbox, LockOpen, Copy, Check, Landmark,
 } from 'lucide-react';
 import { api } from '../api.js';
 import {
   useApp, useData, useMoney, useNow, has, Loading, Empty, ORDER_TYPES, ITEM_STATUS, minutesSince, timeOf, todayStr,
 } from '../lib.jsx';
-import { PayModal, DiscountModal } from '../components/PaymentModals.jsx';
+import { PayModal, DiscountModal, BILL_LABEL } from '../components/PaymentModals.jsx';
 import Receipt from '../components/Receipt.jsx';
 import OrderTimeline from '../components/OrderTimeline.jsx';
 import CollectionsHistory from '../components/CollectionsHistory.jsx';
@@ -101,7 +101,7 @@ export default function Cashier() {
                   </span>
                   <span className="cq-side">
                     <strong>{money(o.total)}</strong>
-                    {o.bill_requested_at ? <span className="badge badge-warn"><BellRing size={11} /> طلب الحساب</span>
+                    {o.bill_requested_at ? <span className="badge badge-warn"><BellRing size={11} /> طلب الحساب{o.bill_method ? ` · ${BILL_LABEL[o.bill_method]}` : ''}</span>
                       : o.ready_items > 0 ? <span className="badge badge-ok">جاهز</span>
                         : o.pending_items > 0 ? <span className="badge">لم يُرسل</span> : null}
                   </span>
@@ -166,6 +166,7 @@ function OrderPanel({ id, onDone, onBack }) {
         <button className="btn btn-sm" onClick={() => setTimeline(true)}><History size={16} /> التسلسل</button>
       </header>
 
+      <BillCard order={o} money={money} />
       <ConfirmBanner order={o} onChanged={(r) => (r.status === 'cancelled' ? onDone() : setData(r))} />
       {o.bill_requested_at && <div className="alert alert-warn"><BellRing size={16} /> طلب {o.waiter_name || 'النادل'} الحساب الساعة {timeOf(o.bill_requested_at)}</div>}
 
@@ -211,5 +212,38 @@ function OrderPanel({ id, onDone, onBack }) {
       {receipt && <Receipt order={receipt} onClose={() => setReceipt(null)} />}
       {timeline && <OrderTimeline orderId={o.id} onClose={() => setTimeline(false)} />}
     </div>
+  );
+}
+
+const BILL_ICON = { cash: Banknote, wallet: Wallet, bank: Landmark, jawwalpay: Smartphone };
+
+function CopyBtn({ text, label }) {
+  const [ok, setOk] = useState(false);
+  return (
+    <button className="bc-copy" onClick={async () => { try { await navigator.clipboard.writeText(text); setOk(true); setTimeout(() => setOk(false), 1400); } catch { window.prompt(label, text); } }} aria-label={`نسخ ${label}`}>
+      {ok ? <Check size={14} /> : <Copy size={14} />}
+    </button>
+  );
+}
+
+/** طلب الحساب الذي أرسله الزبون من هاتفه: طريقة الدفع والاسم والرقم وكود العملية */
+function BillCard({ order, money }) {
+  if (!order.bill_method || order.status !== 'open') return null;
+  const I = BILL_ICON[order.bill_method] || Banknote;
+  const remaining = Math.round((order.total - order.paid) * 100) / 100;
+  return (
+    <section className="bill-card" aria-label="طلب الحساب من الزبون">
+      <span className="bc-ico" aria-hidden><I size={22} /></span>
+      <div className="bc-main">
+        <span className="bc-kicker">الزبون طلب الحساب من هاتفه · {order.bill_requested_at ? timeOf(order.bill_requested_at) : ''}</span>
+        <strong className="bc-method">{BILL_LABEL[order.bill_method]}</strong>
+        <div className="bc-rows">
+          <span><small>كود العملية</small><b dir="ltr">{order.code}</b><CopyBtn text={order.code} label="كود العملية" /></span>
+          {order.bill_name && <span><small>الاسم</small><b>{order.bill_name}</b><CopyBtn text={order.bill_name} label="الاسم" /></span>}
+          {order.bill_phone && <span><small>{order.bill_method === 'jawwalpay' ? 'رقم جوال بي' : order.bill_method === 'wallet' ? 'رقم المحفظة' : 'الجوال'}</small><b dir="ltr">{order.bill_phone}</b><CopyBtn text={order.bill_phone} label="الرقم" /></span>}
+        </div>
+      </div>
+      <strong className="bc-amount">{money(remaining)}</strong>
+    </section>
   );
 }
