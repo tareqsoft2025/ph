@@ -364,3 +364,21 @@ CREATE TABLE IF NOT EXISTS qr_log (
   detail    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_qrlog_at ON qr_log(at);
+
+-- إشعارات Web Push للزبون (تصله حتى لو أغلق الصفحة)
+CREATE TABLE IF NOT EXISTS web_push_subs (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id   INTEGER NOT NULL REFERENCES orders(id),
+  endpoint   TEXT NOT NULL UNIQUE,
+  p256dh     TEXT NOT NULL,
+  auth       TEXT NOT NULL,
+  url        TEXT,                       -- رابط صفحة الزبون ليُفتح عند الضغط على الإشعار
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_wps_order ON web_push_subs(order_id);
+
+-- مفاتيح الخادم (لا تُعرض عبر الإعدادات)
+CREATE TABLE IF NOT EXISTS server_keys (
+  name  TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);

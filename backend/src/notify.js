@@ -11,6 +11,16 @@ let pushSender = null;
 export function setPushSender(fn) { pushSender = fn; }
 export const pushEnabled = () => !!pushSender;
 
+// إشعارات Web Push للزبون (طلب QR): يضبطها الخادم عند توفرها (غير متاحة في النسخة التجريبية)
+let webPush = null;
+export function setWebPush(impl) { webPush = impl; }
+export const webPushKey = () => webPush?.publicKey || null;
+/** يرسل إشعاراً لزبون الطلب (لا ينتظر ولا يفشل الطلب إن تعذّر) */
+export function customerNotify(orderId, payload) {
+  if (!webPush) return;
+  Promise.resolve().then(() => webPush.sendToOrder(orderId, payload)).catch((e) => console.error('webpush:', e.message));
+}
+
 /**
  * @param {{ userIds?: number[], roles?: string[], type: string, title: string, body?: string, link?: string, level?: string, exclude?: number }} n
  */

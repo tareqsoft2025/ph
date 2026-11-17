@@ -7,7 +7,7 @@ import { bad, notFound, pick, updateSql, normalize, round2, today } from './util
 import * as Orders from './orders.js';
 import { hrRoutes } from './hr.js';
 import { attendanceRoutes, attendanceGate } from './attendance.js';
-import { setNotifyEmitter, notify, pushEnabled } from './notify.js';
+import { setNotifyEmitter, notify, pushEnabled, webPushKey } from './notify.js';
 
 /**
  * @param {(event: string, payload?: any) => void} emit إرسال حدث لحظي لكل الأجهزة
@@ -190,6 +190,25 @@ export function buildRouter(emit) {
     changed('orders', 'kitchen', 'tables');
     emit('public-order', id);
     res.status(201).json({ code: o.code, token: get('SELECT track_token FROM orders WHERE id = ?', id).track_token, total: o.total, added, needs_confirm: needsConfirm });
+  });
+
+  // إشعارات Web Push للزبون (تصله حتى لو أغلق الصفحة)
+  r.get('/public/push/key', (req, res) => res.json({ enabled: !!webPushKey(), key: webPushKey() }));
+  r.post('/public/orders/:code/push', (req, res) => {
+    if (limited(req, 'wp', 30, 10 * 60 * 1000)) return res.status(429).json({ error: 'طلبات كثيرة، حاول بعد قليل' });
+    if (!webPushKey()) return res.status(503).json({ error: 'الإشعارات غير متاحة على هذا الخادم' });
+    const o = get("SELECT id, track_token, status FROM orders WHERE code = ? AND source = 'online'", String(req.params.code));
+    if (!o || !o.track_token || o.track_token !== String(req.query.t || '')) return res.status(404).json({ error: 'الطلب غير موجود' });
+    if (o.status !== 'open') throw bad('الطلب مغلق');
+    const sub = req.body?.subscription || {};
+    const endpoint = String(sub.endpoint || '');
+    const p256dh = String(sub.keys?.p256dh || '');
+    const auth = String(sub.keys?.auth || '');
+    if (!/^https:\/\//.test(endpoint) || endpoint.length > 600 || !p256dh || !auth || p256dh.length > 200 || auth.length > 100) throw bad('اشتراك غير صالح');
+    const url = /^https?:\/\//.test(String(req.body?.url || '')) ? String(req.body.url).slice(0, 400) : null;
+    run('INSERT INTO web_push_subs(order_id, endpoint, p256dh, auth, url) VALUES(?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET order_id = excluded.order_id, p256dh = excluded.p256dh, auth = excluded.auth, url = excluded.url', o.id, endpoint, p256dh, auth, url);
+    Orders.notifyCustomer(o.id, 'welcome');
+    res.json({ ok: true });
   });
 
   r.get('/public/orders/:code', (req, res) => {
