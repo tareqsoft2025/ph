@@ -8,6 +8,9 @@ function migrate() {
   if (!cols('orders').includes('code')) db.exec('ALTER TABLE orders ADD COLUMN code TEXT');
   if (!cols('order_items').includes('sent_by')) db.exec('ALTER TABLE order_items ADD COLUMN sent_by INTEGER');
   if (!cols('dining_tables').includes('qr_token')) db.exec('ALTER TABLE dining_tables ADD COLUMN qr_token TEXT');
+  if (!cols('dining_tables').includes('qr_open_until')) db.exec('ALTER TABLE dining_tables ADD COLUMN qr_open_until TEXT');
+  if (!cols('orders').includes('pending_confirm')) db.exec('ALTER TABLE orders ADD COLUMN pending_confirm INTEGER NOT NULL DEFAULT 0');
+  if (!cols('orders').includes('device_id')) db.exec('ALTER TABLE orders ADD COLUMN device_id TEXT');
   if (!cols('orders').includes('source')) db.exec("ALTER TABLE orders ADD COLUMN source TEXT NOT NULL DEFAULT 'staff'");
   if (!cols('orders').includes('track_token')) db.exec('ALTER TABLE orders ADD COLUMN track_token TEXT');
   if (!cols('orders').includes('bill_requested_at')) db.exec('ALTER TABLE orders ADD COLUMN bill_requested_at TEXT');
@@ -95,6 +98,9 @@ const DEFAULT_SETTINGS = {
   receipt_footer: 'شكراً لزيارتكم',
   loyalty_points_per_unit: '1', // نقطة لكل وحدة عملة
   online_ordering: '1',          // السماح للزبائن بالطلب من رمز QR الطاولة (يمكن إيقافه في أي وقت)
+  qr_require_open: '1',          // لا يُقبل طلب QR إلا بعد أن يفتح النادل الطاولة
+  qr_confirm_mode: 'smart',      // تأكيد النادل قبل المطبخ: always / smart (حسب المبلغ وأول طلب للجوال) / never
+  qr_confirm_over: '100',        // المبلغ الذي يحتاج ما فوقه تأكيداً (في الوضع smart)
   late_grace_minutes: '10',      // سماحية التأخير بالدقائق
   late_deduction: '1',           // خصم التأخير من الراتب (1/0)
   doc_alert_days: '30',          // التنبيه قبل انتهاء المستندات بأيام

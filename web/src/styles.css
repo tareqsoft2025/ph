@@ -1791,3 +1791,24 @@ body { background: var(--bg) radial-gradient(900px 420px at 100% -10%, color-mix
 
 .qr-card-actions { display: flex; gap: var(--s-1); margin-top: var(--s-1); }
 .qr-card-actions .btn { min-height: 32px; }
+
+/* ═════════ فتح الطاولات لـ QR وتأكيد الطلبات ═════════ */
+.t-cell { position: relative; display: flex; flex-direction: column; }
+.t-cell > .table-card { flex: 1; }
+.t-qr { position: absolute; inset-inline: var(--s-3); bottom: var(--s-3); z-index: 2; font: inherit; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; border-radius: var(--radius-full); cursor: pointer; border: 1px dashed var(--border-strong); background: var(--surface); color: var(--muted); transition: all 150ms var(--ease); }
+.t-qr:hover { border-color: var(--primary); color: var(--primary); }
+.t-qr.on { border-style: solid; border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+.t-cell:has(.t-qr) .t-avail { margin-bottom: 40px; }
+.t-confirm { position: absolute; top: var(--s-3); inset-inline-start: var(--s-3); display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; background: var(--warn); color: #fff; padding: 2px 8px; border-radius: 99px; animation: pulse 1.4s infinite; }
+.confirm-banner { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-2); padding: var(--s-2) var(--s-3); margin: var(--s-2) var(--s-3) 0; border-radius: var(--radius-md); background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border)); }
+.cb-ico { color: var(--warn); display: grid; place-items: center; }
+.cb-text { flex: 1 1 140px; display: flex; flex-direction: column; line-height: 1.4; min-width: 0; }
+.cb-text small { color: var(--muted); font-size: var(--text-xs); }
+.cpanel > .confirm-banner { margin: 0 0 var(--s-3); }
+
+.qr-sec { margin: var(--s-3) 0; padding: var(--s-3) var(--s-4); border-radius: var(--radius-md); background: var(--surface-2); display: flex; flex-direction: column; gap: var(--s-2); }
+.qr-sec h4 { margin: 0; font-size: var(--text-sm); color: var(--muted); }
+.qr-host { color: #333; font-size: 11px; letter-spacing: .02em; }
+.qrlog { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.qrlog li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--s-3); align-items: center; padding: var(--s-2) 0; border-bottom: 1px solid var(--border); font-size: var(--text-sm); }
+@media (max-width: 640px) { .qrlog li { grid-template-columns: auto 1fr; } .qrlog small { grid-column: 2; } }

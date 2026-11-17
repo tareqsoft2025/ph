@@ -6,6 +6,7 @@ import {
 import { api } from '../api.js';
 
 const safe = (f, d = null) => { try { return f(); } catch { return d; } };
+const deviceId = () => { let d = safe(() => localStorage.getItem('ph-co-device')); if (!d) { d = Math.random().toString(36).slice(2, 12) + Date.now().toString(36); safe(() => localStorage.setItem('ph-co-device', d)); } return d; };
 const lastKey = (t) => `ph-online-last-${String(t).slice(0, 10)}`;
 const fmt = (n, cur) => `${(Math.round(Number(n) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${cur || ''}`.trim();
 const STEPS = [['new', 'تم الاستلام', Receipt], ['preparing', 'قيد التحضير', ChefHat], ['ready', 'جاهز', BellRing], ['served', 'تم التقديم', HandPlatter]];
@@ -35,12 +36,20 @@ export default function CustomerOrder() {
   const [done, setDone] = useState(() => safe(() => JSON.parse(localStorage.getItem(lastKey(tableToken)) || 'null')));
 
   useEffect(() => {
-    api(`/public/table/${tableToken}`).then((c) => {
+    api(`/public/table/${tableToken}?d=${deviceId()}`).then((c) => {
       setCfg(c);
       if (!c.enabled) return;
       api(`/public/table/${tableToken}/menu`).then((m) => { setMenu(m); setCat(m.categories[0]?.id ?? 0); }).catch((e) => setError(e.message));
     }).catch((e) => setError(e.message));
   }, [tableToken]);
+
+  // الطاولة لم تُفتح بعد: نعيد الفحص تلقائياً حتى يفتحها النادل
+  const waitingOpen = !!cfg && cfg.enabled && !cfg.table.open && !cfg.table.busy;
+  useEffect(() => {
+    if (!waitingOpen) return undefined;
+    const t = setInterval(() => api(`/public/table/${tableToken}`).then(setCfg).catch(() => {}), 6000);
+    return () => clearInterval(t);
+  }, [waitingOpen, tableToken]);
 
   const cur = cfg?.currency;
   const items = useMemo(() => {
@@ -74,7 +83,7 @@ export default function CustomerOrder() {
     setBusy(true);
     try {
       const r = await api(`/public/table/${tableToken}/orders`, { method: 'POST', body: {
-        guests: Number(form.guests) || 1, customer_name: name, customer_phone: phone, notes: form.notes,
+        device_id: deviceId(), guests: Number(form.guests) || 1, customer_name: name, customer_phone: phone, notes: form.notes,
         order_token: adding ? done?.token : undefined,
         items: cart.map((l) => ({ item_id: l.item_id, qty: l.qty, modifier_ids: l.mods.map((m) => m.id), notes: l.notes })),
       } });
@@ -88,7 +97,8 @@ export default function CustomerOrder() {
   if (!cfg) return <Shell cfg={cfg}><div className="co-state"><p className="muted">جارِ التحميل…</p></div></Shell>;
   if (!cfg.enabled) return <Shell cfg={cfg}><div className="co-state"><Ban size={44} aria-hidden /><h2>الطلب عبر QR متوقف حالياً</h2><p>نادِ النادل لتقديم طلبك.</p></div></Shell>;
   const mine = done && cfg.table.busy && done.code === cfg.open_code;
-  if (mine && !adding) return <Shell cfg={cfg}><Tracker order={done} cur={cur} phone={cfg.phone} onAdd={() => setAdding(true)} onClosed={() => { safe(() => localStorage.removeItem(lastKey(tableToken))); setDone(null); setCfg({ ...cfg, table: { ...cfg.table, busy: false } }); }} /></Shell>;
+  if (done && !adding && (mine || !cfg.table.busy)) return <Shell cfg={cfg}><Tracker order={done} cur={cur} phone={cfg.phone} onAdd={() => setAdding(true)} onClosed={() => { safe(() => localStorage.removeItem(lastKey(tableToken))); setDone(null); setCfg({ ...cfg, table: { ...cfg.table, busy: false } }); }} /></Shell>;
+  if (waitingOpen) return <Shell cfg={cfg}><div className="co-state"><HandPlatter size={44} aria-hidden /><h2>أهلاً بك! {cfg.table.name}</h2><p>سيفتح النادل الطاولة لك للطلب خلال لحظات. ستظهر القائمة تلقائياً.</p><p className="muted small">أو نادِ النادل إن تأخر ذلك.</p></div></Shell>;
   if (cfg.table.busy && !mine) return <Shell cfg={cfg}><div className="co-state"><Armchair size={44} aria-hidden /><h2>{cfg.table.name} عليها طلب مفتوح</h2><p>لإضافة أصناف نادِ النادل.</p></div></Shell>;
 
   return (
@@ -225,24 +235,26 @@ function Tracker({ order, cur, phone, onAdd, onClosed }) {
     timer.current = setInterval(load, 6000);
     return () => { alive = false; clearInterval(timer.current); };
   }, [order.code, order.token]);
+  const pend = !!data?.pending_confirm;
   const st = data ? stage(data.items) : 0;
   const closed = data && data.status !== 'open';
   return (
     <div className="co-track">
       <span className="co-check" aria-hidden><CircleCheckBig size={42} /></span>
-      <h2>تم إرسال طلبك للمطبخ</h2>
+      <h2>{pend ? 'طلبك بانتظار تأكيد النادل' : closed && data.status === 'cancelled' ? 'لم يُقبل الطلب' : 'تم إرسال طلبك للمطبخ'}</h2>
       <p className="muted">رقم الطلب{data?.table_name ? ` · ${data.table_name}` : ''}</p>
       <p className="co-code" dir="ltr">{order.code}</p>
       {err && !data && <div className="alert alert-err">{err}</div>}
       {data && (
         <>
-          {closed ? <div className="alert alert-warn">{data.status === 'paid' ? 'تم إغلاق الطلب. شكراً لزيارتكم!' : 'أُلغي هذا الطلب. تواصل مع المطعم للمساعدة.'}</div> : (
+          {pend && <div className="alert alert-warn"><Clock size={16} aria-hidden /> سيصل طلبك للمطبخ فور تأكيد النادل له.</div>}
+          {closed ? <div className="alert alert-warn">{data.status === 'paid' ? 'تم إغلاق الطلب. شكراً لزيارتكم!' : `أُلغي هذا الطلب${data.cancel_reason ? `: ${data.cancel_reason}` : ''}. نادِ النادل للمساعدة.`}</div> : !pend && (
             <ol className="co-steps" aria-label="حالة الطلب">
               {STEPS.map(([k, label, I], i) => <li key={k} className={i < st ? 'done' : i === st ? 'cur' : ''}><span><I size={18} aria-hidden /></span><small>{label}</small></li>)}
             </ol>
           )}
           <ul className="co-lines flat">
-            {data.items.map((i, k) => <li key={k}><b>{i.qty}×</b><span className="co-line-name">{i.name}</span><span className={`status status-${i.status}`}>{{ new: 'تم الاستلام', preparing: 'قيد التحضير', ready: 'جاهز', served: 'تم التقديم' }[i.status] || i.status}</span></li>)}
+            {data.items.map((i, k) => <li key={k}><b>{i.qty}×</b><span className="co-line-name">{i.name}</span><span className={`status status-${i.status}`}>{pend && i.status === 'pending' ? 'بانتظار التأكيد' : { new: 'تم الاستلام', preparing: 'قيد التحضير', ready: 'جاهز', served: 'تم التقديم' }[i.status] || i.status}</span></li>)}
           </ul>
           <p className="co-total"><span>الإجمالي</span><strong>{fmt(data.total, cur)}</strong></p>
         </>

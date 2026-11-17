@@ -80,7 +80,8 @@ CREATE TABLE IF NOT EXISTS dining_tables (
   seats  INTEGER NOT NULL DEFAULT 4,
   area   TEXT NOT NULL DEFAULT 'الصالة',
   active INTEGER NOT NULL DEFAULT 1,
-  qr_token TEXT                 -- رمز QR العشوائي الخاص بالطاولة (يُستخدم في رابط الزبون)
+  qr_token TEXT,                -- رمز QR العشوائي الخاص بالطاولة (يُستخدم في رابط الزبون)
+  qr_open_until TEXT            -- الطاولة مفتوحة لطلب QR حتى هذا الوقت (يفتحها النادل)
 );
 
 CREATE TABLE IF NOT EXISTS customers (
@@ -131,6 +132,8 @@ CREATE TABLE IF NOT EXISTS orders (
   cancel_reason   TEXT,
   source          TEXT NOT NULL DEFAULT 'staff',   -- staff / online (طلب من رابط الزبون)
   track_token     TEXT,                            -- رمز متابعة الزبون للطلب
+  pending_confirm INTEGER NOT NULL DEFAULT 0,      -- طلب QR بانتظار تأكيد النادل قبل المطبخ
+  device_id       TEXT,                            -- معرّف جهاز الزبون (طلب QR)
   created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   closed_at       TEXT
 );
@@ -346,3 +349,15 @@ CREATE TABLE IF NOT EXISTS attendance_attempts (
   created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 CREATE INDEX IF NOT EXISTS idx_attempts_date ON attendance_attempts(created_at);
+
+-- سجل محاولات طلب QR (للمراقبة والتنبيه)
+CREATE TABLE IF NOT EXISTS qr_log (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  at        TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  ip        TEXT,
+  device_id TEXT,
+  table_id  INTEGER,
+  event     TEXT NOT NULL,
+  detail    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_qrlog_at ON qr_log(at);

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingBag, Bike, Clock, CalendarDays, BellRing, Sparkles, LayoutGrid, Armchair, Banknote } from 'lucide-react';
-import { useApp, useData, useMoney, useNow, has, minutesSince, Loading, Empty, PageHead } from '../lib.jsx';
+import { ShoppingBag, Bike, Clock, CalendarDays, BellRing, Sparkles, LayoutGrid, Armchair, Banknote, QrCode } from 'lucide-react';
+import { api } from '../api.js';
+import { useApp, useData, useMoney, useNow, has, minutesSince, Loading, Empty, PageHead, useToast } from '../lib.jsx';
 import { TableArt, AnimatedMoney } from '../components/TableHero.jsx';
 
 const FILTERS = [
@@ -18,7 +19,16 @@ export default function Tables() {
   const money = useMoney();
   const { user } = useApp();
   const canCreate = has(user, 'pos.create');
-  const { data, loading } = useData('/tables', ['tables', 'orders']);
+  const { data, loading, reload } = useData('/tables', ['tables', 'orders']);
+  const toast = useToast();
+  const canQr = has(user, 'pos.create', 'payments.collect', 'tables.view');
+  const toggleQr = async (t) => {
+    try {
+      await api(`/tables/${t.id}/qr/${t.qr_open ? 'close' : 'open'}`, { method: 'POST' });
+      toast(t.qr_open ? `أُغلق طلب QR على ${t.name}` : `${t.name} مفتوحة لطلب الزبون عبر QR`);
+      reload();
+    } catch (e) { toast(e.message, 'err'); }
+  };
   const [filter, setFilter] = useState('all');
   const [area, setArea] = useState('all');
   useNow();
@@ -82,10 +92,12 @@ export default function Tables() {
           <h2 className="area-title">{a} <small>{shown.filter((t) => t.area === a).length}</small></h2>
           <div className="tables-grid">
             {shown.filter((t) => t.area === a).map((t, i) => (
-              <button key={t.id} className={`table-card t-${t.status} ${t.ready_items > 0 ? 't-ready' : ''}`} style={{ animationDelay: `${Math.min(i, 12) * 30}ms` }}
+              <div key={t.id} className="t-cell">
+              <button className={`table-card t-${t.status} ${t.ready_items > 0 ? 't-ready' : ''}`} style={{ animationDelay: `${Math.min(i, 12) * 30}ms` }}
                 onClick={() => navigate(t.order_id ? `/pos/${t.order_id}` : `/pos?type=dine_in&table=${t.id}`)}
                 aria-label={`${t.name}، ${STATUS_LABEL[t.status]}`}>
                 <span className={`t-state s-${t.status}`}><i className="dot" /> {STATUS_LABEL[t.status]}</span>
+                {t.pending_confirm ? <span className="t-confirm"><QrCode size={12} aria-hidden /> بانتظار تأكيدك</span> : null}
                 {t.ready_items > 0 && <span className="t-readybadge"><BellRing size={12} aria-hidden /> جاهز {t.ready_items}</span>}
                 <div className="t-art"><TableArt seats={t.seats} guests={t.order_id ? (t.guests || 0) : 0} occupied={!!t.order_id} /></div>
                 <div className="t-name">{t.name}</div>
@@ -100,6 +112,12 @@ export default function Tables() {
                   <div className="t-avail"><Sparkles size={13} aria-hidden /> {t.seats} مقاعد · متاحة</div>
                 )}
               </button>
+              {canQr && !t.order_id && !t.reservation && (
+                <button className={`t-qr ${t.qr_open ? 'on' : ''}`} onClick={() => toggleQr(t)} aria-pressed={!!t.qr_open} title={t.qr_open ? 'إغلاق الطلب بالـ QR' : 'فتح الطاولة لطلب الزبون بالـ QR'}>
+                  <QrCode size={14} aria-hidden /> {t.qr_open ? 'QR مفتوح' : 'فتح للـ QR'}
+                </button>
+              )}
+              </div>
             ))}
           </div>
         </section>

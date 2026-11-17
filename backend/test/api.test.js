@@ -17,7 +17,7 @@ async function api(path, { method = 'GET', body, token } = {}) {
 const login = async (u, p) => (await api('/auth/login', { method: 'POST', body: { username: u, password: p } })).data.token;
 
 before(async () => {
-  proc = spawn(process.execPath, ['--no-warnings', 'src/server.js'], { env: { ...process.env, PORT, DB_PATH: ':memory:', ATT_REQUIRED_DEFAULT: '0' } });
+  proc = spawn(process.execPath, ['--no-warnings', 'src/server.js'], { env: { ...process.env, PORT, DB_PATH: ':memory:', ATT_REQUIRED_DEFAULT: '0', QR_RATE_LIMIT: '100' } });
   for (let i = 0; i < 50; i++) {
     try { if ((await fetch(BASE + '/health')).ok) return; } catch {}
     await new Promise((r) => setTimeout(r, 100));
@@ -200,49 +200,113 @@ test('bill request notifies cashier; custom permissions are enforced', async () 
   assert.equal((await api('/audit', { token: waiter })).status, 403);
 });
 
-test('table QR ordering: per-table secret token, dine-in only, add-on, rotate and disable', async () => {
+test('table QR ordering: per-table secret token, table opening, waiter confirmation, one open order per phone, alerts', async () => {
   const admin = await login('admin', 'admin123');
   const kitchen = await login('kitchen', '1234');
   const waiter = await login('waiter', '1234');
+  const cashier = await login('cashier', '1234');
   // الرموز: للإدارة فقط ولا تظهر في قائمة الطاولات العادية
   assert.equal((await api('/tables/qr', { token: waiter })).status, 403);
   const qrs = (await api('/tables/qr', { token: admin })).data;
-  assert.ok(qrs.length >= 2 && qrs.every((t) => t.token && t.token.length >= 24));
+  assert.ok(qrs.length >= 3 && qrs.every((t) => t.token && t.token.length >= 24));
   assert.equal(new Set(qrs.map((t) => t.token)).size, qrs.length, 'each table has its own token');
   assert.ok((await api('/tables', { token: waiter })).data.every((t) => !('qr_token' in t)));
-  const [t1, t2] = qrs;
-  // لا يوجد رابط عام: المعرّفات والمسارات القديمة لا تعمل
+  const [t1, t2, t3] = qrs;
+  // لا يوجد رابط عام
   assert.ok([401, 404].includes((await api('/public/config')).status), 'old public config route is gone');
   assert.equal((await api('/public/table/' + t1.id)).status, 404, 'table id is not a valid token');
   assert.equal((await api('/public/table/' + 'a'.repeat(24))).status, 404);
   const info = (await api('/public/table/' + t1.token)).data;
   assert.equal(info.table.name, t1.name);
+  assert.equal(info.table.open, false, 'table is closed until a waiter opens it');
   const menu = (await api(`/public/table/${t1.token}/menu`)).data;
   assert.ok(menu.items.length && menu.items.every((i) => !('station' in i)));
-  const item = menu.items.find((i) => i.available);
+  const item = menu.items.find((i) => i.available && i.modifiers.length === 0);
   const post = (tok, body) => api(`/public/table/${tok}/orders`, { method: 'POST', body });
-  assert.equal((await post(t1.token, { customer_name: '', customer_phone: '', items: [{ item_id: item.id, qty: 1 }] })).status, 400);
-  const ok = await post(t1.token, { guests: 2, customer_name: 'زبون QR', customer_phone: '0501234567', items: [{ item_id: item.id, qty: 2 }] });
-  assert.equal(ok.status, 201, JSON.stringify(ok.data));
-  const { code, token } = ok.data;
-  const k = (await api('/kitchen', { token: kitchen })).data.find((o) => o.code === code);
-  assert.ok(k && k.table_name === t1.name, 'order reaches the kitchen for the right table');
+  const good = (extra = {}) => ({ guests: 2, customer_name: 'زبون QR', customer_phone: '0551230001', device_id: 'dev-A', items: [{ item_id: item.id, qty: 1 }], ...extra });
+
+  // 1) الطاولة مغلقة حتى يفتحها النادل
+  const closed = await post(t1.token, good());
+  assert.equal(closed.status, 403);
+  assert.equal(closed.data.reason, 'table_closed');
+  assert.equal((await api(`/tables/${t1.id}/qr/open`, { method: 'POST', token: kitchen })).status, 403, 'kitchen cannot open tables');
+  assert.equal((await api(`/tables/${t1.id}/qr/open`, { method: 'POST', token: waiter })).status, 200);
+  assert.equal((await api('/public/table/' + t1.token)).data.table.open, true);
+
+  // 2) أول طلب لجوال جديد يحتاج تأكيداً: لا يصل المطبخ قبل القبول
+  assert.equal((await post(t1.token, good({ customer_name: '', customer_phone: '' }))).status, 400);
+  const first = await post(t1.token, good());
+  assert.equal(first.status, 201, JSON.stringify(first.data));
+  assert.equal(first.data.needs_confirm, true);
+  const { code, token } = first.data;
+  assert.ok(!(await api('/kitchen', { token: kitchen })).data.some((o) => o.code === code), 'not in kitchen before confirmation');
+  const tr = (await api(`/public/orders/${code}?t=${token}`)).data;
+  assert.equal(tr.pending_confirm, true);
+  const staffOrder = (await api('/orders?status=open', { token: cashier })).data.find((o) => o.code === code);
+  assert.equal(staffOrder.pending_confirm, 1);
+  assert.equal(staffOrder.source, 'online');
+  const wn = (await api('/notifications', { token: waiter })).data.rows;
+  assert.ok(wn.some((n) => n.type === 'online_confirm'), 'waiter is asked to confirm');
+  assert.equal((await api(`/orders/${staffOrder.id}/confirm`, { method: 'POST', token: kitchen })).status, 403);
+  const conf = await api(`/orders/${staffOrder.id}/confirm`, { method: 'POST', token: waiter });
+  assert.equal(conf.status, 200, JSON.stringify(conf.data));
+  assert.equal(conf.data.pending_confirm, 0);
+  assert.ok((await api('/kitchen', { token: kitchen })).data.some((o) => o.code === code && o.table_name === t1.name), 'reaches kitchen after confirmation');
+  assert.equal((await api(`/orders/${staffOrder.id}/confirm`, { method: 'POST', token: waiter })).status, 400, 'cannot confirm twice');
   assert.equal((await api(`/public/orders/${code}?t=wrong`)).status, 404, 'tracking needs the token');
-  assert.equal((await api(`/public/orders/${code}?t=${token}`)).data.items[0].qty, 2);
-  // الطاولة صارت مشغولة: غريب لا يستطيع الإضافة، وصاحب الطلب يستطيع
-  assert.equal((await post(t1.token, { customer_name: 'غريب', customer_phone: '0507654321', items: [{ item_id: item.id, qty: 1 }] })).status, 400);
-  const add = await post(t1.token, { order_token: token, items: [{ item_id: item.id, qty: 1 }] });
+
+  // 3) غريب لا يضيف على طلب الطاولة، وصاحب الطلب يضيف (جوال مؤكَّد سابقاً ليس ضروريا هنا: الإضافة صغيرة)
+  assert.equal((await post(t1.token, good({ customer_phone: '0507654321', device_id: 'dev-B' }))).status, 400);
+  const add = await post(t1.token, { order_token: token, device_id: 'dev-A', items: [{ item_id: item.id, qty: 1 }] });
   assert.equal(add.status, 201, JSON.stringify(add.data));
-  assert.equal((await api(`/public/orders/${code}?t=${token}`)).data.items.reduce((a, i) => a + i.qty, 0), 3);
+  assert.equal(add.data.added, true);
+  assert.equal(add.data.needs_confirm, false, 'small add-on on a confirmed order needs no confirmation');
+
+  // 4) طلب مفتوح واحد لكل جوال وجهاز
+  await api(`/tables/${t2.id}/qr/open`, { method: 'POST', token: waiter });
+  const dupPhone = await post(t2.token, good({ device_id: 'dev-C' }));
+  assert.equal(dupPhone.status, 400);
+  assert.match(dupPhone.data.error, /طلب مفتوح/);
+  const dupDevice = await post(t2.token, good({ customer_phone: '0509998887', device_id: 'dev-A' }));
+  assert.equal(dupDevice.status, 400, 'same device cannot open a second order');
   // رمز طاولة لا يفتح طاولة أخرى
-  assert.equal((await api('/public/table/' + t2.token)).data.table.name, t2.name);
-  assert.equal((await post(t2.token, { order_token: token, customer_name: 'x', customer_phone: '0501112222', items: [{ item_id: item.id, qty: 1 }] })).data.code !== code, true);
-  // تغيير رمز الطاولة يبطل البطاقة القديمة
+  assert.equal((await post(t2.token, good({ customer_phone: '0509998887', device_id: 'dev-D', order_token: token }))).status, 201, 'other table: new order, token of other table order is ignored');
+
+  // 5) الرفض يلغي الطلب ويغلق الطاولة
+  const o2 = (await api('/orders?status=open', { token: cashier })).data.find((o) => o.table_id === t2.id);
+  assert.equal(o2.pending_confirm, 1);
+  const rej = await api(`/orders/${o2.id}/reject`, { method: 'POST', token: cashier, body: { reason: 'طاولة خاطئة' } });
+  assert.equal(rej.status, 200);
+  assert.equal(rej.data.status, 'cancelled');
+  assert.equal((await api('/public/table/' + t2.token)).data.table.open, false, 'rejecting closes the table for QR');
+
+  // 6) الدفع يغلق الطاولة للـ QR
+  await api('/shifts/open', { method: 'POST', token: cashier, body: { opening_cash: 0 } });
+  const full = (await api(`/orders/${staffOrder.id}`, { token: cashier })).data;
+  const paid = await api(`/orders/${staffOrder.id}/pay`, { method: 'POST', token: cashier, body: { payments: [{ method: 'cash', amount: full.total + 50 }] } });
+  assert.equal(paid.status, 200, JSON.stringify(paid.data));
+  assert.equal((await api('/public/table/' + t1.token)).data.table.open, false, 'payment closes the QR session');
+
+  // 7) وضع التأكيد: دائماً / بدون، وفتح الطاولة اختياري
+  await api('/settings', { method: 'PUT', token: admin, body: { qr_confirm_mode: 'never', qr_require_open: '0' } });
+  const free = await post(t3.token, good({ customer_phone: '0501110000', device_id: 'dev-E' }));
+  assert.equal(free.status, 201, 'no opening needed when the option is off');
+  assert.equal(free.data.needs_confirm, false);
+  assert.ok((await api('/kitchen', { token: kitchen })).data.some((o) => o.code === free.data.code), 'goes straight to kitchen');
+  await api('/settings', { method: 'PUT', token: admin, body: { qr_confirm_mode: 'smart', qr_require_open: '1' } });
+
+  // 8) سجل المحاولات والتنبيه: رموز خاطئة متكررة
+  for (let i = 0; i < 6; i++) await api('/public/table/' + String(i).repeat(24));
+  const log = (await api('/qr/log', { token: admin })).data;
+  assert.ok(log.some((l) => l.event === 'bad_token') && log.some((l) => l.event === 'closed_attempt') && log.some((l) => l.event === 'dup_open'));
+  assert.ok((await api('/notifications', { token: admin })).data.rows.some((n) => n.type === 'qr_alert'), 'manager is alerted about repeated bad tokens');
+  assert.equal((await api('/qr/log', { token: waiter })).status, 403);
+
+  // 9) تغيير الرمز يبطل البطاقة القديمة، وإيقاف الخدمة
   const rot = await api(`/tables/${t1.id}/qr/rotate`, { method: 'POST', token: admin });
   assert.notEqual(rot.data.token, t1.token);
   assert.equal((await api('/public/table/' + t1.token)).status, 404, 'old card no longer works');
   assert.equal((await api('/public/table/' + rot.data.token)).status, 200);
-  // إيقاف الطلب
   await api('/settings', { method: 'PUT', token: admin, body: { online_ordering: '0' } });
   assert.equal((await api(`/public/table/${rot.data.token}/menu`)).status, 403);
   await api('/settings', { method: 'PUT', token: admin, body: { online_ordering: '1' } });

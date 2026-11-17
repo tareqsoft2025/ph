@@ -155,7 +155,16 @@ POST /api/orders
 | GET | `/public/table/:token/menu` | المنيو المتاح للزبون (بدون بيانات داخلية) |
 | POST | `/public/table/:token/orders` | إنشاء طلب (`guests`, `customer_name`, `customer_phone`, `notes`, `items[]`) ويُرسل للمطبخ فوراً؛ يرجع `code` و`token` للمتابعة. وإن كانت الطاولة عليها طلب من الرمز نفسه يمكن الإضافة عليه بإرسال `order_token`. محدود المعدل |
 | GET | `/public/orders/:code?t=token` | متابعة حالة الطلب للزبون |
+| POST | `/tables/:id/qr/open` و `/tables/:id/qr/close` | (pos.create / payments.collect / tables.view) فتح الطاولة لطلب QR (ساعتان افتراضياً، وتُغلق بالدفع أو الإلغاء وتنتقل مع النقل) أو إغلاقها |
+| POST | `/orders/:id/confirm` و `/orders/:id/reject` | قبول طلب QR بانتظار التأكيد (يُرسل للمطبخ) أو رفضه |
+| GET | `/qr/log` | (settings.manage / activity.view) سجل محاولات QR |
 | GET | `/tables/qr` | (settings.manage) رموز الطاولات لطباعة البطاقات |
 | POST | `/tables/:id/qr/rotate` | (settings.manage) تغيير رمز طاولة |
 
 رابط البطاقة: `<عنوان الموقع>/#/t/<token>`.
+
+طبقات الأمان لطلب QR (تُضبط من الإعدادات):
+1. **فتح الطاولة** (`qr_require_open`): لا يُقبل طلب QR إلا بعد أن يفتح النادل الطاولة.
+2. **تأكيد الموظف** (`qr_confirm_mode`: `smart` | `always` | `never`، و`qr_confirm_over`): في الوضع الذكي يحتاج الطلب تأكيداً إذا زاد عن المبلغ أو كان أول طلب لهذا الجوال؛ لا يصل المطبخ قبل القبول ولا يمكن تحصيله قبل ذلك.
+3. **طلب مفتوح واحد لكل جوال وجهاز.**
+4. **سجل وتنبيهات**: رموز خاطئة متكررة، جهاز يمسح عدة طاولات، محاولات على طاولات مغلقة، وكثرة الطلبات.
