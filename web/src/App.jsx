@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Radio, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
-  UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, IdCard, Fingerprint, CalendarOff, Banknote, HandCoins, History, KeyRound, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff, Sun, Moon, SunMoon, Ellipsis, PanelRightClose, PanelRightOpen,
+  UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, IdCard, Fingerprint, CalendarOff, Banknote, HandCoins, History, KeyRound, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff, Smartphone, Sun, Moon, SunMoon, Ellipsis, PanelRightClose, PanelRightOpen,
 } from 'lucide-react';
 import {
   api, connectSocket, disconnectSocket, getToken, setToken, needsServerUrl, setUnauthorizedHandler, getServerUrl,
@@ -18,6 +18,9 @@ import CustomerOrder, { NoQr } from './pages/CustomerOrder.jsx';
 import ServerSetup from './pages/ServerSetup.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Live from './pages/Live.jsx';
+import Home from './pages/Home.jsx';
+import AppShell from './components/AppShell.jsx';
+import { isAppUi, setAppUi } from './appui.js';
 import Pos from './pages/Pos.jsx';
 import Tables from './pages/Tables.jsx';
 import Orders from './pages/Orders.jsx';
@@ -139,6 +142,38 @@ export default function App() {
   const focusMode = location.pathname.startsWith('/pos');
   const ThemeIcon = theme === 'dark' ? Moon : theme === 'light' ? Sun : SunMoon;
   const themeLabel = { auto: 'المظهر: تلقائي', light: 'المظهر: فاتح', dark: 'المظهر: داكن' }[theme];
+  const appUi = isAppUi();
+  const homeTo = appUi ? '/home' : home;
+  const allowedItems = ALL_NAV.filter((n) => allowed(user, n));
+  const routes = (
+    <Routes>
+      <Route path="/" element={<Navigate to={homeTo} replace />} />
+      <Route path="/home" element={<Home items={allowedItems} groups={groups} />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/live" element={<Live />} />
+      <Route path="/pos/:orderId?" element={<Pos />} />
+      <Route path="/tables" element={<Tables />} />
+      <Route path="/orders" element={<Orders />} />
+      <Route path="/kitchen" element={<Kitchen />} />
+      <Route path="/reservations" element={<Reservations />} />
+      <Route path="/shifts" element={<Shifts />} />
+      <Route path="/menu" element={<MenuAdmin />} />
+      <Route path="/inventory" element={<Inventory />} />
+      <Route path="/customers" element={<Customers />} />
+      <Route path="/reports" element={<Reports />} />
+      <Route path="/users" element={<Users />} />
+      <Route path="/settings" element={<Settings />} />
+      <Route path="/employees" element={<Employees />} />
+      <Route path="/employees/:id" element={<EmployeeProfile />} />
+      <Route path="/attendance" element={<Attendance />} />
+      <Route path="/leaves" element={<Leaves />} />
+      <Route path="/payroll" element={<Payroll />} />
+      <Route path="/cashier" element={<Cashier />} />
+      <Route path="/activity" element={<Activity />} />
+      <Route path="/permissions" element={<Permissions />} />
+      <Route path="*" element={<Navigate to={homeTo} replace />} />
+    </Routes>
+  );
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'صباح الخير' : hour < 18 ? 'مساء الخير' : 'مساء النور';
 
@@ -146,6 +181,11 @@ export default function App() {
     <AppContext.Provider value={{ user, settings, setSettings, logout }}>
       <NotificationsProvider user={user}>
       <AttendanceGate>
+      {appUi ? (
+        <AppShell user={user} settings={settings} groups={groups} allowed={allowedItems} current={current} online={online} themeIcon={ThemeIcon} themeLabel={themeLabel} cycleTheme={cycleTheme} logout={logout} focusMode={focusMode}>
+          {routes}
+        </AppShell>
+      ) : (
       <div className={`shell ${menuOpen ? 'menu-open' : ''} ${rail ? 'rail' : ''} ${focusMode ? 'focus' : ''} ${location.pathname.startsWith('/kitchen') ? 'route-kitchen' : ''}`}>
         <aside className="sidebar" aria-label="القائمة الرئيسية">
           <div className="brand">
@@ -172,6 +212,7 @@ export default function App() {
             <div className="me">
               <div className="avatar" aria-hidden>{user.name.slice(0, 1)}</div>
               <div className="me-text"><strong>{user.name}</strong><small>{ROLE_LABELS[user.role]}</small></div>
+              <button className="icon-btn rail-toggle" onClick={() => { setAppUi(true); window.location.hash = '#/home'; window.location.reload(); }} aria-label="عرض بشكل التطبيق" title="عرض بشكل التطبيق (للجوال)"><Smartphone size={18} /></button>
               <button className="icon-btn rail-toggle" onClick={toggleRail} aria-label={rail ? 'توسيع القائمة' : 'تصغير القائمة'} title={rail ? 'توسيع القائمة' : 'تصغير القائمة'}>{rail ? <PanelRightOpen size={18} /> : <PanelRightClose size={18} />}</button>
             </div>
           </div>
@@ -194,34 +235,7 @@ export default function App() {
             <NotificationBell />
             <button className="icon-btn logout-btn" onClick={() => { if (window.confirm('تسجيل الخروج؟')) logout(); }} aria-label="تسجيل الخروج" title="تسجيل الخروج"><LogOut size={19} /></button>
           </header>
-          <div className="content">
-            <Routes>
-              <Route path="/" element={<Navigate to={home} replace />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/live" element={<Live />} />
-              <Route path="/pos/:orderId?" element={<Pos />} />
-              <Route path="/tables" element={<Tables />} />
-              <Route path="/orders" element={<Orders />} />
-              <Route path="/kitchen" element={<Kitchen />} />
-              <Route path="/reservations" element={<Reservations />} />
-              <Route path="/shifts" element={<Shifts />} />
-              <Route path="/menu" element={<MenuAdmin />} />
-              <Route path="/inventory" element={<Inventory />} />
-              <Route path="/customers" element={<Customers />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="/users" element={<Users />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/employees" element={<Employees />} />
-              <Route path="/employees/:id" element={<EmployeeProfile />} />
-              <Route path="/attendance" element={<Attendance />} />
-              <Route path="/leaves" element={<Leaves />} />
-              <Route path="/payroll" element={<Payroll />} />
-              <Route path="/cashier" element={<Cashier />} />
-              <Route path="/activity" element={<Activity />} />
-              <Route path="/permissions" element={<Permissions />} />
-              <Route path="*" element={<Navigate to={home} replace />} />
-            </Routes>
-          </div>
+          <div className="content">{routes}</div>
         </main>
         {!focusMode && (
           <nav className="bottom-nav" aria-label="التنقل السريع">
@@ -232,6 +246,7 @@ export default function App() {
           </nav>
         )}
       </div>
+      )}
       </AttendanceGate>
       </NotificationsProvider>
     </AppContext.Provider>
