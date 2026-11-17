@@ -168,7 +168,6 @@ export default function App() {
               <div className="avatar" aria-hidden>{user.name.slice(0, 1)}</div>
               <div className="me-text"><strong>{user.name}</strong><small>{ROLE_LABELS[user.role]}</small></div>
               <button className="icon-btn rail-toggle" onClick={toggleRail} aria-label={rail ? 'توسيع القائمة' : 'تصغير القائمة'} title={rail ? 'توسيع القائمة' : 'تصغير القائمة'}>{rail ? <PanelRightOpen size={18} /> : <PanelRightClose size={18} />}</button>
-              <button className="icon-btn" onClick={logout} aria-label="تسجيل الخروج" title="تسجيل الخروج"><LogOut size={18} /></button>
             </div>
           </div>
         </aside>
@@ -188,6 +187,7 @@ export default function App() {
             </span>
             <ApkDownload />
             <NotificationBell />
+            <button className="icon-btn logout-btn" onClick={() => { if (window.confirm('تسجيل الخروج؟')) logout(); }} aria-label="تسجيل الخروج" title="تسجيل الخروج"><LogOut size={19} /></button>
           </header>
           <div className="content">
             <Routes>

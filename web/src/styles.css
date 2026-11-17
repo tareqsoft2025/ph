@@ -1656,3 +1656,9 @@ body { background: var(--bg) radial-gradient(900px 420px at 100% -10%, color-mix
   .auth-head { align-items: center; text-align: center; }
 }
 @media (prefers-reduced-motion: reduce) { .auth-glow, .auth-art, .wave, .auth-card { animation: none; } }
+
+.logout-btn { color: var(--err); }
+.logout-btn:hover { background: var(--err-soft); }
+.cstat { flex-wrap: wrap; }
+.cstat > div { min-width: 90px; }
+.cstat > .btn { flex-shrink: 0; margin-inline-start: auto; }
