@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Radio, Building2, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
+  LayoutDashboard, Radio, Building2, Calculator, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
   UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, IdCard, Fingerprint, CalendarOff, Banknote, HandCoins, History, KeyRound, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff, Smartphone, Sun, Moon, SunMoon, Ellipsis, PanelRightClose, PanelRightOpen,
 } from 'lucide-react';
 import {
@@ -20,6 +20,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import Live from './pages/Live.jsx';
 import Home from './pages/Home.jsx';
 import Events from './pages/Events.jsx';
+import Expenses from './pages/Expenses.jsx';
 import AppShell from './components/AppShell.jsx';
 import { isAppUi, setAppUi } from './appui.js';
 import Pos from './pages/Pos.jsx';
@@ -65,6 +66,7 @@ const NAV = [
   { group: 'الإدارة', items: [
     { to: '/menu', label: 'قائمة الطعام', icon: UtensilsCrossed, perms: ['menu.manage'] },
     { to: '/inventory', label: 'المخزون', icon: Package, perms: ['inventory.view', 'inventory.receive', 'inventory.manage'] },
+    { to: '/expenses', label: 'المصاريف', icon: Calculator, perms: ['expenses.record', 'expenses.manage'] },
     { to: '/customers', label: 'العملاء', icon: UsersIcon, perms: ['customers.view'] },
     { to: '/reports', label: 'التقارير', icon: ChartColumn, perms: ['reports.view'] },
     { to: '/activity', label: 'سجل الحركات', icon: History, perms: ['activity.view'] },
@@ -154,6 +156,7 @@ export default function App() {
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/live" element={<Live />} />
       <Route path="/events" element={<Events />} />
+      <Route path="/expenses" element={<Expenses />} />
       <Route path="/pos/:orderId?" element={<Pos />} />
       <Route path="/tables" element={<Tables />} />
       <Route path="/orders" element={<Orders />} />

@@ -416,3 +416,45 @@ CREATE TABLE IF NOT EXISTS event_items (
   item_id  INTEGER NOT NULL REFERENCES menu_items(id),
   PRIMARY KEY (event_id, item_id)
 );
+
+-- المصاريف (دفتر المحاسبة): أنواع، قيود، ومصاريف ثابتة متكررة
+CREATE TABLE IF NOT EXISTS expense_categories (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL UNIQUE,
+  kind       TEXT NOT NULL DEFAULT 'operating' CHECK (kind IN ('operating','cogs','capital')),  -- تشغيلي / مشتريات مواد (محتسبة في تكلفة المبيعات) / رأسمالي
+  color      TEXT NOT NULL DEFAULT '#64748b',
+  icon       TEXT NOT NULL DEFAULT 'receipt',
+  sort       INTEGER NOT NULL DEFAULT 0,
+  active     INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE TABLE IF NOT EXISTS expenses (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  expense_date  TEXT NOT NULL,                    -- YYYY-MM-DD
+  category_id   INTEGER NOT NULL REFERENCES expense_categories(id),
+  amount        REAL NOT NULL,                    -- الإجمالي المدفوع شاملاً الضريبة
+  tax           REAL NOT NULL DEFAULT 0,          -- جزء الضريبة (للاسترداد)
+  method        TEXT NOT NULL DEFAULT 'cash' CHECK (method IN ('cash','bank','card','wallet')),
+  from_drawer   INTEGER NOT NULL DEFAULT 0,       -- دُفع نقداً من درج الكاشير (يخصم من نقد الوردية)
+  shift_id      INTEGER REFERENCES shifts(id),
+  vendor        TEXT,
+  description   TEXT,
+  reference     TEXT,                             -- رقم الفاتورة / السند
+  recurring_id  INTEGER,
+  created_by    INTEGER REFERENCES users(id),
+  created_at    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  updated_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_exp_date ON expenses(expense_date);
+CREATE INDEX IF NOT EXISTS idx_exp_cat ON expenses(category_id);
+CREATE TABLE IF NOT EXISTS recurring_expenses (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  name         TEXT NOT NULL,
+  category_id  INTEGER NOT NULL REFERENCES expense_categories(id),
+  amount       REAL NOT NULL,
+  method       TEXT NOT NULL DEFAULT 'bank' CHECK (method IN ('cash','bank','card','wallet')),
+  vendor       TEXT,
+  day_of_month INTEGER NOT NULL DEFAULT 1,
+  active       INTEGER NOT NULL DEFAULT 1,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
