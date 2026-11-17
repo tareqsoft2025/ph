@@ -1458,3 +1458,61 @@ input[type='range'] { padding: 0; min-height: 30px; border: 0; accent-color: var
 @media (max-width: 960px) { .pos-page { height: auto; } .thero-back { align-self: flex-start; } }
 .thero { max-height: none; padding-block: var(--s-3); }
 @media (max-width: 960px) { .pos { grid-template-columns: minmax(0, 1fr); } .menu-bar .menu-search { max-width: none; } }
+
+/* ═════════ تصميم الطاولات: خريطة الصالة ═════════ */
+.floor-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--s-3); margin-bottom: var(--s-4); }
+.fstat { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); color: var(--primary); }
+.fstat span { display: block; font-size: var(--text-xs); color: var(--muted); }
+.fstat strong { font-family: var(--font-display); font-size: var(--text-lg); color: var(--text); font-variant-numeric: tabular-nums; }
+.fstat-main { background: linear-gradient(120deg, #0d2318, #1b4a33); border: 0; }
+.fstat-main span { color: rgba(255,255,255,.7); } .fstat-main strong { color: #fff; }
+.fring { --p: 0; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0;
+  background: conic-gradient(#e0a46a calc(var(--p) * 1%), rgba(255,255,255,.15) 0); position: relative; }
+.fring::before { content: ''; position: absolute; inset: 5px; border-radius: 50%; background: #123622; }
+.fring b { position: relative; font-size: 11px; color: #fff; }
+.fstat-alert { border-color: var(--ok); background: var(--ok-soft); }
+.fstat-alert svg { animation: ring 3s infinite; transform-origin: top center; }
+.floor-filters { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-5); margin-bottom: var(--s-4); }
+.seg-pills { display: flex; flex-wrap: wrap; gap: var(--s-1); }
+.fpill { font: inherit; font-size: var(--text-sm); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 5px var(--s-3); border-radius: var(--radius-full); border: 1px solid var(--border); background: var(--surface); color: var(--muted); transition: all 150ms var(--ease); }
+.fpill small { background: var(--surface-2); border-radius: 99px; padding: 0 7px; font-size: 11px; }
+.fpill:hover { border-color: var(--primary); color: var(--text); }
+.fpill.active { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); }
+.fpill.active small { background: rgba(255,255,255,.22); }
+.dot.ready { background: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.25); }
+.area-title { display: flex; align-items: center; gap: var(--s-2); font-family: var(--font-display); font-size: var(--text-base); color: var(--text); }
+.area-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(to left, transparent, var(--border)); }
+.area-title small { order: 2; color: var(--muted); font-size: var(--text-xs); background: var(--surface-2); padding: 0 8px; border-radius: 99px; }
+.area-title::after { order: 1; }
+.tables-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--s-4); }
+.table-card {
+  --ta-wood: #b9895a; --ta-wood-hi: #e0b88a; --st: var(--ok);
+  border-top: 1px solid var(--border); padding: var(--s-3) var(--s-3) var(--s-4); min-height: 0; gap: 2px; overflow: hidden; isolation: isolate;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--st) 9%, var(--surface)) 0%, var(--surface) 60%);
+  animation: rise 360ms cubic-bezier(0, 0, .2, 1) backwards;
+  transition: transform 180ms var(--ease), box-shadow 180ms var(--ease), border-color 180ms var(--ease);
+}
+.table-card::before { content: ''; position: absolute; inset-inline: 0; top: 0; height: 4px; background: var(--st); }
+.table-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); border-color: var(--st); }
+.table-card:active { transform: translateY(-1px); }
+.table-card:focus-visible { outline: 3px solid color-mix(in srgb, var(--st) 50%, transparent); outline-offset: 2px; }
+.t-occupied { --st: var(--err); background: linear-gradient(180deg, color-mix(in srgb, var(--st) 9%, var(--surface)) 0%, var(--surface) 60%); border-top-color: var(--border); }
+.t-reserved { --st: var(--warn); background: linear-gradient(180deg, color-mix(in srgb, var(--st) 12%, var(--surface)) 0%, var(--surface) 60%); border-top-color: var(--border); }
+.t-ready { box-shadow: 0 0 0 2px #16a34a, var(--shadow-md); animation: rise 360ms backwards, readyglow 2s infinite 400ms; }
+@keyframes readyglow { 50% { box-shadow: 0 0 0 2px #16a34a, 0 0 22px rgba(22,163,74,.45); } }
+.t-art { width: 100%; padding: var(--s-2) var(--s-3) 0; }
+.t-art .table-art { width: 100%; height: 92px; filter: drop-shadow(0 6px 8px rgba(60,40,20,.22)); }
+.table-card .ta-seat { fill: color-mix(in srgb, var(--text) 8%, var(--surface)); stroke: var(--border-strong); }
+.table-card .ta-back { fill: var(--border-strong); }
+.table-card .ta-table { stroke: rgba(0,0,0,.12); }
+.table-card .ta-chair.on .ta-seat { fill: var(--st); stroke: var(--st); filter: none; }
+.table-card .ta-chair.on .ta-back { fill: color-mix(in srgb, var(--st) 70%, #000); }
+.t-state { position: absolute; top: var(--s-3); inset-inline-end: var(--s-3); display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--st); }
+.t-state .dot { width: 7px; height: 7px; background: var(--st); }
+.t-occupied .t-state .dot { animation: ping 1.8s infinite; box-shadow: 0 0 0 0 color-mix(in srgb, var(--st) 60%, transparent); }
+.t-readybadge { position: absolute; top: var(--s-3); inset-inline-start: var(--s-3); display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; background: #16a34a; color: #fff; padding: 2px 8px; border-radius: 99px; animation: pop 300ms cubic-bezier(.2,1.5,.4,1); }
+.t-name { font-size: var(--text-lg); margin-top: var(--s-1); }
+.t-total { font-size: var(--text-base); color: var(--st); }
+.t-avail { display: inline-flex; gap: 4px; align-items: center; }
+@media (max-width: 480px) { .tables-grid { grid-template-columns: 1fr 1fr; gap: var(--s-3); } .t-art .table-art { height: 76px; } .fstat { padding: var(--s-2) var(--s-3); } }
+@media (prefers-reduced-motion: reduce) { .table-card, .t-ready, .fstat-alert svg, .t-occupied .t-state .dot { animation: none; } }
