@@ -82,7 +82,9 @@ CREATE TABLE IF NOT EXISTS dining_tables (
   active INTEGER NOT NULL DEFAULT 1,
   qr_token TEXT,                -- رمز QR العشوائي الخاص بالطاولة (يُستخدم في رابط الزبون)
   qr_open_until TEXT,           -- الطاولة مفتوحة لطلب QR حتى هذا الوقت (يفتحها النادل)
-  qr_request_at TEXT            -- آخر وقت طلب فيه الزبون من النادل فتح الطاولة
+  qr_request_at TEXT,           -- آخر وقت طلب فيه الزبون من النادل فتح الطاولة
+  qr_opened_by  INTEGER,        -- الموظف الذي فتح الطاولة لطلب QR (واستلم طلب الفتح)
+  qr_opened_at  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS customers (

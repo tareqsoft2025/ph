@@ -1825,3 +1825,13 @@ body { background: var(--bg) radial-gradient(900px 420px at 100% -10%, color-mix
 
 .t-qr.req { border-style: solid; border-color: var(--warn); background: var(--warn-soft); color: var(--warn); animation: pulse 1.2s infinite; }
 .co-sent { display: inline-flex; align-items: center; gap: 8px; padding: var(--s-3) var(--s-4); border-radius: var(--radius-lg); background: var(--ok-soft); color: var(--ok); font-weight: 700; }
+
+/* ═════════ الانتقال من إشعار QR إلى الطاولة ═════════ */
+.qr-focus { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-3); padding: var(--s-3) var(--s-4); margin-bottom: var(--s-4); border-radius: var(--radius-lg); background: var(--primary-soft); border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); animation: rise 250ms var(--ease); }
+.qr-focus.req { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 50%, var(--border)); }
+.qf-ico { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); color: var(--primary); }
+.qr-focus.req .qf-ico { color: var(--warn); }
+.qf-text { flex: 1 1 200px; display: flex; flex-direction: column; line-height: 1.5; min-width: 0; }
+.qf-text small { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.t-focus > .table-card { outline: 3px solid var(--primary); outline-offset: 3px; animation: focuspulse 1.6s ease-in-out 3; }
+@keyframes focuspulse { 50% { outline-color: transparent; transform: translateY(-4px); } }

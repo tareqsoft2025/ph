@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LogIn, ReceiptText, Banknote, Ban, Percent, Send, ArrowRightLeft, BellRing, UtensilsCrossed, Package, Wallet,
-  Settings, ShieldCheck, KeyRound, IdCard, CalendarOff, Fingerprint, HandCoins, CalendarDays, ChefHat, History, Search, Activity as ActivityIcon,
+  Settings, QrCode, ShieldCheck, KeyRound, IdCard, CalendarOff, Fingerprint, HandCoins, CalendarDays, ChefHat, History, Search, Activity as ActivityIcon,
 } from 'lucide-react';
 import { api } from '../api.js';
 import { useData, useMoney, Loading, Empty, PageHead, ROLE_LABELS, PAY_METHODS, todayStr, timeOf } from '../lib.jsx';
@@ -10,7 +10,7 @@ import { useData, useMoney, Loading, Empty, PageHead, ROLE_LABELS, PAY_METHODS, 
 const CATEGORIES = [
   ['', 'كل العمليات'], ['order', 'الطلبات'], ['kitchen', 'المطبخ'], ['shift', 'الورديات'], ['item', 'الأصناف'], ['menu', 'القائمة'],
   ['stock', 'المخزون'], ['employee', 'الموظفون'], ['attendance', 'الحضور'], ['leave', 'الإجازات'], ['payroll', 'الرواتب'],
-  ['reservation', 'الحجوزات'], ['user', 'المستخدمون'], ['permissions', 'الصلاحيات'], ['settings', 'الإعدادات'], ['auth', 'الدخول'],
+  ['qr', 'طلبات QR'], ['reservation', 'الحجوزات'], ['user', 'المستخدمون'], ['permissions', 'الصلاحيات'], ['settings', 'الإعدادات'], ['auth', 'الدخول'],
 ];
 
 
@@ -31,6 +31,13 @@ function describe(a, money) {
     'order.move_table': [ArrowRightLeft, `نقل الطلب${code} لطاولة أخرى`],
     'order.request_bill': [BellRing, `طلب الحساب للطلب${code}`],
     'kitchen.ready': [ChefHat, `الطلب${code} جاهز`],
+    'order.confirm': [QrCode, `تأكيد طلب QR${code}${d.table ? ` على ${d.table}` : ''} وإرساله للمطبخ${d.items ? ` (${d.items} صنف)` : ''}`],
+    'order.reject': [Ban, `رفض طلب QR${code}${d.reason ? `: ${d.reason}` : ''}`],
+    'qr.request_open': [BellRing, `${name || d.name || 'طاولة'}: الزبون يطلب فتح الطلب بالـ QR`],
+    'qr.table_open': [QrCode, `فتح ${name || d.name || 'الطاولة'} لطلب QR${d.answered_request ? ' (استلام طلب الزبون)' : ''}${d.minutes ? ` · ${d.minutes >= 60 ? `${+(d.minutes / 60).toFixed(1)} ساعة` : `${d.minutes} د`}` : ''}`],
+    'qr.table_close': [QrCode, `إغلاق ${name || d.name || 'الطاولة'} لطلب QR`],
+    'qr.order': [QrCode, `${d.added ? 'إضافة' : 'طلب'} من الزبون عبر QR${code}${d.table ? ` · ${d.table}` : ''} · ${d.items || ''} صنف · ${money(d.total)}${d.customer ? ` · ${d.customer}` : ''}${d.needs_confirm ? ' · بانتظار التأكيد' : ''}${d.waiter ? ` · المسؤول: ${d.waiter}` : ''}`],
+    'settings.table_qr_rotate': [QrCode, `تغيير رمز QR لـ ${d.name || ''}`],
     'shift.open': [Wallet, 'فتح وردية'],
     'shift.close': [Wallet, `إغلاق وردية · النقد ${money(d.closing)} (المتوقع ${money(d.expected)})`],
     'item.create': [UtensilsCrossed, `إضافة صنف ${name}`],
@@ -150,8 +157,9 @@ export default function Activity() {
                       <div className="act-body">
                         <p>{text}</p>
                         <small className="muted">
-                          {a.user_name || 'النظام'}{a.user_role ? ` · ${ROLE_LABELS[a.user_role]}` : ''}
+                          {a.user_name || (/^qr\./.test(a.action) || ['order.send', 'order.add_items', 'order.create'].includes(a.action) ? 'الزبون (QR)' : 'النظام')}{a.user_role ? ` · ${ROLE_LABELS[a.user_role]}` : ''}
                           {a.order_code && <> · <button className="link-btn small" onClick={() => navigate(`/pos/${a.entity_id}`)}>فتح الطلب</button></>}
+                          {a.entity === 'table' && /^qr\./.test(a.action) && <> · <button className="link-btn small" onClick={() => navigate(`/tables?table=${a.entity_id}`)}>عرض الطاولة</button></>}
                         </small>
                       </div>
                       <time dir="ltr">{timeOf(a.created_at)}</time>

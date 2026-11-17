@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ShoppingBag, Bike, Clock, CalendarDays, BellRing, Sparkles, LayoutGrid, Armchair, Banknote, QrCode } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ShoppingBag, Bike, Clock, CalendarDays, BellRing, Sparkles, LayoutGrid, Armchair, Banknote, QrCode, X, UserRound } from 'lucide-react';
 import { api } from '../api.js';
 import { useApp, useData, useMoney, useNow, has, minutesSince, Loading, Empty, PageHead, useToast } from '../lib.jsx';
 import { TableArt, AnimatedMoney } from '../components/TableHero.jsx';
@@ -16,16 +16,27 @@ const STATUS_LABEL = { free: 'متاحة', occupied: 'مشغولة', reserved: '
 
 export default function Tables() {
   const navigate = useNavigate();
+  const [sp, setSp] = useSearchParams();
+  const focusId = Number(sp.get('table')) || 0;
   const money = useMoney();
   const { user } = useApp();
   const canCreate = has(user, 'pos.create');
   const { data, loading, reload } = useData('/tables', ['tables', 'orders']);
   const toast = useToast();
   const canQr = has(user, 'pos.create', 'payments.collect', 'tables.view');
+  // الوصول من إشعار: تمرير وإبراز الطاولة المقصودة
+  useEffect(() => {
+    if (!focusId || !data) return undefined;
+    const el = document.getElementById(`tbl-${focusId}`);
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    return undefined;
+  }, [focusId, !!data]); // eslint-disable-line
+  const clearFocus = () => setSp({}, { replace: true });
   const toggleQr = async (t) => {
     try {
       await api(`/tables/${t.id}/qr/${t.qr_open ? 'close' : 'open'}`, { method: 'POST' });
       toast(t.qr_open ? `أُغلق طلب QR على ${t.name}` : `${t.name} مفتوحة لطلب الزبون عبر QR`);
+      if (focusId === t.id) clearFocus();
       reload();
     } catch (e) { toast(e.message, 'err'); }
   };
@@ -60,6 +71,26 @@ export default function Tables() {
         {canCreate && <button className="btn" onClick={() => navigate('/pos?type=delivery')}><Bike size={17} /> طلب توصيل</button>}
       </PageHead>
 
+      {focusId > 0 && (() => {
+        const ft = data.find((x) => x.id === focusId);
+        if (!ft) return null;
+        const mins = ft.qr_request_at ? Math.max(0, minutesSince(ft.qr_request_at)) : null;
+        return (
+          <div className={`qr-focus ${ft.qr_requested ? 'req' : ''}`} role="status">
+            <span className="qf-ico" aria-hidden><QrCode size={20} /></span>
+            <div className="qf-text">
+              {ft.order_id ? <><strong>{ft.name} عليها طلب مفتوح</strong><small>{ft.pending_confirm ? 'طلب QR بانتظار تأكيدك' : 'يمكنك فتح الطلب ومتابعته'}</small></>
+                : ft.qr_open ? <><strong>{ft.name} مفتوحة لطلب QR</strong><small><UserRound size={12} aria-hidden /> فتحها {ft.qr_opened_by_name || '—'}</small></>
+                  : ft.qr_requested ? <><strong>{ft.name} تطلب فتح الطلب بالـ QR</strong><small>منذ {mins} د · اضغط استلام لتتولى الطلب وتُفتح الطاولة باسمك</small></>
+                    : <><strong>{ft.name}</strong><small>لا يوجد طلب فتح حالياً</small></>}
+            </div>
+            {ft.order_id ? <button className="btn btn-primary btn-sm" onClick={() => navigate(`/pos/${ft.order_id}`)}>فتح الطلب</button>
+              : !ft.qr_open && canQr ? <button className="btn btn-primary btn-sm" onClick={() => toggleQr(ft)}><QrCode size={15} /> استلام وفتح الطاولة</button> : null}
+            <button className="icon-btn" onClick={clearFocus} aria-label="إغلاق"><X size={18} /></button>
+          </div>
+        );
+      })()}
+
       <div className="floor-stats">
         <div className="fstat fstat-main">
           <div className="fring" style={{ '--p': occ }} role="img" aria-label={`إشغال ${occ}%`}><b>{occ}%</b></div>
@@ -92,7 +123,7 @@ export default function Tables() {
           <h2 className="area-title">{a} <small>{shown.filter((t) => t.area === a).length}</small></h2>
           <div className="tables-grid">
             {shown.filter((t) => t.area === a).map((t, i) => (
-              <div key={t.id} className="t-cell">
+              <div key={t.id} id={`tbl-${t.id}`} className={`t-cell ${focusId === t.id ? 't-focus' : ''}`}>
               <button className={`table-card t-${t.status} ${t.ready_items > 0 ? 't-ready' : ''}`} style={{ animationDelay: `${Math.min(i, 12) * 30}ms` }}
                 onClick={() => navigate(t.order_id ? `/pos/${t.order_id}` : `/pos?type=dine_in&table=${t.id}`)}
                 aria-label={`${t.name}، ${STATUS_LABEL[t.status]}`}>
@@ -114,7 +145,7 @@ export default function Tables() {
               </button>
               {canQr && !t.order_id && !t.reservation && (
                 <button className={`t-qr ${t.qr_open ? 'on' : ''} ${t.qr_requested ? 'req' : ''}`} onClick={() => toggleQr(t)} aria-pressed={!!t.qr_open} title={t.qr_open ? 'إغلاق الطلب بالـ QR' : 'فتح الطاولة لطلب الزبون بالـ QR'}>
-                  <QrCode size={14} aria-hidden /> {t.qr_open ? 'QR مفتوح' : t.qr_requested ? 'الزبون يطلب الفتح — افتح' : 'فتح للـ QR'}
+                  <QrCode size={14} aria-hidden /> {t.qr_open ? `QR مفتوح${t.qr_opened_by_name ? ` · ${t.qr_opened_by_name}` : ''}` : t.qr_requested ? 'الزبون يطلب الفتح — افتح' : 'فتح للـ QR'}
                 </button>
               )}
               </div>
