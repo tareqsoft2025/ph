@@ -544,3 +544,94 @@ test('corporate events: QR per institution, selected menu / full menu / price ca
   // سجل الحركات
   assert.ok((await api('/audit?category=event', { token: admin })).data.rows.some((a) => a.action === 'event.settle'));
 });
+
+test('expenses ledger: categories, cashier records own, manager sees all + summary, drawer cash hits the shift, recurring, audit', async () => {
+  const admin = await login('admin', 'admin123');
+  const cashier = await login('cashier', '1234');
+  const waiter = await login('waiter', '1234');
+  const kitchen = await login('kitchen', '1234');
+  const today = new Date(); const pad = (n) => String(n).padStart(2, '0');
+  const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const T = ymd(today);
+
+  // الصلاحيات
+  assert.equal((await api('/expenses/meta', { token: waiter })).status, 403);
+  assert.equal((await api('/expenses/summary', { token: cashier })).status, 403, 'summary is for managers');
+  const meta = (await api('/expenses/meta', { token: cashier })).data;
+  assert.ok(meta.categories.length >= 10 && meta.categories.every((c) => c.color && c.icon));
+  assert.equal(meta.manage, false);
+  const cat = (n) => meta.categories.find((c) => c.name === n).id;
+
+  // التحقق
+  const post = (token, body) => api('/expenses', { method: 'POST', token, body });
+  assert.equal((await post(cashier, { category_id: cat('كهرباء'), amount: 0 })).status, 400, 'amount must be positive');
+  assert.equal((await post(cashier, { category_id: 99999, amount: 10 })).status, 400, 'category must exist');
+  assert.equal((await post(cashier, { category_id: cat('كهرباء'), amount: 10, tax: 20 })).status, 400, 'tax cannot exceed amount');
+  assert.equal((await post(cashier, { category_id: cat('كهرباء'), amount: 10, expense_date: '2099-01-01' })).status, 400, 'no future dates for cashiers');
+
+  // الدرج: يحتاج وردية مفتوحة ويخصم من النقد المتوقع
+  await api('/shifts/close', { method: 'POST', token: cashier, body: { closing_cash: 0 } });   // إغلاق أي وردية تركتها اختبارات سابقة
+  assert.equal((await post(cashier, { category_id: cat('نظافة ومستلزمات'), amount: 30, method: 'cash', from_drawer: true })).status, 400, 'no open shift');
+  await api('/shifts/open', { method: 'POST', token: cashier, body: { opening_cash: 500 } });
+  const before = (await api('/shifts/current', { token: cashier })).data.expected_cash;
+  const e1 = await post(cashier, { category_id: cat('نظافة ومستلزمات'), amount: 30, method: 'cash', from_drawer: true, vendor: 'بقالة الحي', description: 'مناديل ومنظفات' });
+  assert.equal(e1.status, 201, JSON.stringify(e1.data));
+  const sh = (await api('/shifts/current', { token: cashier })).data;
+  assert.equal(sh.expenses_cash, 30);
+  assert.equal(Math.round((before - sh.expected_cash) * 100), 3000, 'expected cash drops by the drawer expense');
+  // مصروف إداري (بنك) من المدير
+  const e2 = await post(admin, { category_id: cat('إيجار'), amount: 2500, method: 'bank', vendor: 'المؤجر', reference: 'INV-77', expense_date: T });
+  assert.equal(e2.status, 201);
+  const e3 = await post(admin, { category_id: cat('مشتريات مواد خام'), amount: 400, tax: 52.17, method: 'card', vendor: 'مورد الخضار', expense_date: T });
+  assert.equal(e3.status, 201);
+
+  // الكاشير يرى مصاريفه فقط، والمدير يرى الكل
+  const mine = (await api('/expenses', { token: cashier })).data;
+  assert.equal(mine.rows.length, 1);
+  assert.equal(mine.rows[0].vendor, 'بقالة الحي');
+  const all_ = (await api(`/expenses?from=${T}&to=${T}`, { token: admin })).data;
+  assert.equal(all_.rows.length, 3);
+  assert.equal(all_.total, 2930);
+  assert.equal((await api(`/expenses?q=INV-77`, { token: admin })).data.rows.length, 1, 'search by invoice ref');
+  assert.equal((await api(`/expenses?method=card`, { token: admin })).data.rows.length, 1, 'filter by method');
+  assert.equal((await api('/expenses/' + e1.data.id, { method: 'PUT', token: cashier, body: { category_id: cat('كهرباء'), amount: 5 } })).status, 403, 'cashier cannot edit');
+
+  // الملخص المحاسبي
+  const sum = (await api(`/expenses/summary?from=${T}&to=${T}`, { token: admin })).data;
+  assert.equal(sum.total, 2930);
+  assert.equal(sum.count, 3);
+  assert.equal(sum.drawer_cash, 30);
+  assert.equal(sum.tax_recoverable, 52.17);
+  assert.equal(sum.byCategory[0].name, 'إيجار');
+  assert.equal(sum.profit.operating, 2530, 'operating excludes purchases (already in COGS)');
+  assert.equal(sum.profit.purchases, 400);
+  assert.equal(sum.profit.net, Math.round((sum.profit.gross - 2530) * 100) / 100);
+  assert.ok(sum.byDay.length === 1 && sum.byMethod.length === 3);
+
+  // تعديل وحذف
+  assert.equal((await api('/expenses/' + e2.data.id, { method: 'PUT', token: admin, body: { category_id: cat('إيجار'), amount: 2600, method: 'bank', vendor: 'المؤجر', reference: 'INV-77', expense_date: T } })).status, 200);
+  assert.equal((await api(`/expenses?q=INV-77`, { token: admin })).data.rows[0].amount, 2600);
+  assert.equal((await api('/expenses/' + e3.data.id, { method: 'DELETE', token: admin })).status, 200);
+
+  // أنواع المصاريف
+  const nc = await api('/expense-categories', { method: 'POST', token: admin, body: { name: 'ضيافة', kind: 'operating', color: '#ff8800', icon: 'coffee' } });
+  assert.equal(nc.status, 201);
+  assert.equal((await api('/expense-categories', { method: 'POST', token: admin, body: { name: 'ضيافة' } })).status, 400, 'unique names');
+  assert.equal((await api('/expense-categories', { method: 'POST', token: cashier, body: { name: 'x' } })).status, 403);
+  assert.equal((await api(`/expense-categories/${nc.data.id}`, { method: 'DELETE', token: admin })).data.deleted, true, 'unused category is deleted');
+  assert.equal((await api(`/expense-categories/${cat('إيجار')}`, { method: 'DELETE', token: admin })).data.hidden, true, 'used category is only hidden');
+
+  // مصاريف ثابتة
+  const reb = await api('/expense-categories', { method: 'POST', token: admin, body: { name: 'اشتراكات', kind: 'operating' } });
+  const rc = await api('/expenses/recurring', { method: 'POST', token: admin, body: { name: 'اشتراك برنامج', category_id: reb.data.id, amount: 150, method: 'card', day_of_month: 5 } });
+  assert.equal(rc.status, 201, JSON.stringify(rc.data));
+  const run1 = (await api('/expenses/recurring/run', { method: 'POST', token: admin, body: {} })).data;
+  assert.equal(run1.created, 1);
+  assert.equal((await api('/expenses/recurring/run', { method: 'POST', token: admin, body: {} })).data.created, 0, 'no duplicates in the same month');
+  assert.ok((await api('/expenses/recurring', { token: admin })).data[0].done_this_month >= 1);
+
+  // سجل الحركات
+  const acts = (await api('/audit?category=expense', { token: admin })).data.rows.map((a) => a.action);
+  for (const a of ['expense.create', 'expense.update', 'expense.delete', 'expense.category_create', 'expense.category_hide', 'expense.recurring_run']) assert.ok(acts.includes(a), a);
+  await api('/shifts/close', { method: 'POST', token: cashier, body: { closing_cash: 470 } });
+});

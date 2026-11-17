@@ -857,7 +857,8 @@ export function buildRouter(emit) {
     const pays = all('SELECT method, SUM(amount) AS total, COUNT(*) AS count FROM payments WHERE shift_id = ? GROUP BY method', shift.id);
     const cash = pays.find((p) => p.method === 'cash')?.total || 0;
     const orders = get("SELECT COUNT(*) AS c, COALESCE(SUM(total),0) AS s FROM orders WHERE shift_id = ? AND status = 'paid'", shift.id);
-    return { ...shift, payments: pays, orders_count: orders.c, sales: round2(orders.s), expected_cash: round2(shift.opening_cash + cash) };
+    const drawer = get('SELECT COALESCE(SUM(amount), 0) AS s, COUNT(*) AS c FROM expenses WHERE shift_id = ? AND from_drawer = 1', shift.id);
+    return { ...shift, payments: pays, orders_count: orders.c, sales: round2(orders.s), expenses_cash: round2(drawer.s), expenses_count: drawer.c, expected_cash: round2(shift.opening_cash + cash - drawer.s) };
   }
   r.get('/shifts/current', (req, res) => {
     const s = get('SELECT s.*, u.name AS user_name FROM shifts s JOIN users u ON u.id = s.user_id WHERE closed_at IS NULL ORDER BY s.id DESC LIMIT 1');
@@ -1185,6 +1186,205 @@ export function buildRouter(emit) {
     audit(req.user.id, 'event.settle', 'event', id, { name: e.name, method, settled, total, skipped });
     changed('orders', 'tables', 'inventory', 'kitchen');
     res.json({ settled, total, skipped });
+  });
+
+  // ───────────── المصاريف (دفتر المحاسبة) ─────────────
+  const DEFAULT_EXPENSE_CATS = [
+    ['إيجار', 'operating', '#7c3aed', 'building'], ['رواتب وأجور', 'operating', '#0369a1', 'users'], ['كهرباء', 'operating', '#f59e0b', 'zap'], ['ماء', 'operating', '#06b6d4', 'droplets'],
+    ['غاز', 'operating', '#ea580c', 'flame'], ['مشتريات مواد خام', 'cogs', '#16a34a', 'basket'], ['صيانة وإصلاحات', 'operating', '#64748b', 'wrench'], ['تسويق وإعلان', 'operating', '#db2777', 'megaphone'],
+    ['نقل وتوصيل', 'operating', '#0d9488', 'truck'], ['نظافة ومستلزمات', 'operating', '#84cc16', 'spray'], ['رسوم وتراخيص', 'operating', '#4338ca', 'badge'], ['اتصالات وإنترنت', 'operating', '#2563eb', 'wifi'],
+    ['معدات وأجهزة', 'capital', '#9333ea', 'package'], ['أخرى', 'operating', '#78716c', 'receipt'],
+  ];
+  if (!get('SELECT 1 AS x FROM expense_categories LIMIT 1')) DEFAULT_EXPENSE_CATS.forEach(([n, k, c, i], idx) => run('INSERT INTO expense_categories(name, kind, color, icon, sort) VALUES(?,?,?,?,?)', n, k, c, i, idx));
+  const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+  const METHODS = ['cash', 'bank', 'card', 'wallet'];
+  const canManageExp = (u) => hasPerm(u, 'expenses.manage');
+  const needExp = need('expenses.record', 'expenses.manage');
+  const readExpense = (b, user) => {
+    const amount = round2(Number(b.amount));
+    if (!(amount > 0)) throw bad('أدخل مبلغاً صحيحاً');
+    const cat = get('SELECT id, active FROM expense_categories WHERE id = ?', Number(b.category_id));
+    if (!cat || !cat.active) throw bad('اختر نوع المصروف');
+    const date = isDate(b.expense_date) ? b.expense_date : today();
+    if (date > today() && !canManageExp(user)) throw bad('لا يمكن تسجيل مصروف بتاريخ مستقبلي');
+    const tax = Math.max(0, round2(Number(b.tax) || 0));
+    if (tax > amount) throw bad('الضريبة أكبر من المبلغ');
+    const method = METHODS.includes(b.method) ? b.method : 'cash';
+    return { amount, category_id: cat.id, date, tax, method, vendor: clip(b.vendor, 80) || null, description: clip(b.description, 200) || null, reference: clip(b.reference, 60) || null, from_drawer: b.from_drawer && method === 'cash' ? 1 : 0 };
+  };
+  const expRows = (where, params) => all(`SELECT e.*, c.name AS category_name, c.color, c.icon, c.kind, u.name AS user_name FROM expenses e
+    JOIN expense_categories c ON c.id = e.category_id LEFT JOIN users u ON u.id = e.created_by ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY e.expense_date DESC, e.id DESC LIMIT 1500`, ...params);
+
+  r.get('/expenses/meta', needExp, (req, res) => {
+    res.json({
+      categories: all(`SELECT c.*, (SELECT COUNT(*) FROM expenses e WHERE e.category_id = c.id) AS uses FROM expense_categories c ${canManageExp(req.user) && req.query.all ? '' : 'WHERE c.active = 1'} ORDER BY c.sort, c.id`),
+      vendors: all("SELECT vendor, COUNT(*) AS n FROM expenses WHERE vendor IS NOT NULL AND vendor != '' GROUP BY vendor ORDER BY MAX(id) DESC LIMIT 40").map((v) => v.vendor),
+      shift_open: !!get('SELECT 1 AS x FROM shifts WHERE closed_at IS NULL'),
+      manage: canManageExp(req.user),
+    });
+  });
+  r.get('/expenses', needExp, (req, res) => {
+    const { from, to, category_id, method, q } = req.query;
+    const where = []; const params = [];
+    if (!canManageExp(req.user)) { where.push('e.created_by = ?'); params.push(req.user.id); }
+    if (isDate(from)) { where.push('e.expense_date >= ?'); params.push(from); }
+    if (isDate(to)) { where.push('e.expense_date <= ?'); params.push(to); }
+    if (Number(category_id)) { where.push('e.category_id = ?'); params.push(Number(category_id)); }
+    if (METHODS.includes(method)) { where.push('e.method = ?'); params.push(method); }
+    if (q) { where.push('(e.vendor LIKE ? OR e.description LIKE ? OR e.reference LIKE ?)'); params.push(...Array(3).fill(`%${String(q).trim()}%`)); }
+    const rows = expRows(where, params);
+    res.json({ rows, total: round2(rows.reduce((a, x) => a + x.amount, 0)), manage: canManageExp(req.user) });
+  });
+  r.post('/expenses', needExp, (req, res) => {
+    const d = readExpense(req.body || {}, req.user);
+    let shiftId = null;
+    if (d.from_drawer) {
+      shiftId = get('SELECT id FROM shifts WHERE closed_at IS NULL ORDER BY id DESC LIMIT 1')?.id || null;
+      if (!shiftId) throw bad('لا توجد وردية مفتوحة لخصم المبلغ من الدرج');
+    }
+    const info = run('INSERT INTO expenses(expense_date, category_id, amount, tax, method, from_drawer, shift_id, vendor, description, reference, created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+      d.date, d.category_id, d.amount, d.tax, d.method, d.from_drawer, shiftId, d.vendor, d.description, d.reference, req.user.id);
+    const id = Number(info.lastInsertRowid);
+    audit(req.user.id, 'expense.create', 'expense', id, { amount: d.amount, category: get('SELECT name FROM expense_categories WHERE id = ?', d.category_id).name, vendor: d.vendor, method: d.method, from_drawer: !!d.from_drawer });
+    changed('shift');
+    res.status(201).json({ id });
+  });
+  r.put('/expenses/:id', need('expenses.manage'), (req, res) => {
+    const id = Number(req.params.id);
+    const old = get('SELECT * FROM expenses WHERE id = ?', id);
+    if (!old) throw notFound('المصروف غير موجود');
+    const d = readExpense(req.body || {}, req.user);
+    let shiftId = old.shift_id;
+    if (d.from_drawer && !shiftId) shiftId = get('SELECT id FROM shifts WHERE closed_at IS NULL ORDER BY id DESC LIMIT 1')?.id || null;
+    if (d.from_drawer && !shiftId) throw bad('لا توجد وردية مفتوحة لخصم المبلغ من الدرج');
+    if (!d.from_drawer) shiftId = null;
+    run('UPDATE expenses SET expense_date=?, category_id=?, amount=?, tax=?, method=?, from_drawer=?, shift_id=?, vendor=?, description=?, reference=?, updated_at=datetime(\'now\',\'localtime\') WHERE id = ?',
+      d.date, d.category_id, d.amount, d.tax, d.method, d.from_drawer, shiftId, d.vendor, d.description, d.reference, id);
+    audit(req.user.id, 'expense.update', 'expense', id, { from: old.amount, amount: d.amount, vendor: d.vendor });
+    changed('shift');
+    res.json({ id });
+  });
+  r.delete('/expenses/:id', need('expenses.manage'), (req, res) => {
+    const id = Number(req.params.id);
+    const old = get('SELECT e.*, c.name AS category FROM expenses e JOIN expense_categories c ON c.id = e.category_id WHERE e.id = ?', id);
+    if (!old) throw notFound('المصروف غير موجود');
+    run('DELETE FROM expenses WHERE id = ?', id);
+    audit(req.user.id, 'expense.delete', 'expense', id, { amount: old.amount, category: old.category, vendor: old.vendor, date: old.expense_date });
+    changed('shift');
+    res.json({ ok: true });
+  });
+
+  // أنواع المصاريف
+  const readCat = (b) => {
+    const name = clip(b.name, 40);
+    if (!name) throw bad('أدخل اسم النوع');
+    return { name, kind: ['operating', 'cogs', 'capital'].includes(b.kind) ? b.kind : 'operating', color: /^#[0-9a-fA-F]{6}$/.test(b.color || '') ? b.color : '#64748b', icon: clip(b.icon, 20) || 'receipt' };
+  };
+  r.post('/expense-categories', need('expenses.manage'), (req, res) => {
+    const d = readCat(req.body || {});
+    if (get('SELECT 1 AS x FROM expense_categories WHERE name = ?', d.name)) throw bad('يوجد نوع بنفس الاسم');
+    const info = run('INSERT INTO expense_categories(name, kind, color, icon, sort) VALUES(?,?,?,?,(SELECT COALESCE(MAX(sort), 0) + 1 FROM expense_categories))', d.name, d.kind, d.color, d.icon);
+    audit(req.user.id, 'expense.category_create', 'expense_category', Number(info.lastInsertRowid), { name: d.name, kind: d.kind });
+    res.status(201).json({ id: Number(info.lastInsertRowid) });
+  });
+  r.put('/expense-categories/:id', need('expenses.manage'), (req, res) => {
+    const id = Number(req.params.id);
+    if (!get('SELECT 1 AS x FROM expense_categories WHERE id = ?', id)) throw notFound('النوع غير موجود');
+    const d = readCat(req.body || {});
+    if (get('SELECT 1 AS x FROM expense_categories WHERE name = ? AND id != ?', d.name, id)) throw bad('يوجد نوع بنفس الاسم');
+    run('UPDATE expense_categories SET name = ?, kind = ?, color = ?, icon = ?, active = ? WHERE id = ?', d.name, d.kind, d.color, d.icon, req.body?.active === false || req.body?.active === 0 ? 0 : 1, id);
+    audit(req.user.id, 'expense.category_update', 'expense_category', id, { name: d.name });
+    res.json({ id });
+  });
+  r.delete('/expense-categories/:id', need('expenses.manage'), (req, res) => {
+    const id = Number(req.params.id);
+    const c = get('SELECT name FROM expense_categories WHERE id = ?', id);
+    if (!c) throw notFound('النوع غير موجود');
+    if (get('SELECT 1 AS x FROM expenses WHERE category_id = ?', id) || get('SELECT 1 AS x FROM recurring_expenses WHERE category_id = ?', id)) {
+      run('UPDATE expense_categories SET active = 0 WHERE id = ?', id);
+      audit(req.user.id, 'expense.category_hide', 'expense_category', id, { name: c.name });
+      return res.json({ hidden: true });
+    }
+    run('DELETE FROM expense_categories WHERE id = ?', id);
+    audit(req.user.id, 'expense.category_delete', 'expense_category', id, { name: c.name });
+    res.json({ deleted: true });
+  });
+
+  // المصاريف الثابتة المتكررة (إيجار، رواتب…)
+  r.get('/expenses/recurring', need('expenses.manage'), (req, res) => {
+    res.json(all(`SELECT t.*, c.name AS category_name, c.color, c.icon,
+      (SELECT COUNT(*) FROM expenses e WHERE e.recurring_id = t.id AND substr(e.expense_date, 1, 7) = substr(date('now','localtime'), 1, 7)) AS done_this_month
+      FROM recurring_expenses t JOIN expense_categories c ON c.id = t.category_id ORDER BY t.day_of_month, t.id`));
+  });
+  const readRec = (b) => {
+    const name = clip(b.name, 60); const amount = round2(Number(b.amount));
+    if (!name) throw bad('أدخل اسم المصروف');
+    if (!(amount > 0)) throw bad('أدخل مبلغاً صحيحاً');
+    if (!get('SELECT 1 AS x FROM expense_categories WHERE id = ? AND active = 1', Number(b.category_id))) throw bad('اختر نوع المصروف');
+    return { name, amount, category_id: Number(b.category_id), method: METHODS.includes(b.method) ? b.method : 'bank', vendor: clip(b.vendor, 80) || null, day: Math.min(28, Math.max(1, parseInt(b.day_of_month, 10) || 1)), active: b.active === false || b.active === 0 ? 0 : 1 };
+  };
+  r.post('/expenses/recurring', need('expenses.manage'), (req, res) => {
+    const d = readRec(req.body || {});
+    const info = run('INSERT INTO recurring_expenses(name, category_id, amount, method, vendor, day_of_month, active) VALUES(?,?,?,?,?,?,?)', d.name, d.category_id, d.amount, d.method, d.vendor, d.day, d.active);
+    audit(req.user.id, 'expense.recurring_create', 'recurring_expense', Number(info.lastInsertRowid), { name: d.name, amount: d.amount });
+    res.status(201).json({ id: Number(info.lastInsertRowid) });
+  });
+  r.put('/expenses/recurring/:id', need('expenses.manage'), (req, res) => {
+    const id = Number(req.params.id);
+    if (!get('SELECT 1 AS x FROM recurring_expenses WHERE id = ?', id)) throw notFound('المصروف الثابت غير موجود');
+    const d = readRec(req.body || {});
+    run('UPDATE recurring_expenses SET name=?, category_id=?, amount=?, method=?, vendor=?, day_of_month=?, active=? WHERE id = ?', d.name, d.category_id, d.amount, d.method, d.vendor, d.day, d.active, id);
+    audit(req.user.id, 'expense.recurring_update', 'recurring_expense', id, { name: d.name, amount: d.amount });
+    res.json({ id });
+  });
+  r.delete('/expenses/recurring/:id', need('expenses.manage'), (req, res) => {
+    run('DELETE FROM recurring_expenses WHERE id = ?', Number(req.params.id));
+    audit(req.user.id, 'expense.recurring_delete', 'recurring_expense', Number(req.params.id));
+    res.json({ ok: true });
+  });
+  // إنشاء قيود شهر معيّن من القوالب (لا يكرر ما أُنشئ)
+  r.post('/expenses/recurring/run', need('expenses.manage'), (req, res) => {
+    const month = /^\d{4}-\d{2}$/.test(String(req.body?.month || '')) ? req.body.month : today().slice(0, 7);
+    let created = 0; let total = 0;
+    for (const t of all('SELECT * FROM recurring_expenses WHERE active = 1')) {
+      if (get("SELECT 1 AS x FROM expenses WHERE recurring_id = ? AND substr(expense_date, 1, 7) = ?", t.id, month)) continue;
+      run('INSERT INTO expenses(expense_date, category_id, amount, method, vendor, description, recurring_id, created_by) VALUES(?,?,?,?,?,?,?,?)',
+        `${month}-${String(t.day_of_month).padStart(2, '0')}`, t.category_id, t.amount, t.method, t.vendor, t.name, t.id, req.user.id);
+      created++; total = round2(total + t.amount);
+    }
+    audit(req.user.id, 'expense.recurring_run', 'expense', null, { month, created, total });
+    res.json({ month, created, total });
+  });
+
+  // ملخص المحاسبة: المصاريف مقابل المبيعات وصافي الربح التقديري
+  r.get('/expenses/summary', need('expenses.manage'), (req, res) => {
+    const from = isDate(req.query.from) ? req.query.from : today();
+    const to = isDate(req.query.to) ? req.query.to : from;
+    const days = Math.max(1, Math.round((new Date(to) - new Date(from)) / 864e5) + 1);
+    const shift = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+    const pTo = shift(from, -1); const pFrom = shift(from, -days);
+    const sum = (a, b) => get('SELECT COALESCE(SUM(amount), 0) AS s, COUNT(*) AS c, COALESCE(SUM(tax), 0) AS t FROM expenses WHERE expense_date BETWEEN ? AND ?', a, b);
+    const cur = sum(from, to); const prev = sum(pFrom, pTo);
+    const byCategory = all(`SELECT c.id, c.name, c.color, c.icon, c.kind, COALESCE(SUM(e.amount), 0) AS total, COUNT(e.id) AS n FROM expense_categories c
+      JOIN expenses e ON e.category_id = c.id AND e.expense_date BETWEEN ? AND ? GROUP BY c.id ORDER BY total DESC`, from, to);
+    const byMethod = all('SELECT method, SUM(amount) AS total FROM expenses WHERE expense_date BETWEEN ? AND ? GROUP BY method ORDER BY total DESC', from, to);
+    const byDay = all('SELECT expense_date AS day, SUM(amount) AS total FROM expenses WHERE expense_date BETWEEN ? AND ? GROUP BY expense_date ORDER BY expense_date', from, to);
+    const vendors = all("SELECT vendor, SUM(amount) AS total, COUNT(*) AS n FROM expenses WHERE vendor IS NOT NULL AND vendor != '' AND expense_date BETWEEN ? AND ? GROUP BY vendor ORDER BY total DESC LIMIT 5", from, to);
+    const drawer = get('SELECT COALESCE(SUM(amount), 0) AS s FROM expenses WHERE from_drawer = 1 AND expense_date BETWEEN ? AND ?', from, to).s;
+    const paid = get("SELECT COALESCE(SUM(total), 0) AS s, COALESCE(SUM(tax), 0) AS t FROM orders WHERE status = 'paid' AND date(created_at) BETWEEN ? AND ?", from, to);
+    const cogsSales = get(`SELECT COALESCE(SUM(-m.qty * i.cost_per_unit),0) AS v FROM stock_movements m JOIN ingredients i ON i.id = m.ingredient_id JOIN orders o ON o.id = m.order_id
+      WHERE m.type = 'sale' AND o.status = 'paid' AND date(o.created_at) BETWEEN ? AND ?`, from, to).v;
+    const kindTotal = (k) => round2(byCategory.filter((c) => c.kind === k).reduce((a, c) => a + c.total, 0));
+    const netSales = round2(paid.s - paid.t);
+    const operating = kindTotal('operating');
+    res.json({
+      from, to, days, prev: { from: pFrom, to: pTo, total: round2(prev.s) },
+      total: round2(cur.s), count: cur.c, tax_recoverable: round2(cur.t), avg_per_day: round2(cur.s / days), drawer_cash: round2(drawer),
+      change_pct: prev.s > 0 ? Math.round(((cur.s - prev.s) / prev.s) * 100) : null,
+      byCategory: byCategory.map((c) => ({ ...c, total: round2(c.total) })), byMethod: byMethod.map((m) => ({ ...m, total: round2(m.total) })), byDay: byDay.map((d) => ({ ...d, total: round2(d.total) })),
+      topVendors: vendors.map((v) => ({ ...v, total: round2(v.total) })),
+      profit: { net_sales: netSales, cogs: round2(cogsSales), gross: round2(netSales - cogsSales), operating, purchases: kindTotal('cogs'), capital: kindTotal('capital'), net: round2(netSales - cogsSales - operating) },
+    });
   });
 
   r.get('/audit', need('activity.view'), (req, res) => {

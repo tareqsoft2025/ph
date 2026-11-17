@@ -33,6 +33,7 @@ export default function Shifts() {
           <h3>ملخص الوردية المغلقة</h3>
           <div className="kv"><span>عدد الطلبات</span><strong>{result.orders_count}</strong></div>
           <div className="kv"><span>المبيعات</span><strong>{money(result.sales)}</strong></div>
+          {result.expenses_cash > 0 && <div className="kv"><span>مصروفات من الدرج</span><strong>− {money(result.expenses_cash)}</strong></div>}
           <div className="kv"><span>النقد المتوقع</span><strong>{money(result.expected_cash)}</strong></div>
           <div className="kv"><span>النقد الفعلي</span><strong>{money(result.closing_cash)}</strong></div>
           <div className="kv"><span>الفرق</span><strong className={result.difference < 0 ? 'text-err' : 'text-ok'}>{money(result.difference)}</strong></div>
@@ -53,6 +54,7 @@ export default function Shifts() {
           <div className="kv"><span>الطلبات المدفوعة</span><strong>{s.orders_count}</strong></div>
           <div className="kv"><span>المبيعات</span><strong>{money(s.sales)}</strong></div>
           {s.payments.map((p) => <div className="kv" key={p.method}><span>{PAY_METHODS[p.method]}</span><strong>{money(p.total)}</strong></div>)}
+          {s.expenses_cash > 0 && <div className="kv"><span>مصروفات دُفعت من الدرج ({s.expenses_count})</span><strong className="text-err">− {money(s.expenses_cash)}</strong></div>}
           <div className="kv highlight"><span>النقد المتوقع في الصندوق</span><strong>{money(s.expected_cash)}</strong></div>
           <hr />
           <Field label="النقد الفعلي عند الإغلاق"><input type="number" value={closing} onChange={(e) => setClosing(e.target.value)} /></Field>

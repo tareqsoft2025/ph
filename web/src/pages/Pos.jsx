@@ -259,14 +259,14 @@ export default function Pos() {
       </section>
 
       {/* ───── السلة ───── */}
-      <section className={`pos-cart ${cartOpen ? 'open' : ''}`}>
+      <section className={`pos-cart ticket ${cartOpen ? 'open' : ''}`}>
         <div className="cart-head">
           {order ? (
             <>
               <div className="cart-id">
-                <span className="order-code" dir="ltr">{order.code}</span>
-                <span className="muted">{order.event_name ? `مؤسسة · ${order.event_name}${order.place ? ` · ${order.place}` : ''}` : <>{ORDER_TYPES[order.type]}{order.table_name ? ` · ${order.table_name}` : ''}</>}{order.guests ? ` · ${order.guests} أشخاص` : ''}</span>
-                {order.customer_name && <span className="muted small">{order.customer_name} · <bdi dir="ltr">{order.customer_phone}</bdi></span>}
+                <span className="tk-kicker"><ReceiptText size={13} aria-hidden /> الطلب <span className="order-code" dir="ltr">{order.code}</span></span>
+                <h2 className="tk-title">{order.event_name ? order.event_name : order.table_name || ORDER_TYPES[order.type]}</h2>
+                <span className="tk-sub">{order.event_name ? `${order.place || 'مؤسسة'}` : ORDER_TYPES[order.type]}{order.guests ? ` · ${order.guests} أشخاص` : ''}{order.customer_name ? ` · ${order.customer_name}` : ''}{order.customer_phone ? <> · <bdi dir="ltr">{order.customer_phone}</bdi></> : null}</span>
               </div>
               <div className="row gap-s">
                 {order.status !== 'open' && <span className={`badge ${order.status === 'paid' ? 'badge-ok' : 'badge-err'}`}>{order.status === 'paid' ? 'مدفوع' : 'ملغى'}</span>}
@@ -278,8 +278,9 @@ export default function Pos() {
           ) : (
             <>
               <div className="cart-id">
-                <h2>طلب جديد</h2>
-                <span className="muted">{ctxType === 'dine_in' ? `${ctxTable?.name || ''} · ${meta.guests || 0} أشخاص` : ORDER_TYPES[ctxType]}</span>
+                <span className="tk-kicker"><ReceiptText size={13} aria-hidden /> طلب جديد</span>
+                <h2 className="tk-title">{ctxType === 'dine_in' ? (ctxTable?.name || 'طاولة') : ORDER_TYPES[ctxType]}</h2>
+                <span className="tk-sub">{ctxType === 'dine_in' ? `${meta.guests || 0} أشخاص${ctxTable?.area ? ` · ${ctxTable.area}` : ''}` : 'يُرسل للمطبخ بعد إدخال بيانات العميل'}</span>
               </div>
               <button className="icon-btn cart-close" onClick={() => setCartOpen(false)} aria-label="إغلاق"><X size={20} /></button>
             </>
@@ -328,6 +329,7 @@ export default function Pos() {
                       {d.modifiers.length > 0 && <small>{d.modifiers.map((m) => m.name).join('، ')}</small>}
                       {d.notes && <small className="note"><StickyNote size={13} aria-hidden /> {d.notes}</small>}
                     </div>
+                    <i className="tk-lead" aria-hidden />
                     <span className="line-price">{money(d.unit * d.qty)}</span>
                   </div>
                 </div>
@@ -344,6 +346,7 @@ export default function Pos() {
                   {l.modifiers.length > 0 && <small>{l.modifiers.map((m) => m.name).join('، ')}</small>}
                   {l.notes && <small className="note"><StickyNote size={13} aria-hidden /> {l.notes}</small>}
                 </div>
+                <i className="tk-lead" aria-hidden />
                 <span className="line-price">{money(l.price * l.qty)}</span>
               </div>
               <div className="line-foot">
@@ -362,10 +365,13 @@ export default function Pos() {
               </div>
             </div>
           ))}
-          {!order?.items.length && !draft.length && <Empty icon={ShoppingBag} text="اختر الأصناف من القائمة" />}
+          {!order?.items.length && !draft.length && (
+            <div className="tk-empty"><span className="tk-empty-ico" aria-hidden><ShoppingBag size={26} /></span><strong>اختر الأصناف من القائمة</strong><small>اضغط على أي طبق وسيظهر هنا كسطر في الإيصال</small></div>
+          )}
         </div>
 
         <div className={`cart-totals ${totalsOpen ? 'open' : ''}`}>
+          {cartCount > 0 && <div className="tk-count"><span>عدد الأصناف</span><b>{cartCount}</b></div>}
           {order ? (
             <>
               <div className="tot-details">
