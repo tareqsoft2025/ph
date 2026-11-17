@@ -52,7 +52,7 @@ export default function Attendance() {
 }
 
 // ═════════════ بطاقة تسجيلي ═════════════
-function MyCard() {
+export function MyCard({ onDone, compact }) {
   const me = useData('/attendance/me', ['attendance']);
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -85,6 +85,7 @@ function MyCard() {
       const r = await punch(action, { needLocation: rules.location }, setStep);
       toast(action === 'check-in' ? `تم تسجيل الحضور${r.location ? ` · ${r.location}` : ''}` : 'تم تسجيل الانصراف');
       me.reload();
+      onDone?.();
     } catch (e) {
       setFail({ message: e.message, reason: e.data?.reason || e.reason, nearest: e.data?.nearest });
       if (e.data?.reason === 'out_of_range' || e.data?.reason === 'low_accuracy') readPosition().then(setLastPos).catch(() => {});
@@ -151,14 +152,14 @@ function MyCard() {
         </section>
       )}
 
-      <div className="stats">
+      {!compact && <div className="stats">
         <div className="stat"><span>أيام الحضور هذا الشهر</span><strong>{s.present}</strong></div>
         <div className="stat"><span>الغياب</span><strong className={s.absent ? 'text-err' : ''}>{s.absent}</strong></div>
         <div className="stat"><span>إجمالي التأخير</span><strong className={s.late_minutes ? 'text-warn' : ''}>{hm(s.late_minutes)}</strong></div>
         <div className="stat"><span>ساعات العمل</span><strong>{hm(s.worked_minutes)}</strong></div>
-      </div>
+      </div>}
 
-      {d.history.length > 0 && (
+      {!compact && d.history.length > 0 && (
         <details className="card history">
           <summary>سجلي هذا الشهر ({d.history.length} يوم)</summary>
           <div className="table-wrap flat">

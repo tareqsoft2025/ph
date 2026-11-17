@@ -18,7 +18,7 @@ const login = async (u, p) => (await api('/auth/login', { method: 'POST', body: 
 const month = () => new Date().toISOString().slice(0, 7);
 
 before(async () => {
-  proc = spawn(process.execPath, ['--no-warnings', 'src/server.js'], { env: { ...process.env, PORT, DB_PATH: ':memory:' } });
+  proc = spawn(process.execPath, ['--no-warnings', 'src/server.js'], { env: { ...process.env, PORT, DB_PATH: ':memory:', ATT_REQUIRED_DEFAULT: '0' } });
   for (let i = 0; i < 50; i++) {
     try { if ((await fetch(BASE + '/health')).ok) return; } catch {}
     await new Promise((r) => setTimeout(r, 100));

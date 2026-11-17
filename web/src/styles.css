@@ -1293,6 +1293,15 @@ input[type='range'] { padding: 0; min-height: 30px; border: 0; accent-color: var
 .auth-card .apk-btn { align-self: center; padding: var(--s-2) var(--s-4); }
 @media (max-width: 760px) { .topbar .apk-text { display: none; } .topbar .apk-btn { padding: 6px; } }
 
+/* ───────── بوابة الحضور ───────── */
+.gate { min-height: 100%; display: grid; place-items: start center; padding: var(--s-7) var(--s-4); background: radial-gradient(900px 400px at 50% -10%, var(--primary-soft), transparent 70%), var(--bg); }
+.gate-inner { width: min(560px, 100%); display: flex; flex-direction: column; gap: var(--s-4); }
+.gate-head { text-align: center; display: flex; flex-direction: column; align-items: center; gap: var(--s-2); }
+.gate-mark { width: 60px; height: 60px; border-radius: var(--radius-full); display: grid; place-items: center; background: var(--primary); color: var(--primary-ink); box-shadow: 0 0 0 8px var(--primary-soft); margin-bottom: var(--s-2); }
+.gate-head h1 { font-size: var(--text-2xl); }
+.gate-out { align-self: center; color: var(--muted); }
+.gate .punch-card { box-shadow: var(--shadow-lg); }
+
 /* ───────── الفاتورة والطباعة ───────── */
 .receipt { background: #fff; color: #000; font-family: var(--font-body); font-size: 13px; line-height: 1.5; padding: var(--s-4); border: 1px dashed #bbb; max-width: 320px; margin: 0 auto; }
 .r-center { text-align: center; }

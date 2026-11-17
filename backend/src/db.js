@@ -98,6 +98,7 @@ const DEFAULT_SETTINGS = {
   att_max_accuracy: '100',       // أقصى خطأ مقبول في دقة الموقع (متر)
   att_allow_web: '1',            // السماح بالتسجيل من المتصفح (الأندرويد أدق وأصعب في التلاعب)
   att_block_mock: '1',           // رفض المواقع الوهمية والمحاكيات والأجهزة المكسورة الحماية
+  att_required_before_work: globalThis.process?.env?.ATT_REQUIRED_DEFAULT ?? '1', // تسجيل الحضور إلزامي قبل استخدام النظام
 };
 
 export function getSettings() {

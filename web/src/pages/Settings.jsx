@@ -55,6 +55,7 @@ export default function Settings() {
           <Field label="أقصى خطأ مقبول في دقة الموقع (متر)" hint="القراءات الأقل دقة تُرفض"><input type="number" min="10" max="500" value={f.att_max_accuracy} onChange={set('att_max_accuracy')} /></Field>
           <div className="switch-list">
             <label className="switch"><input type="checkbox" checked={f.att_require_location === '1'} onChange={set('att_require_location')} /> التحقق من موقع العمل عند التسجيل</label>
+            <label className="switch"><input type="checkbox" checked={f.att_required_before_work === '1'} onChange={set('att_required_before_work')} /> تسجيل الحضور إلزامي قبل استخدام النظام (للموظفين في أيام عملهم)</label>
             <label className="switch"><input type="checkbox" checked={f.att_block_mock === '1'} onChange={set('att_block_mock')} /> رفض المواقع الوهمية والمحاكيات والأجهزة المكسورة الحماية</label>
             <label className="switch"><input type="checkbox" checked={f.att_allow_web === '1'} onChange={set('att_allow_web')} /> السماح بالتسجيل من المتصفح (الأكثر أماناً: تطبيق الجوال فقط)</label>
           </div>

@@ -6,7 +6,7 @@ import { need, hasPerm, PERMISSIONS, ROLES_EDITABLE, DEFAULTS, rolePerms, setRol
 import { bad, notFound, pick, updateSql, normalize, round2, today } from './util.js';
 import * as Orders from './orders.js';
 import { hrRoutes } from './hr.js';
-import { attendanceRoutes } from './attendance.js';
+import { attendanceRoutes, attendanceGate } from './attendance.js';
 import { setNotifyEmitter, notify, pushEnabled } from './notify.js';
 
 /**
@@ -31,6 +31,7 @@ export function buildRouter(emit) {
   });
 
   r.use(authenticate);
+  r.use(attendanceGate);
 
   r.get('/auth/me', (req, res) => res.json(req.user));
 
