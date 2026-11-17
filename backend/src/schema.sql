@@ -128,6 +128,8 @@ CREATE TABLE IF NOT EXISTS orders (
   cashier_id      INTEGER REFERENCES users(id),
   shift_id        INTEGER REFERENCES shifts(id),
   cancel_reason   TEXT,
+  source          TEXT NOT NULL DEFAULT 'staff',   -- staff / online (طلب من رابط الزبون)
+  track_token     TEXT,                            -- رمز متابعة الزبون للطلب
   created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   closed_at       TEXT
 );

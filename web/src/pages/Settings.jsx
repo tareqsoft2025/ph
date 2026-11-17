@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { BellRing, Send } from 'lucide-react';
+import { BellRing, Send, Link2, Copy, QrCode, Printer, ExternalLink, Check } from 'lucide-react';
+import QRCode from 'qrcode';
 import { api, isNative, getServerUrl, setServerUrl } from '../api.js';
 import { useNotifications, devicePermission, requestDevicePermission } from '../notifications.jsx';
-import { useApp, useAction, useData, Field, PageHead, Modal } from '../lib.jsx';
+import { useApp, useAction, useData, useToast, Field, PageHead, Modal } from '../lib.jsx';
 
 export default function Settings() {
   const { settings, setSettings } = useApp();
@@ -21,6 +22,7 @@ export default function Settings() {
         <button className="btn btn-primary" onClick={save} disabled={busy}>حفظ</button>
       </PageHead>
       <div className="report-grid">
+        <OnlineOrderingSettings />
         <section className="card">
           <h3>بيانات المطعم</h3>
           <Field label="اسم المطعم"><input value={f.restaurant_name} onChange={set('restaurant_name')} /></Field>
@@ -136,5 +138,93 @@ function PushSettings() {
         <button className="btn" onClick={() => run(() => api('/push/test', { method: 'POST' }), 'تم إرسال إشعار تجريبي')} disabled={busy}><Send size={17} /> إرسال إشعار تجريبي</button>
       </div>
     </section>
+  );
+}
+
+/** رابط الطلب العام للزبائن: يُفعَّل ويُلغى فوراً */
+function useOrderBase() {
+  return (isNative ? `${getServerUrl()}/` : `${window.location.origin}${window.location.pathname}`) + '#/order';
+}
+
+function Qr({ url, size = 200 }) {
+  const [src, setSrc] = useState('');
+  useEffect(() => { QRCode.toDataURL(url, { margin: 1, width: size * 2, errorCorrectionLevel: 'M' }).then(setSrc).catch(() => setSrc('')); }, [url, size]);
+  return src ? <img src={src} alt="رمز QR" width={size} height={size} /> : <div style={{ width: size, height: size }} />;
+}
+
+function OnlineOrderingSettings() {
+  const { settings, setSettings } = useApp();
+  const toast = useToast();
+  const base = useOrderBase();
+  const [qrOpen, setQrOpen] = useState(false);
+  const [tablesOpen, setTablesOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const on = settings.online_ordering === '1';
+  const flip = async (key) => {
+    const next = settings[key] === '1' ? '0' : '1';
+    try {
+      setSettings(await api('/settings', { method: 'PUT', body: { [key]: next } }));
+      if (key === 'online_ordering') toast(next === '1' ? 'تم تفعيل الطلب عبر الرابط' : 'تم إيقاف الطلب عبر الرابط فوراً', next === '1' ? 'ok' : 'warn');
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(base); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { window.prompt('انسخ الرابط', base); }
+  };
+  const types = [['online_dine_in', 'الطلب من الطاولة (QR)'], ['online_takeaway', 'طلب سفري'], ['online_delivery', 'طلب توصيل']];
+  return (
+    <section className="card online-card">
+      <h3><Link2 size={18} aria-hidden /> الطلب عبر الرابط (للزبائن)</h3>
+      <p className="muted small">يفتح الزبون الرابط من هاتفه فيشاهد المنيو ويرسل طلبه للمطبخ مباشرة بدون تسجيل دخول. يمكنك إيقافه في أي وقت.</p>
+      <label className={`switch online-main ${on ? 'on' : ''}`}>
+        <input type="checkbox" checked={on} onChange={() => flip('online_ordering')} />
+        <span>{on ? 'الطلب عبر الرابط مفعّل' : 'الطلب عبر الرابط متوقف'}</span>
+      </label>
+      {on && (
+        <>
+          <div className="online-link">
+            <input readOnly dir="ltr" value={base} onFocus={(e) => e.target.select()} aria-label="رابط الطلب" />
+            <button className="btn" onClick={copy}>{copied ? <Check size={16} /> : <Copy size={16} />} {copied ? 'تم النسخ' : 'نسخ'}</button>
+          </div>
+          <div className="btn-row">
+            <a className="btn" href={base} target="_blank" rel="noreferrer"><ExternalLink size={16} /> فتح الرابط</a>
+            <button className="btn" onClick={() => setQrOpen(true)}><QrCode size={16} /> رمز QR</button>
+            <button className="btn" onClick={() => setTablesOpen(true)}><Printer size={16} /> QR لكل طاولة</button>
+          </div>
+          <div className="switch-list" style={{ marginTop: 12 }}>
+            {types.map(([k, label]) => (
+              <label key={k} className="switch"><input type="checkbox" checked={settings[k] === '1'} onChange={() => flip(k)} /> {label}</label>
+            ))}
+          </div>
+        </>
+      )}
+      {qrOpen && (
+        <Modal title="رمز QR للرابط" onClose={() => setQrOpen(false)}>
+          <div className="qr-one"><Qr url={base} size={260} /><p className="muted small" dir="ltr">{base}</p></div>
+        </Modal>
+      )}
+      {tablesOpen && <TableQrs base={base} onClose={() => setTablesOpen(false)} />}
+    </section>
+  );
+}
+
+function TableQrs({ base, onClose }) {
+  const { data } = useData('/tables', ['tables']);
+  const { settings } = useApp();
+  return (
+    <Modal title="رموز QR للطاولات" onClose={onClose} wide>
+      <div className="qr-sheet">
+        <div className="qr-actions btn-row"><button className="btn btn-primary" onClick={() => window.print()}><Printer size={17} /> طباعة</button></div>
+        <div className="qr-grid">
+          {(data || []).map((t) => (
+            <div key={t.id} className="qr-card">
+              <strong>{settings.restaurant_name}</strong>
+              <Qr url={`${base}?table=${t.id}`} size={150} />
+              <span className="qr-table">{t.name}</span>
+              <small>امسح الرمز واطلب من هاتفك</small>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Modal>
   );
 }
