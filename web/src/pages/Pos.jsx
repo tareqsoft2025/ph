@@ -47,6 +47,9 @@ export default function Pos() {
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [totalsOpen, setTotalsOpen] = useState(false);
   const [bump, setBump] = useState(0);
+  const [metaEdit, setMetaEdit] = useState(false);
+  const linesRef = useRef(null);
+  const lastAdded = useRef(null);
 
   // التحقق من بيانات العميل حسب نوع الطلب
   const metaErrors = {};
@@ -114,10 +117,46 @@ export default function Pos() {
     });
   }
 
-  function onItemClick(item) {
-    if (item.modifiers?.length) setPicking(item);
-    else addToDraft(item);
+  // نقطة تطير من الطبق إلى السلة (أو زر السلة في الجوال) لتأكيد الإضافة بصرياً
+  function fly(el, art) {
+    try {
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || !el?.animate) return;
+      const fab = document.querySelector('.cart-fab');
+      const target = fab && getComputedStyle(fab).display !== 'none' ? fab : linesRef.current;
+      if (!target) return;
+      const a = el.getBoundingClientRect();
+      const b = target.getBoundingClientRect();
+      const dot = document.createElement('div');
+      dot.className = 'fly-dot';
+      dot.textContent = art && !/^(https?:|data:)/.test(art) ? art : '';
+      dot.style.left = `${a.left + a.width / 2 - 20}px`;
+      dot.style.top = `${a.top + a.height / 2 - 20}px`;
+      document.body.appendChild(dot);
+      const dx = b.left + Math.min(b.width / 2, 60) - (a.left + a.width / 2);
+      const dy = b.top + Math.min(b.height / 2, 80) - (a.top + a.height / 2);
+      const anim = dot.animate([
+        { transform: 'translate(0,0) scale(1)', opacity: 1 },
+        { transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 60}px) scale(.9)`, opacity: 1, offset: 0.5 },
+        { transform: `translate(${dx}px, ${dy}px) scale(.3)`, opacity: 0.2 },
+      ], { duration: 620, easing: 'cubic-bezier(.45,.05,.3,1)' });
+      anim.onfinish = () => dot.remove();
+    } catch { /* الحركة اختيارية */ }
   }
+
+  function onItemClick(item, el, art) {
+    if (item.modifiers?.length) setPicking(item);
+    else { addToDraft(item); fly(el, art); }
+  }
+
+  // السطر الجديد يظهر دائماً: نمرّر قائمة الأسطر إلى آخر سطر مضاف
+  useEffect(() => {
+    const box = linesRef.current;
+    if (!box || !draft.length) return;
+    const last = draft[draft.length - 1];
+    if (lastAdded.current === last.uid) return;
+    lastAdded.current = last.uid;
+    requestAnimationFrame(() => box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' }));
+  }, [draft]);
 
   const draftPayload = () => draft.map((d) => ({ item_id: d.item_id, qty: d.qty, notes: d.notes, modifier_ids: d.modifiers.map((m) => m.id) }));
 
@@ -233,7 +272,7 @@ export default function Pos() {
               return (
                 <div key={it.id} className="dish-cell">
                   <button className={`dish st-${it.station} ${it.available ? '' : 'unavailable'} ${inCart ? 'in-cart' : ''}`}
-                    onClick={() => isOpen && canEdit && onItemClick(it)} disabled={!isOpen || !canEdit}
+                    onClick={(e) => isOpen && canEdit && onItemClick(it, e.currentTarget, art)} disabled={!isOpen || !canEdit}
                     aria-label={`${it.name}، ${money(it.price)}${it.available ? '' : '، غير متوفر'}`}>
                     <span className="dish-art" aria-hidden>
                       {/^(https?:|data:)/.test(art) ? <img src={art} alt="" loading="lazy" /> : art ? <span className="dish-emoji">{art}</span> : <Utensils size={26} strokeWidth={1.5} />}
@@ -287,7 +326,14 @@ export default function Pos() {
           )}
         </div>
 
-        {!order && (
+        {!order && metaValid && !metaEdit && draft.length > 0 && (
+          <button type="button" className="cart-meta-sum" onClick={() => setMetaEdit(true)} aria-label="تعديل بيانات العميل">
+            <UserRound size={14} aria-hidden /> <b>{meta.customer_name}</b> <bdi dir="ltr">{meta.customer_phone}</bdi>
+            {meta.type === 'delivery' && meta.address && <span className="muted"> · {meta.address}</span>}
+            <span className="cms-edit">تعديل</span>
+          </button>
+        )}
+        {!order && (!metaValid || metaEdit || !draft.length) && (
           <div className="cart-meta">
             <div className="grid-2">
               <label className={`cfield ${err('customer_name') ? 'invalid' : ''}`}>
@@ -312,7 +358,7 @@ export default function Pos() {
         )}
 
         {order && <ConfirmBanner order={order} onChanged={(r) => (r.status === 'cancelled' ? navigate('/tables') : orderQ.setData(r))} />}
-        <div className="cart-lines">
+        <div className="cart-lines" ref={linesRef}>
           {draft.length > 0 && (
             <>
               <div className="divider divider-new"><Flame size={12} aria-hidden /> {order ? 'إضافات جديدة' : 'الطلب'} · لم يُرسل</div>
@@ -370,6 +416,7 @@ export default function Pos() {
           )}
         </div>
 
+        <div className="cart-foot">
         <div className={`cart-totals ${totalsOpen ? 'open' : ''}`}>
           {cartCount > 0 && <div className="tk-count"><span>عدد الأصناف</span><b>{cartCount}</b></div>}
           {order ? (
@@ -428,6 +475,7 @@ export default function Pos() {
             <button className="btn btn-primary btn-lg btn-block" onClick={newOrder}><Plus size={18} /> طلب جديد</button>
           </div>
         )}
+        </div>
       </section>
 
       <button className="cart-fab" onClick={() => setCartOpen(true)}>
