@@ -13,6 +13,7 @@ export const PERMISSIONS = [
   { key: 'reservations.manage', group: 'الطلبات', label: 'إدارة الحجوزات' },
 
   { key: 'payments.collect', group: 'الكاشير', label: 'تحصيل الدفعات وإغلاق الطلبات' },
+  { key: 'payments.view_all', group: 'الكاشير', label: 'عرض تحصيلات كل الكاشير (بدونها يرى الكاشير تحصيلاته فقط)' },
   { key: 'shifts.manage', group: 'الكاشير', label: 'فتح وإغلاق الورديات' },
   { key: 'customers.view', group: 'الكاشير', label: 'عرض العملاء' },
 

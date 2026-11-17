@@ -263,6 +263,38 @@ export function buildRouter(emit) {
     res.json(rows);
   });
 
+  // سجل التحصيلات: الكاشير يرى تحصيلاته فقط، ومن يملك payments.view_all يرى الجميع
+  r.get('/payments/history', need('payments.collect', 'payments.view_all'), (req, res) => {
+    const all_ = hasPerm(req.user, 'payments.view_all');
+    const { from, to, method, q } = req.query;
+    const uid = all_ ? (Number(req.query.user_id) || null) : req.user.id;
+    const where = ["o.status != 'cancelled'"];
+    const params = [];
+    if (from) { where.push('date(p.created_at) >= ?'); params.push(from); }
+    if (to) { where.push('date(p.created_at) <= ?'); params.push(to); }
+    if (method && ['cash', 'card', 'wallet'].includes(method)) { where.push('p.method = ?'); params.push(method); }
+    if (uid) { where.push('p.user_id = ?'); params.push(uid); }
+    if (q) {
+      where.push('(o.code LIKE ? OR o.customer_name LIKE ? OR o.customer_phone LIKE ? OR t.name LIKE ?)');
+      params.push(...Array(4).fill(`%${String(q).trim()}%`));
+    }
+    const W = 'WHERE ' + where.join(' AND ');
+    const base = 'FROM payments p JOIN orders o ON o.id = p.order_id LEFT JOIN dining_tables t ON t.id = o.table_id LEFT JOIN users u ON u.id = p.user_id';
+    const rows = all(`
+      SELECT o.id AS order_id, o.code, o.type, o.total, o.discount, o.customer_name, o.customer_phone, t.name AS table_name,
+        p.user_id, u.name AS user_name, MIN(p.created_at) AS paid_at, ROUND(SUM(p.amount), 2) AS amount,
+        GROUP_CONCAT(DISTINCT p.method) AS methods, p.shift_id
+      ${base} ${W} GROUP BY p.order_id, p.user_id ORDER BY MIN(p.id) DESC LIMIT 500`, ...params);
+    const byMethod = all(`SELECT p.method, ROUND(SUM(p.amount), 2) AS total, COUNT(*) AS n ${base} ${W} GROUP BY p.method`, ...params);
+    const byCashier = all_ ? all(`SELECT p.user_id, u.name AS user_name, ROUND(SUM(p.amount), 2) AS total, COUNT(DISTINCT p.order_id) AS n ${base} ${W} GROUP BY p.user_id ORDER BY total DESC`, ...params) : [];
+    res.json({
+      all: all_,
+      rows,
+      summary: { count: rows.length, total: round2(rows.reduce((a, r) => a + r.amount, 0)), byMethod, byCashier },
+      cashiers: all_ ? all("SELECT DISTINCT u.id, u.name FROM payments p JOIN users u ON u.id = p.user_id ORDER BY u.name") : [],
+    });
+  });
+
   r.get('/orders/:id', need('orders.view', 'pos.create', 'payments.collect', 'kitchen.view'), (req, res) => res.json(Orders.getOrder(Number(req.params.id))));
 
   const orderChanged = (id) => {

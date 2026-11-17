@@ -11,6 +11,7 @@ import {
 import { PayModal, DiscountModal } from '../components/PaymentModals.jsx';
 import Receipt from '../components/Receipt.jsx';
 import OrderTimeline from '../components/OrderTimeline.jsx';
+import CollectionsHistory from '../components/CollectionsHistory.jsx';
 
 const TYPE_ICON = { dine_in: Armchair, takeaway: ShoppingBag, delivery: Bike };
 const FILTERS = [['all', 'الكل'], ['bill', 'طلبوا الحساب'], ['dine_in', 'الصالة'], ['takeaway', 'سفري'], ['delivery', 'توصيل']];
@@ -22,6 +23,7 @@ export default function Cashier() {
   const [params, setParams] = useSearchParams();
   const [filter, setFilter] = useState('all');
   const [q, setQ] = useState('');
+  const [view, setView] = useState('queue');
   const selectedId = Number(params.get('order')) || null;
   const select = (id) => setParams(id ? { order: String(id) } : {}, { replace: true });
   useNow(30000);
@@ -64,6 +66,12 @@ export default function Cashier() {
         <div className="cstat"><CircleCheckBig size={18} aria-hidden /><div><span>طلبات مدفوعة اليوم</span><strong>{today.data?.length ?? '…'}</strong></div></div>
       </header>
 
+      <div className="seg cashier-tabs" role="tablist" aria-label="أقسام الكاشير">
+        <button role="tab" aria-selected={view === 'queue'} className={view === 'queue' ? 'active' : ''} onClick={() => setView('queue')}>بانتظار الدفع</button>
+        <button role="tab" aria-selected={view === 'history'} className={view === 'history' ? 'active' : ''} onClick={() => setView('history')}>سجل التحصيلات</button>
+      </div>
+
+      {view === 'history' ? <CollectionsHistory /> : (
       <div className="cashier-body">
         <section className={`cq ${selectedId ? 'has-selection' : ''}`} aria-label="الطلبات بانتظار الدفع">
           <div className="cq-head">
@@ -107,6 +115,7 @@ export default function Cashier() {
             : <Empty icon={ReceiptText} text="اختر طلباً من القائمة لعرض تفاصيله وتحصيل الدفع" />}
         </section>
       </div>
+      )}
     </div>
   );
 }
