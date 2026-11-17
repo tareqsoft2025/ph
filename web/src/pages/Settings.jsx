@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BellRing, Send, QrCode, Printer } from 'lucide-react';
+import { BellRing, Send, QrCode, Printer, ShieldAlert } from 'lucide-react';
 import QRCode from 'qrcode';
 import { api, isNative, getServerUrl, setServerUrl } from '../api.js';
 import { useNotifications, devicePermission, requestDevicePermission } from '../notifications.jsx';
@@ -156,7 +156,11 @@ function OnlineOrderingSettings() {
   const { settings, setSettings } = useApp();
   const toast = useToast();
   const [open, setOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
   const on = settings.online_ordering === '1';
+  const put = async (key, value) => {
+    try { setSettings(await api('/settings', { method: 'PUT', body: { [key]: value } })); toast('تم الحفظ'); } catch (e) { toast(e.message, 'err'); }
+  };
   const flip = async () => {
     const next = on ? '0' : '1';
     try {
@@ -172,10 +176,31 @@ function OnlineOrderingSettings() {
         <input type="checkbox" checked={on} onChange={flip} />
         <span>{on ? 'الطلب عبر QR مفعّل' : 'الطلب عبر QR متوقف'}</span>
       </label>
+      <div className="qr-sec">
+        <h4>الأمان</h4>
+        <label className="switch"><input type="checkbox" checked={settings.qr_require_open === '1'} onChange={() => put('qr_require_open', settings.qr_require_open === '1' ? '0' : '1')} /> لا يُقبل طلب إلا بعد أن يفتح النادل الطاولة (موصى به)</label>
+        <div className="grid-2">
+          <Field label="تأكيد الموظف قبل المطبخ">
+            <select value={settings.qr_confirm_mode} onChange={(e) => put('qr_confirm_mode', e.target.value)}>
+              <option value="smart">ذكي: حسب المبلغ وأول طلب لكل جوال</option>
+              <option value="always">دائماً لكل طلب</option>
+              <option value="never">بدون تأكيد (مباشرة للمطبخ)</option>
+            </select>
+          </Field>
+          {settings.qr_confirm_mode === 'smart' && (
+            <Field label={`المبلغ الذي يحتاج ما فوقه تأكيداً (${settings.currency})`}>
+              <input type="number" min="0" defaultValue={settings.qr_confirm_over} onBlur={(e) => e.target.value !== settings.qr_confirm_over && put('qr_confirm_over', e.target.value)} />
+            </Field>
+          )}
+        </div>
+        <p className="muted small">طلب مفتوح واحد لكل جوال وجهاز، وتُسجَّل كل المحاولات وتصلك تنبيهات عند أي نمط مشبوه.</p>
+      </div>
       <div className="btn-row">
         <button className="btn btn-primary" onClick={() => setOpen(true)}><Printer size={16} /> بطاقات QR للطاولات وطباعتها</button>
+        <button className="btn" onClick={() => setLogOpen(true)}><ShieldAlert size={16} /> سجل محاولات QR</button>
       </div>
       {open && <TableQrs onClose={() => setOpen(false)} />}
+      {logOpen && <QrLog onClose={() => setLogOpen(false)} />}
     </section>
   );
 }
@@ -207,6 +232,7 @@ function TableQrs({ onClose }) {
               <strong>{settings.restaurant_name}</strong>
               <Qr url={`${base}${t.token}`} size={150} />
               <span className="qr-table">{t.name}</span>
+              <small className="qr-host" dir="ltr">{new URL(base, window.location.href).host}</small>
               <small>امسح الرمز لعرض المنيو وإرسال طلبك</small>
               <span className="qr-card-actions">
                 <button className="btn btn-sm" onClick={() => printNow(t.id)}><Printer size={14} /> طباعة</button>
@@ -216,6 +242,31 @@ function TableQrs({ onClose }) {
           ))}
         </div>
       </div>
+    </Modal>
+  );
+}
+
+const QR_EVENTS = {
+  bad_token: ['رمز غير صالح', 'badge-err'], closed_attempt: ['محاولة على طاولة مغلقة', 'badge-warn'], dup_open: ['طلب مفتوح مسبقاً', 'badge-warn'],
+  rate_limited: ['كثرة طلبات', 'badge-err'], confirm_required: ['بانتظار التأكيد', 'badge-warn'], order: ['طلب', 'badge-ok'],
+};
+
+function QrLog({ onClose }) {
+  const { data, loading } = useData('/qr/log', ['orders']);
+  return (
+    <Modal title="سجل محاولات QR" onClose={onClose} wide>
+      {loading && !data ? <p className="muted">جارِ التحميل…</p> : !data?.length ? <p className="muted">لا توجد محاولات بعد.</p> : (
+        <ul className="qrlog">
+          {data.map((l) => (
+            <li key={l.id}>
+              <span className={`badge ${QR_EVENTS[l.event]?.[1] || ''}`}>{QR_EVENTS[l.event]?.[0] || l.event}</span>
+              <span className="qrlog-main">{l.table_name || '—'}{l.detail ? ` · ${l.detail}` : ''}</span>
+              <small className="muted" dir="ltr">{l.ip}{l.device_id ? ` · ${String(l.device_id).slice(0, 6)}` : ''}</small>
+              <small className="muted">{String(l.at).slice(5, 16).replace('T', ' ')}</small>
+            </li>
+          ))}
+        </ul>
+      )}
     </Modal>
   );
 }

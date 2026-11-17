@@ -12,6 +12,7 @@ import { PayModal, DiscountModal } from '../components/PaymentModals.jsx';
 import Receipt from '../components/Receipt.jsx';
 import OrderTimeline from '../components/OrderTimeline.jsx';
 import CollectionsHistory from '../components/CollectionsHistory.jsx';
+import ConfirmBanner from '../components/ConfirmBanner.jsx';
 
 const TYPE_ICON = { dine_in: Armchair, takeaway: ShoppingBag, delivery: Bike };
 const FILTERS = [['all', 'الكل'], ['bill', 'طلبوا الحساب'], ['dine_in', 'الصالة'], ['takeaway', 'سفري'], ['delivery', 'توصيل']];
@@ -95,7 +96,7 @@ export default function Cashier() {
                 <button key={o.id} className={`cq-item ${selectedId === o.id ? 'active' : ''} ${o.bill_requested_at ? 'bill' : ''}`} onClick={() => select(o.id)}>
                   <span className="cq-icon" aria-hidden><Icon size={18} /></span>
                   <span className="cq-main">
-                    <strong>{o.type === 'dine_in' ? o.table_name : ORDER_TYPES[o.type]}{o.customer_name ? ` · ${o.customer_name}` : ''}{o.source === 'online' && <span className="badge badge-warn src-online">رابط</span>}</strong>
+                    <strong>{o.type === 'dine_in' ? o.table_name : ORDER_TYPES[o.type]}{o.customer_name ? ` · ${o.customer_name}` : ''}{o.source === 'online' && <span className="badge badge-warn src-online">{o.pending_confirm ? 'بانتظار التأكيد' : 'QR'}</span>}</strong>
                     <small><bdi dir="ltr">{o.code}</bdi> · {o.items_count} صنف · <Clock size={11} aria-hidden /> {minutesSince(o.created_at)} د</small>
                   </span>
                   <span className="cq-side">
@@ -165,6 +166,7 @@ function OrderPanel({ id, onDone, onBack }) {
         <button className="btn btn-sm" onClick={() => setTimeline(true)}><History size={16} /> التسلسل</button>
       </header>
 
+      <ConfirmBanner order={o} onChanged={(r) => (r.status === 'cancelled' ? onDone() : setData(r))} />
       {o.bill_requested_at && <div className="alert alert-warn"><BellRing size={16} /> طلب {o.waiter_name || 'النادل'} الحساب الساعة {timeOf(o.bill_requested_at)}</div>}
 
       <div className="cpanel-meta">

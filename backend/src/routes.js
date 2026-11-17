@@ -47,22 +47,51 @@ export function buildRouter(emit) {
   const onlineOn = () => getSettings().online_ordering === '1';
   const clip = (v, n) => String(v ?? '').trim().slice(0, n);
   const PUBLIC_USER = { id: null, name: 'الزبون (رمز الطاولة)', role: 'public' };
-  const tableByToken = (req) => {
+  const ipOf = (req) => String(req.headers?.['x-forwarded-for'] || req.ip || 'local').split(',')[0].trim();
+  const digitsOf = (p) => String(p || '').replace(/[^0-9]/g, '');
+
+  // سجل محاولات QR + تنبيه المدير عند الأنماط المشبوهة (مع تهدئة 30 دقيقة لكل نمط)
+  const alerted = new Map();
+  const qrLog = (req, tableId, event, detail = null, deviceId = null) => {
+    run('INSERT INTO qr_log(ip, device_id, table_id, event, detail) VALUES(?,?,?,?,?)', ipOf(req), deviceId || null, tableId || null, event, detail);
+    if (Math.random() < 0.02) run("DELETE FROM qr_log WHERE at < datetime('now','localtime','-14 days')");
+  };
+  const qrAlert = (key, title, body) => {
+    const now = Date.now();
+    if (now - (alerted.get(key) || 0) < 30 * 60 * 1000) return;
+    alerted.set(key, now);
+    notify({ perms: ['settings.manage'], roles: ['admin'], type: 'qr_alert', level: 'warning', link: '/settings', title, body });
+  };
+  const recent = '10 minutes';
+  const tableByToken = (req, deviceId = null) => {
     if (limited(req, 'tk', 60, 60 * 1000)) throw Object.assign(bad('طلبات كثيرة، حاول بعد قليل'), { status: 429 });
     const tok = String(req.params.token || '');
-    const t = tok.length >= 16 ? get('SELECT id, name, seats, area FROM dining_tables WHERE qr_token = ? AND active = 1', tok) : null;
-    if (!t) throw notFound('رمز الطاولة غير صالح');
+    const t = tok.length >= 16 ? get('SELECT id, name, seats, area, qr_open_until FROM dining_tables WHERE qr_token = ? AND active = 1', tok) : null;
+    if (!t) {
+      qrLog(req, null, 'bad_token', tok.slice(0, 12));
+      const n = get(`SELECT COUNT(*) AS c FROM qr_log WHERE event = 'bad_token' AND ip = ? AND at > datetime('now','localtime','-${recent}')`, ipOf(req)).c;
+      if (n >= 5) qrAlert(`bad:${ipOf(req)}`, 'محاولات رموز QR خاطئة متكررة', `${n} محاولة برمز غير صالح خلال 10 دقائق من نفس العنوان (${ipOf(req)}). قد يكون تخميناً للرموز.`);
+      throw notFound('رمز الطاولة غير صالح');
+    }
+    if (deviceId) {
+      const n = get(`SELECT COUNT(DISTINCT table_id) AS c FROM qr_log WHERE event = 'scan' AND device_id = ? AND at > datetime('now','localtime','-${recent}')`, deviceId).c;
+      if (n >= 3) qrAlert(`dev:${deviceId}`, 'جهاز يمسح عدة طاولات', `جهاز واحد مسح ${n + 1} طاولات مختلفة خلال 10 دقائق (آخرها ${t.name}). راجع سجل QR في الإعدادات.`);
+    }
     return t;
   };
+  const isOpenNow = (t) => !!get("SELECT 1 AS x FROM dining_tables WHERE id = ? AND qr_open_until > datetime('now','localtime')", t.id);
+  const tableOpen = (t) => getSettings().qr_require_open !== '1' || isOpenNow(t);
 
   r.get('/public/table/:token', (req, res) => {
-    const t = tableByToken(req);
+    const dev = clip(req.query.d, 40);
+    const t = tableByToken(req, dev);
+    if (dev) qrLog(req, t.id, 'scan', null, dev);
     const s = getSettings();
     const open = get("SELECT id, code, source, track_token FROM orders WHERE table_id = ? AND status = 'open'", t.id);
     res.json({
       enabled: s.online_ordering === '1',
       name: s.restaurant_name, currency: s.currency, phone: s.phone,
-      table: { name: t.name, seats: t.seats, area: t.area, busy: !!open },
+      table: { name: t.name, seats: t.seats, area: t.area, busy: !!open, open: tableOpen(t) },
       // الطلب المفتوح من هذا الرمز (لإتاحة الإضافة عليه لمن يملك رمز متابعته فقط)
       open_code: open?.source === 'online' ? open.code : null,
     });
@@ -79,37 +108,67 @@ export function buildRouter(emit) {
   });
 
   r.post('/public/table/:token/orders', (req, res) => {
-    const t = tableByToken(req);
-    if (!onlineOn()) return res.status(403).json({ error: 'الطلب عبر QR متوقف حالياً', reason: 'disabled' });
-    if (limited(req, 'po', 8, 10 * 60 * 1000)) return res.status(429).json({ error: 'طلبات كثيرة، حاول بعد قليل' });
     const b = req.body || {};
+    const dev = clip(b.device_id, 40);
+    const t = tableByToken(req, dev);
+    if (!onlineOn()) return res.status(403).json({ error: 'الطلب عبر QR متوقف حالياً', reason: 'disabled' });
+    if (limited(req, 'po', Number(globalThis.process?.env?.QR_RATE_LIMIT) || 8, 10 * 60 * 1000)) { qrLog(req, t.id, 'rate_limited', null, dev); return res.status(429).json({ error: 'طلبات كثيرة، حاول بعد قليل' }); }
+    const s = getSettings();
     const items = Array.isArray(b.items) ? b.items : [];
     if (!items.length) throw bad('أضف أصنافاً للطلب');
     if (items.length > 40 || items.reduce((a, i) => a + Math.min(Number(i.qty) || 1, 99), 0) > 80) throw bad('عدد الأصناف كبير جداً، نادِ النادل');
     const lines = items.map((i) => ({ item_id: Number(i.item_id), qty: Math.min(Math.max(parseInt(i.qty, 10) || 1, 1), 20), modifier_ids: Array.isArray(i.modifier_ids) ? i.modifier_ids.slice(0, 10).map(Number) : [], notes: clip(i.notes, 100) || null }));
     const open = get("SELECT * FROM orders WHERE table_id = ? AND status = 'open'", t.id);
-    let id;
+    const phone = clip(b.customer_phone, 20);
+    let id; let added = false; let before = 0;
     if (open) {
       // إضافة على طلب الطاولة المفتوح: لا تُقبل إلا بشرط أن يكون طلباً من الرمز ومع رمز متابعته
       if (open.source !== 'online' || !open.track_token || open.track_token !== String(b.order_token || '')) throw bad('الطاولة عليها طلب مفتوح، نادِ النادل لإضافة أصناف');
-      id = open.id;
+      id = open.id; added = true; before = open.subtotal;
       Orders.addItems(id, lines, PUBLIC_USER);
     } else {
+      // 1) الطاولة يجب أن يفتحها النادل أولاً
+      if (!tableOpen(t)) {
+        qrLog(req, t.id, 'closed_attempt', null, dev);
+        const n = get(`SELECT COUNT(*) AS c FROM qr_log WHERE event = 'closed_attempt' AND (device_id = ? OR ip = ?) AND at > datetime('now','localtime','-${recent}')`, dev || '-', ipOf(req)).c;
+        if (n >= 3) qrAlert(`closed:${dev || ipOf(req)}`, 'محاولات طلب على طاولة غير مفتوحة', `${n} محاولة طلب على طاولات لم تُفتح لـ QR خلال 10 دقائق (آخرها ${t.name}). قد يكون طلباً من خارج المطعم.`);
+        return res.status(403).json({ error: 'هذه الطاولة لم تُفتح للطلب بعد، نادِ النادل ليفعّلها', reason: 'table_closed' });
+      }
+      // 2) طلب مفتوح واحد لكل جوال / جهاز
+      const dg = digitsOf(phone);
+      const dup = get(`SELECT d.name AS tname FROM orders o LEFT JOIN dining_tables d ON d.id = o.table_id
+        WHERE o.status = 'open' AND ((? != '' AND o.device_id = ?) OR (? != '' AND REPLACE(REPLACE(REPLACE(o.customer_phone,' ',''),'-',''),'+','') = ?)) LIMIT 1`, dev, dev, dg, dg);
+      if (dup) {
+        qrLog(req, t.id, 'dup_open', dup.tname, dev);
+        throw bad(`لديك طلب مفتوح${dup.tname ? ` على ${dup.tname}` : ''}، أضف عليه أو نادِ النادل`);
+      }
       const token = randomToken();
       id = Orders.createOrder({
         type: 'dine_in', table_id: t.id, guests: Math.min(Math.max(parseInt(b.guests, 10) || 1, 1), 30),
-        customer_name: clip(b.customer_name, 60), customer_phone: clip(b.customer_phone, 20), notes: clip(b.notes, 300) || null, items: lines,
+        customer_name: clip(b.customer_name, 60), customer_phone: phone, notes: clip(b.notes, 300) || null, items: lines,
       }, PUBLIC_USER);
-      run("UPDATE orders SET source = 'online', track_token = ? WHERE id = ?", token, id);
+      run("UPDATE orders SET source = 'online', track_token = ?, device_id = ? WHERE id = ?", token, dev || null, id);
       Orders.logEvent(id, 'online', null, 'طلب من رمز QR الطاولة');
     }
-    Orders.sendToKitchen(id, PUBLIC_USER);
-    const o = Orders.getOrder(id);
-    const tok = get('SELECT track_token FROM orders WHERE id = ?', id).track_token;
+    const o0 = Orders.getOrder(id);
+    const newValue = o0.subtotal - before;
+    // 3) تأكيد النادل: دائماً، أو (ذكي) إذا زاد المبلغ عن الحد أو كان أول طلب لهذا الجوال
+    const mode = s.qr_confirm_mode;
+    const firstTime = !added && !get("SELECT 1 AS x FROM orders WHERE status = 'paid' AND customer_phone = ?", phone);
+    const needsConfirm = mode === 'always' || (mode !== 'never' && (newValue > (Number(s.qr_confirm_over) || 0) || firstTime));
     const { where } = Orders.orderLabel(id);
-    notify({ perms: ['payments.collect', 'pos.create'], type: 'online_order', level: 'info', link: `/pos/${id}`, title: `${open ? 'إضافة على' : 'طلب جديد من'} ${where} (QR) ${o.code}`, body: `${o.items.length} صنف · ${o.total}` });
+    const o = Orders.getOrder(id);
+    if (needsConfirm) {
+      run('UPDATE orders SET pending_confirm = 1 WHERE id = ?', id);
+      qrLog(req, t.id, 'confirm_required', `${o.code} · ${newValue}`, dev);
+      notify({ perms: ['pos.create', 'payments.collect'], type: 'online_confirm', level: 'warning', link: `/pos/${id}`, title: `طلب QR بانتظار التأكيد · ${where}`, body: `${o.code} · ${o.items.length} صنف · ${newValue}${firstTime ? ' · أول طلب لهذا الجوال' : ''}` });
+    } else {
+      Orders.sendToKitchen(id, PUBLIC_USER);
+      notify({ perms: ['payments.collect', 'pos.create'], type: 'online_order', level: 'info', link: `/pos/${id}`, title: `${added ? 'إضافة على' : 'طلب جديد من'} ${where} (QR) ${o.code}`, body: `${o.items.length} صنف · ${o.total}` });
+    }
+    qrLog(req, t.id, 'order', `${o.code}${added ? ' (إضافة)' : ''}${needsConfirm ? ' · بانتظار التأكيد' : ''}`, dev);
     changed('orders', 'kitchen', 'tables');
-    res.status(201).json({ code: o.code, token: tok, total: o.total, added: !!open });
+    res.status(201).json({ code: o.code, token: get('SELECT track_token FROM orders WHERE id = ?', id).track_token, total: o.total, added, needs_confirm: needsConfirm });
   });
 
   r.get('/public/orders/:code', (req, res) => {
@@ -119,6 +178,7 @@ export function buildRouter(emit) {
     const full = Orders.getOrder(o.id);
     res.json({
       code: full.code, status: full.status, table_name: full.table_name, total: full.total, created_at: full.created_at,
+      pending_confirm: !!full.pending_confirm, cancel_reason: full.status === 'cancelled' ? full.cancel_reason : null,
       items: full.items.filter((i) => i.status !== 'cancelled').map((i) => ({ name: i.name, qty: i.qty, status: i.status })),
     });
   });
@@ -297,7 +357,8 @@ export function buildRouter(emit) {
   // ───────────── الطاولات ─────────────
   r.get('/tables', need('tables.view', 'pos.create', 'payments.collect', 'settings.manage', 'reservations.manage'), (req, res) => {
     const tables = all(`
-      SELECT t.id, t.name, t.seats, t.area, t.active, o.id AS order_id, o.number AS order_number, o.code AS order_code, o.total AS order_total, o.created_at AS opened_at,
+      SELECT t.id, t.name, t.seats, t.area, t.active, t.qr_open_until,
+        CASE WHEN t.qr_open_until > datetime('now','localtime') THEN 1 ELSE 0 END AS qr_open, o.pending_confirm AS pending_confirm, o.id AS order_id, o.number AS order_number, o.code AS order_code, o.total AS order_total, o.created_at AS opened_at,
         o.guests, w.name AS waiter_name,
         (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'ready') AS ready_items,
         (SELECT r.customer_name || ' ' || substr(r.reserved_at, 12, 5) FROM reservations r
@@ -322,6 +383,29 @@ export function buildRouter(emit) {
     audit(req.user.id, 'settings.table_qr_rotate', 'table', t.id, { name: t.name });
     res.json({ id: t.id, name: t.name, token });
   });
+  // فتح الطاولة لطلب QR (النادل/الكاشير): تُغلق تلقائياً بعد المدة أو بالدفع/الإلغاء
+  r.post('/tables/:id/qr/open', need('pos.create', 'payments.collect', 'tables.view'), (req, res) => {
+    const t = get('SELECT id, name FROM dining_tables WHERE id = ? AND active = 1', Number(req.params.id));
+    if (!t) throw notFound('الطاولة غير موجودة');
+    const minutes = Math.round(Math.min(Math.max(Number(req.body?.hours) || 2, 0.25), 12) * 60);
+    run(`UPDATE dining_tables SET qr_open_until = datetime('now','localtime','+${minutes} minutes') WHERE id = ?`, t.id);
+    audit(req.user.id, 'table.qr_open', 'table', t.id, { name: t.name, minutes });
+    changed('tables');
+    res.json({ id: t.id, open: true });
+  });
+  r.post('/tables/:id/qr/close', need('pos.create', 'payments.collect', 'tables.view'), (req, res) => {
+    const t = get('SELECT id, name FROM dining_tables WHERE id = ?', Number(req.params.id));
+    if (!t) throw notFound('الطاولة غير موجودة');
+    run('UPDATE dining_tables SET qr_open_until = NULL WHERE id = ?', t.id);
+    audit(req.user.id, 'table.qr_close', 'table', t.id, { name: t.name });
+    changed('tables');
+    res.json({ id: t.id, open: false });
+  });
+  r.get('/qr/log', need('settings.manage', 'activity.view'), (req, res) => {
+    res.json(all(`SELECT l.id, l.at, l.ip, l.device_id, l.event, l.detail, t.name AS table_name
+      FROM qr_log l LEFT JOIN dining_tables t ON t.id = l.table_id WHERE l.event != 'scan' ORDER BY l.id DESC LIMIT 150`));
+  });
+
   r.post('/tables', need('settings.manage'), (req, res) => {
     const { name, seats, area } = req.body || {};
     if (!name) throw bad('أدخل اسم الطاولة');
@@ -463,6 +547,18 @@ export function buildRouter(emit) {
     const result = Orders.pay(id, req.body?.payments, req.user);
     if (result.closed) changed('inventory', 'kitchen');
     res.json({ ...result, order: orderChanged(id) });
+  });
+  r.post('/orders/:id/confirm', need('pos.create', 'payments.collect'), (req, res) => {
+    const id = Number(req.params.id);
+    Orders.confirmOrder(id, req.user);
+    changed('kitchen', 'orders', 'tables');
+    res.json(orderChanged(id));
+  });
+  r.post('/orders/:id/reject', need('pos.create', 'payments.collect'), (req, res) => {
+    const id = Number(req.params.id);
+    Orders.rejectOrder(id, clip(req.body?.reason, 100), req.user);
+    changed('kitchen', 'orders', 'tables');
+    res.json(orderChanged(id));
   });
   r.post('/orders/:id/cancel', need('orders.cancel'), (req, res) => {
     const id = Number(req.params.id);

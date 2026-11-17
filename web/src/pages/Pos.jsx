@@ -7,6 +7,7 @@ import {
 } from '../lib.jsx';
 import Receipt from '../components/Receipt.jsx';
 import OrderTimeline from '../components/OrderTimeline.jsx';
+import ConfirmBanner from '../components/ConfirmBanner.jsx';
 import TableHero, { AnimatedMoney } from '../components/TableHero.jsx';
 import { PayModal, DiscountModal } from '../components/PaymentModals.jsx';
 import { Search, Utensils, SlidersHorizontal, ChefHat, Plus, StickyNote, ShoppingBag, Flame, CheckCheck, Printer, CreditCard, TriangleAlert, X, History, Minus, UserRound, Phone, MapPin, ReceiptText, ChevronUp, Percent, ArrowLeftRight, Ban } from 'lucide-react';
@@ -309,6 +310,7 @@ export default function Pos() {
           </div>
         )}
 
+        {order && <ConfirmBanner order={order} onChanged={(r) => (r.status === 'cancelled' ? navigate('/tables') : orderQ.setData(r))} />}
         <div className="cart-lines">
           {draft.length > 0 && (
             <>
