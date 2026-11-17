@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 
@@ -22,7 +23,11 @@ function demoBackend() {
   };
 }
 
+// رقم إصدار التطبيق المبني (من build.gradle) ليعرف التطبيق إن كان هناك إصدار أحدث منه
+const appCode = Number((readFileSync(here('./android/app/build.gradle'), 'utf8').match(/versionCode (\d+)/) || [])[1]) || 0;
+
 export default defineConfig(({ mode }) => ({
+  define: { __APP_CODE__: JSON.stringify(appCode) },
   plugins: [react(), ...(mode === 'demo' ? [demoBackend()] : [])],
   base: './',
   build: {
