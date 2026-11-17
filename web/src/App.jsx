@@ -9,6 +9,7 @@ import {
 } from './api.js';
 import { AppContext, ROLE_LABELS, has, Loading } from './lib.jsx';
 import { NotificationsProvider, NotificationBell } from './notifications.jsx';
+import ApkDownload from './components/ApkDownload.jsx';
 import { teardownPush } from './push.js';
 import Login from './pages/Login.jsx';
 import ServerSetup from './pages/ServerSetup.jsx';
@@ -167,6 +168,7 @@ export default function App() {
               {online ? <Wifi size={14} /> : <WifiOff size={14} />}
               <span className="conn-label">{online ? 'متصل' : 'غير متصل'}</span>
             </span>
+            <ApkDownload />
             <NotificationBell />
           </header>
           <div className="content">

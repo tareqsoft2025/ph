@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { UtensilsCrossed, LogIn } from 'lucide-react';
 import { api, isNative, isDemo, getServerUrl, resetDemoData } from '../api.js';
 import AuthLayout from '../components/AuthLayout.jsx';
+import ApkDownload from '../components/ApkDownload.jsx';
 
 export default function Login({ onLogin, onChangeServer }) {
   const [username, setUsername] = useState('');
@@ -64,6 +65,7 @@ export default function Login({ onLogin, onChangeServer }) {
             الخادم: {getServerUrl()} — تغيير
           </button>
         )}
+        <ApkDownload />
       </form>
     </AuthLayout>
   );

@@ -1279,6 +1279,20 @@ input[type='range'] { padding: 0; min-height: 30px; border: 0; accent-color: var
 .rate-cell b { font-variant-numeric: tabular-nums; font-size: var(--text-sm); min-width: 38px; }
 .section-title svg { vertical-align: middle; }
 
+/* ───────── تنزيل تطبيق الأندرويد ───────── */
+.apk-btn {
+  display: inline-flex; align-items: center; gap: var(--s-2); text-decoration: none;
+  padding: 4px var(--s-3); border-radius: var(--radius-full); color: var(--primary);
+  background: var(--primary-soft); border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  transition: background 150ms var(--ease), transform 150ms var(--ease);
+}
+.apk-btn:hover { background: color-mix(in srgb, var(--primary) 18%, var(--primary-soft)); transform: translateY(-1px); }
+.apk-text { display: flex; flex-direction: column; line-height: 1.25; }
+.apk-text strong { font-size: var(--text-xs); font-weight: 600; }
+.apk-text small { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.auth-card .apk-btn { align-self: center; padding: var(--s-2) var(--s-4); }
+@media (max-width: 760px) { .topbar .apk-text { display: none; } .topbar .apk-btn { padding: 6px; } }
+
 /* ───────── الفاتورة والطباعة ───────── */
 .receipt { background: #fff; color: #000; font-family: var(--font-body); font-size: 13px; line-height: 1.5; padding: var(--s-4); border: 1px dashed #bbb; max-width: 320px; margin: 0 auto; }
 .r-center { text-align: center; }
