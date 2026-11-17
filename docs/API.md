@@ -153,6 +153,7 @@ POST /api/orders
 |---|---|---|
 | GET | `/public/table/:token` | بيانات الطاولة وحالتها وإن كانت الخدمة مفعّلة |
 | GET | `/public/table/:token/menu` | المنيو المتاح للزبون (بدون بيانات داخلية) |
+| POST | `/public/table/:token/request-open` | طلب الزبون من النادل فتح الطاولة: إشعار للنادل والمدير وعلامة على بطاقة الطاولة (تهدئة 60 ثانية) |
 | POST | `/public/table/:token/orders` | إنشاء طلب (`guests`, `customer_name`, `customer_phone`, `notes`, `items[]`) ويُرسل للمطبخ فوراً؛ يرجع `code` و`token` للمتابعة. وإن كانت الطاولة عليها طلب من الرمز نفسه يمكن الإضافة عليه بإرسال `order_token`. محدود المعدل |
 | GET | `/public/orders/:code?t=token` | متابعة حالة الطلب للزبون |
 | POST | `/tables/:id/qr/open` و `/tables/:id/qr/close` | (pos.create / payments.collect / tables.view) فتح الطاولة لطلب QR (ساعتان افتراضياً، وتُغلق بالدفع أو الإلغاء وتنتقل مع النقل) أو إغلاقها |

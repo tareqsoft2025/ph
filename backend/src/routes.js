@@ -107,6 +107,22 @@ export function buildRouter(emit) {
     res.json({ categories, items });
   });
 
+  // الزبون يطلب من النادل فتح الطاولة للطلب بالـ QR: إشعار للنادل والمدير + علامة على بطاقة الطاولة
+  r.post('/public/table/:token/request-open', (req, res) => {
+    const dev = clip(req.body?.device_id, 40);
+    const t = tableByToken(req);
+    if (!onlineOn()) return res.status(403).json({ error: 'الطلب عبر QR متوقف حالياً', reason: 'disabled' });
+    if (limited(req, 'ro', 6, 10 * 60 * 1000)) return res.status(429).json({ error: 'تم إرسال الطلب، انتظر النادل قليلاً' });
+    if (tableOpen(t) || get("SELECT 1 AS x FROM orders WHERE table_id = ? AND status = 'open'", t.id)) return res.json({ ok: true, open: true });
+    const recent = get("SELECT 1 AS x FROM dining_tables WHERE id = ? AND qr_request_at > datetime('now','localtime','-60 seconds')", t.id);
+    if (recent) return res.json({ ok: true, already: true });
+    run("UPDATE dining_tables SET qr_request_at = datetime('now','localtime') WHERE id = ?", t.id);
+    qrLog(req, t.id, 'open_request', null, dev);
+    notify({ perms: ['pos.create', 'payments.collect'], roles: ['admin', 'manager'], type: 'qr_request', level: 'warning', link: '/tables', title: `${t.name} تطلب فتح الطلب بالـ QR`, body: 'الزبون على الطاولة يريد الطلب من هاتفه. افتح الطاولة من صفحة الطاولات.' });
+    changed('tables');
+    res.json({ ok: true });
+  });
+
   r.post('/public/table/:token/orders', (req, res) => {
     const b = req.body || {};
     const dev = clip(b.device_id, 40);
@@ -359,7 +375,8 @@ export function buildRouter(emit) {
   r.get('/tables', need('tables.view', 'pos.create', 'payments.collect', 'settings.manage', 'reservations.manage'), (req, res) => {
     const tables = all(`
       SELECT t.id, t.name, t.seats, t.area, t.active, t.qr_open_until,
-        CASE WHEN t.qr_open_until > datetime('now','localtime') THEN 1 ELSE 0 END AS qr_open, o.pending_confirm AS pending_confirm, o.id AS order_id, o.number AS order_number, o.code AS order_code, o.total AS order_total, o.created_at AS opened_at,
+        CASE WHEN t.qr_open_until > datetime('now','localtime') THEN 1 ELSE 0 END AS qr_open,
+        CASE WHEN t.qr_request_at > datetime('now','localtime','-15 minutes') AND COALESCE(t.qr_open_until, '') <= datetime('now','localtime') THEN 1 ELSE 0 END AS qr_requested, o.pending_confirm AS pending_confirm, o.id AS order_id, o.number AS order_number, o.code AS order_code, o.total AS order_total, o.created_at AS opened_at,
         o.guests, w.name AS waiter_name,
         (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'ready') AS ready_items,
         (SELECT r.customer_name || ' ' || substr(r.reserved_at, 12, 5) FROM reservations r
@@ -389,7 +406,7 @@ export function buildRouter(emit) {
     const t = get('SELECT id, name FROM dining_tables WHERE id = ? AND active = 1', Number(req.params.id));
     if (!t) throw notFound('الطاولة غير موجودة');
     const minutes = Math.round(Math.min(Math.max(Number(req.body?.hours) || 2, 0.25), 12) * 60);
-    run(`UPDATE dining_tables SET qr_open_until = datetime('now','localtime','+${minutes} minutes') WHERE id = ?`, t.id);
+    run(`UPDATE dining_tables SET qr_request_at = NULL, qr_open_until = datetime('now','localtime','+${minutes} minutes') WHERE id = ?`, t.id);
     audit(req.user.id, 'table.qr_open', 'table', t.id, { name: t.name, minutes });
     changed('tables');
     res.json({ id: t.id, open: true });

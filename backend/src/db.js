@@ -8,6 +8,7 @@ function migrate() {
   if (!cols('orders').includes('code')) db.exec('ALTER TABLE orders ADD COLUMN code TEXT');
   if (!cols('order_items').includes('sent_by')) db.exec('ALTER TABLE order_items ADD COLUMN sent_by INTEGER');
   if (!cols('dining_tables').includes('qr_token')) db.exec('ALTER TABLE dining_tables ADD COLUMN qr_token TEXT');
+  if (!cols('dining_tables').includes('qr_request_at')) db.exec('ALTER TABLE dining_tables ADD COLUMN qr_request_at TEXT');
   if (!cols('dining_tables').includes('qr_open_until')) db.exec('ALTER TABLE dining_tables ADD COLUMN qr_open_until TEXT');
   if (!cols('orders').includes('pending_confirm')) db.exec('ALTER TABLE orders ADD COLUMN pending_confirm INTEGER NOT NULL DEFAULT 0');
   if (!cols('orders').includes('device_id')) db.exec('ALTER TABLE orders ADD COLUMN device_id TEXT');

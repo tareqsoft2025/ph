@@ -113,8 +113,8 @@ export default function Tables() {
                 )}
               </button>
               {canQr && !t.order_id && !t.reservation && (
-                <button className={`t-qr ${t.qr_open ? 'on' : ''}`} onClick={() => toggleQr(t)} aria-pressed={!!t.qr_open} title={t.qr_open ? 'إغلاق الطلب بالـ QR' : 'فتح الطاولة لطلب الزبون بالـ QR'}>
-                  <QrCode size={14} aria-hidden /> {t.qr_open ? 'QR مفتوح' : 'فتح للـ QR'}
+                <button className={`t-qr ${t.qr_open ? 'on' : ''} ${t.qr_requested ? 'req' : ''}`} onClick={() => toggleQr(t)} aria-pressed={!!t.qr_open} title={t.qr_open ? 'إغلاق الطلب بالـ QR' : 'فتح الطاولة لطلب الزبون بالـ QR'}>
+                  <QrCode size={14} aria-hidden /> {t.qr_open ? 'QR مفتوح' : t.qr_requested ? 'الزبون يطلب الفتح — افتح' : 'فتح للـ QR'}
                 </button>
               )}
               </div>
