@@ -9,6 +9,7 @@ import { Server } from 'socket.io';
 import { buildRouter } from './routes.js';
 import { verifyToken } from './auth.js';
 import { ensureSeed } from './seed.js';
+import { get } from './db.js';
 import { loadServiceAccount, createPushSender } from './push.js';
 import { setPushSender } from './notify.js';
 
@@ -41,7 +42,21 @@ io.use((socket, next) => {
   }
 });
 
-const emit = (event, payload) => io.emit(event, payload ?? {});
+// قناة الزبون العامة: تتابع طلباً واحداً برمز المتابعة فقط، ولا تستقبل أحداث النظام
+const pub = io.of('/public');
+pub.on('connection', (socket) => {
+  socket.on('watch', (msg, ack) => {
+    const o = get("SELECT id, track_token FROM orders WHERE code = ? AND source = 'online'", String(msg?.code || ''));
+    const ok = !!(o && o.track_token && o.track_token === String(msg?.token || ''));
+    if (ok) socket.join(`o:${o.id}`);
+    if (typeof ack === 'function') ack(ok);
+  });
+});
+
+const emit = (event, payload) => {
+  if (event === 'public-order') { pub.to(`o:${payload}`).emit('update'); return; }
+  io.emit(event, payload ?? {});
+};
 
 app.use(cors());
 app.use(express.json({ limit: '5mb' })); // يتسع لمستندات الموظفين

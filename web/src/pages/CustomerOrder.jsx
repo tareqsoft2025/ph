@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import {
   UtensilsCrossed, Search, Plus, Minus, Armchair, QrCode, X, Send, CircleCheckBig, ChefHat, BellRing, HandPlatter, Clock, SlidersHorizontal, Ban, Phone, UserRound, MapPin, Receipt,
 } from 'lucide-react';
-import { api } from '../api.js';
+import { api, watchOrder } from '../api.js';
 
 const safe = (f, d = null) => { try { return f(); } catch { return d; } };
 const deviceId = () => { let d = safe(() => localStorage.getItem('ph-co-device')); if (!d) { d = Math.random().toString(36).slice(2, 12) + Date.now().toString(36); safe(() => localStorage.setItem('ph-co-device', d)); } return d; };
@@ -221,35 +221,65 @@ function Picker({ item, cur, onClose, onAdd }) {
   );
 }
 
-/** متابعة حالة الطلب للزبون */
+/** متابعة حالة الطلب للزبون: تتحدث فوراً عند ضغط المطبخ على أي مرحلة */
 function Tracker({ order, cur, phone, onAdd, onClosed }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
-  const timer = useRef();
+  const [live, setLive] = useState(true);
+  const [flash, setFlash] = useState('');
+  const prev = useRef(-1);
+  const [, tick] = useState(0);
+
   useEffect(() => {
     let alive = true;
-    const load = () => api(`/public/orders/${order.code}?t=${order.token}`)
-      .then((d) => { if (alive) { setData(d); setErr(''); } })
-      .catch((e) => { if (alive) setErr(e.message); });
+    let busy = false;
+    const load = async () => {
+      if (busy) return; busy = true;
+      try { const d = await api(`/public/orders/${order.code}?t=${order.token}`); if (alive) { setData(d); setErr(''); setLive(true); } }
+      catch (e) { if (alive) { setErr(e.message); setLive(false); } } finally { busy = false; }
+    };
     load();
-    timer.current = setInterval(load, 6000);
-    return () => { alive = false; clearInterval(timer.current); };
+    const off = watchOrder(order.code, order.token, load);      // تحديث لحظي
+    const poll = setInterval(load, 10000);                       // شبكة أمان إن انقطع الاتصال اللحظي
+    const vis = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', vis);
+    const clock = setInterval(() => tick((n) => n + 1), 30000);
+    return () => { alive = false; off(); clearInterval(poll); clearInterval(clock); document.removeEventListener('visibilitychange', vis); };
   }, [order.code, order.token]);
+
   const pend = !!data?.pending_confirm;
   const st = data ? stage(data.items) : 0;
   const closed = data && data.status !== 'open';
+
+  // تنبيه عند تغيّر المرحلة (اهتزاز + شريط) وخصوصاً عند جاهزية الطلب
+  useEffect(() => {
+    if (!data || closed || pend) { prev.current = st; return; }
+    if (prev.current >= 0 && st > prev.current) {
+      setFlash(STEPS[st][1]);
+      safe(() => navigator.vibrate?.(st >= 2 ? [200, 100, 200, 100, 300] : 120));
+      const t = setTimeout(() => setFlash(''), 5000);
+      prev.current = st;
+      return () => clearTimeout(t);
+    }
+    prev.current = st;
+    return undefined;
+  }, [st, data, closed, pend]);
+
+  const mins = data ? Math.max(0, Math.round((Date.now() - new Date(String(data.created_at).replace(' ', 'T')).getTime()) / 60000)) : 0;
   return (
     <div className="co-track">
       <span className="co-check" aria-hidden><CircleCheckBig size={42} /></span>
-      <h2>{pend ? 'طلبك بانتظار تأكيد النادل' : closed && data.status === 'cancelled' ? 'لم يُقبل الطلب' : 'تم إرسال طلبك للمطبخ'}</h2>
+      <h2>{pend ? 'طلبك بانتظار تأكيد النادل' : closed && data.status === 'cancelled' ? 'لم يُقبل الطلب' : st >= 2 && !closed ? 'طلبك جاهز! 🎉' : 'تم إرسال طلبك للمطبخ'}</h2>
       <p className="muted">رقم الطلب{data?.table_name ? ` · ${data.table_name}` : ''}</p>
       <p className="co-code" dir="ltr">{order.code}</p>
+      <p className={`co-live ${live ? 'on' : ''}`}><i aria-hidden /> {live ? 'تحديث مباشر' : 'انقطع الاتصال، نحاول مجدداً…'}{data && !closed ? ` · منذ ${mins} د` : ''}</p>
+      {flash && <div className="co-flash" role="status">{st >= 2 ? '🔔' : '✨'} {flash}</div>}
       {err && !data && <div className="alert alert-err">{err}</div>}
       {data && (
         <>
           {pend && <div className="alert alert-warn"><Clock size={16} aria-hidden /> سيصل طلبك للمطبخ فور تأكيد النادل له.</div>}
           {closed ? <div className="alert alert-warn">{data.status === 'paid' ? 'تم إغلاق الطلب. شكراً لزيارتكم!' : `أُلغي هذا الطلب${data.cancel_reason ? `: ${data.cancel_reason}` : ''}. نادِ النادل للمساعدة.`}</div> : !pend && (
-            <ol className="co-steps" aria-label="حالة الطلب">
+            <ol className="co-steps" aria-label="حالة الطلب" style={{ '--p': st }}>
               {STEPS.map(([k, label, I], i) => <li key={k} className={i < st ? 'done' : i === st ? 'cur' : ''}><span><I size={18} aria-hidden /></span><small>{label}</small></li>)}
             </ol>
           )}
@@ -259,7 +289,7 @@ function Tracker({ order, cur, phone, onAdd, onClosed }) {
           <p className="co-total"><span>الإجمالي</span><strong>{fmt(data.total, cur)}</strong></p>
         </>
       )}
-      <p className="muted small"><Clock size={13} aria-hidden /> تتحدث الحالة تلقائياً. احتفظ بهذه الصفحة مفتوحة.{phone ? <> للاستفسار <bdi dir="ltr">{phone}</bdi></> : null}</p>
+      <p className="muted small"><Clock size={13} aria-hidden /> احتفظ بهذه الصفحة مفتوحة وستتحدث الحالة تلقائياً.{phone ? <> للاستفسار <bdi dir="ltr">{phone}</bdi></> : null}</p>
       {closed ? <button className="btn btn-block" onClick={onClosed}>طلب جديد</button> : <button className="btn btn-primary btn-block" onClick={onAdd}><Plus size={17} /> إضافة أصناف لطلبي</button>}
     </div>
   );

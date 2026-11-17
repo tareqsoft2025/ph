@@ -105,3 +105,19 @@ export function disconnectSocket() {
   socket = null;
 }
 export const getSocket = () => socket;
+
+/**
+ * متابعة طلب الزبون لحظياً: يستدعي cb عند أي تغيير (يعمل بدون تسجيل دخول).
+ * في الخادم الحقيقي عبر قناة /public، وفي النسخة التجريبية عبر ناقل الأحداث المحلي.
+ */
+export function watchOrder(code, token, cb) {
+  if (isDemo) {
+    const evs = ['orders', 'kitchen'];
+    evs.forEach((e) => demoSocket.on(e, cb));
+    return () => evs.forEach((e) => demoSocket.off(e, cb));
+  }
+  const sock = io(getServerUrl() ? `${getServerUrl()}/public` : '/public', { transports: ['websocket', 'polling'] });
+  sock.on('connect', () => { sock.emit('watch', { code, token }); cb(); });
+  sock.on('update', cb);
+  return () => sock.disconnect();
+}

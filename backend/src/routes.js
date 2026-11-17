@@ -168,6 +168,7 @@ export function buildRouter(emit) {
     }
     qrLog(req, t.id, 'order', `${o.code}${added ? ' (إضافة)' : ''}${needsConfirm ? ' · بانتظار التأكيد' : ''}`, dev);
     changed('orders', 'kitchen', 'tables');
+    emit('public-order', id);
     res.status(201).json({ code: o.code, token: get('SELECT track_token FROM orders WHERE id = ?', id).track_token, total: o.total, added, needs_confirm: needsConfirm });
   });
 
@@ -489,6 +490,7 @@ export function buildRouter(emit) {
 
   const orderChanged = (id) => {
     changed('orders', 'tables');
+    emit('public-order', id);
     return Orders.getOrder(id);
   };
 
@@ -617,6 +619,7 @@ export function buildRouter(emit) {
       status, status, Number(req.params.id));
     if (status !== 'new') Orders.kitchenProgress(item.order_id, status, req.user, item.status !== status);
     changed('kitchen', 'orders', 'tables');
+    emit('public-order', item.order_id);
     res.json({ ok: true });
   });
   r.post('/kitchen/orders/:id/bump', need('kitchen.update'), (req, res) => {
@@ -628,6 +631,7 @@ export function buildRouter(emit) {
       WHERE order_id = ? AND status IN ${from}`, status, status, id);
     Orders.kitchenProgress(id, status, req.user, Number(ch.changes));
     changed('kitchen', 'orders', 'tables');
+    emit('public-order', id);
     res.json({ ok: true });
   });
 
