@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
 import App from './App.jsx';
+import ForceUpdate from './components/ForceUpdate.jsx';
 import { ToastHost } from './lib.jsx';
 import '@fontsource/ibm-plex-sans-arabic/400.css';
 import '@fontsource/ibm-plex-sans-arabic/500.css';
@@ -17,6 +18,7 @@ createRoot(document.getElementById('root')).render(
     <HashRouter>
       <ToastHost>
         <App />
+        <ForceUpdate />
       </ToastHost>
     </HashRouter>
   </StrictMode>,
