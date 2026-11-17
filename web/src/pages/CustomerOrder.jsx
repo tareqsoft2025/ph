@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
-  UtensilsCrossed, Search, Plus, Minus, Armchair, QrCode, X, Send, Banknote, Wallet, Landmark, Smartphone, Copy, Check, CircleCheckBig, ChefHat, BellRing, HandPlatter, Clock, SlidersHorizontal, Ban, Phone, UserRound, MapPin, Receipt,
+  UtensilsCrossed, Search, Plus, Minus, Armchair, QrCode, X, Send, Banknote, Wallet, Landmark, Smartphone, Copy, Check, Building2, MapPin as PinIcon, Info, CircleCheckBig, ChefHat, BellRing, HandPlatter, Clock, SlidersHorizontal, Ban, Phone, UserRound, MapPin, Receipt,
 } from 'lucide-react';
 import { api, watchOrder } from '../api.js';
 import { pushSupported, pushKey, enableOrderPush, isIOS, isStandalone } from '../webpush.js';
@@ -9,6 +9,7 @@ import { pushSupported, pushKey, enableOrderPush, isIOS, isStandalone } from '..
 const safe = (f, d = null) => { try { return f(); } catch { return d; } };
 const deviceId = () => { let d = safe(() => localStorage.getItem('ph-co-device')); if (!d) { d = Math.random().toString(36).slice(2, 12) + Date.now().toString(36); safe(() => localStorage.setItem('ph-co-device', d)); } return d; };
 const lastKey = (t) => `ph-online-last-${String(t).slice(0, 10)}`;
+const when = (s) => String(s || '').replace('T', ' ').slice(0, 16);
 const fmt = (n, cur) => `${(Math.round(Number(n) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${cur || ''}`.trim();
 const STEPS = [['new', 'تم الاستلام', Receipt], ['preparing', 'قيد التحضير', ChefHat], ['ready', 'جاهز', BellRing], ['served', 'تم التقديم', HandPlatter]];
 const BILL_LABEL = { cash: 'نقداً', wallet: 'محفظة', bank: 'بنك', jawwalpay: 'جوال بي' };
@@ -22,8 +23,10 @@ const stage = (items) => {
 };
 
 /** صفحة الطلب العامة للزبون (بلا تسجيل دخول): عرض المنيو وإرسال الطلب للمطبخ */
-export default function CustomerOrder() {
+export default function CustomerOrder({ kind = 'table' }) {
   const { token: tableToken } = useParams();
+  const isEvent = kind === 'event';
+  const base = isEvent ? `/public/event/${tableToken}` : `/public/table/${tableToken}`;
   const [cfg, setCfg] = useState(null);
   const [menu, setMenu] = useState(null);
   const [error, setError] = useState('');
@@ -36,21 +39,23 @@ export default function CustomerOrder() {
   const [askedAt, setAskedAt] = useState(0);
   const [askErr, setAskErr] = useState('');
   const [, force] = useState(0);
-  const [form, setForm] = useState(() => ({ name: safe(() => localStorage.getItem('ph-co-name'), '') || '', phone: safe(() => localStorage.getItem('ph-co-phone'), '') || '', guests: 2, notes: '' }));
+  const [form, setForm] = useState(() => ({ name: safe(() => localStorage.getItem('ph-co-name'), '') || '', phone: safe(() => localStorage.getItem('ph-co-phone'), '') || '', guests: 2, notes: '', place: '' }));
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState('');
   const [done, setDone] = useState(() => safe(() => JSON.parse(localStorage.getItem(lastKey(tableToken)) || 'null')));
 
   useEffect(() => {
-    api(`/public/table/${tableToken}?d=${deviceId()}`).then((c) => {
+    api(isEvent ? base : `${base}?d=${deviceId()}`).then((raw) => {
+      // طلب مؤسسة: نحوّل الرد إلى نفس شكل إعدادات الطاولة
+      const c = isEvent ? { enabled: raw.enabled, name: raw.restaurant, currency: raw.currency, phone: raw.phone, event: raw.event, table: null, bill_allowed: raw.event.billing === 'individual' } : raw;
       setCfg(c);
-      if (!c.enabled) return;
-      api(`/public/table/${tableToken}/menu`).then((m) => { setMenu(m); setCat(m.categories[0]?.id ?? 0); }).catch((e) => setError(e.message));
+      if (!c.enabled || (isEvent && c.event.state !== 'open')) return;
+      api(`${base}/menu`).then((m) => { setMenu(m); setCat(m.categories[0]?.id ?? 0); }).catch((e) => setError(e.message));
     }).catch((e) => setError(e.message));
-  }, [tableToken]);
+  }, [tableToken]); // eslint-disable-line
 
   // الطاولة لم تُفتح بعد: نعيد الفحص تلقائياً حتى يفتحها النادل
-  const waitingOpen = !!cfg && cfg.enabled && !cfg.table.open && !cfg.table.busy;
+  const waitingOpen = !isEvent && !!cfg && cfg.enabled && !cfg.table.open && !cfg.table.busy;
   useEffect(() => {
     if (!waitingOpen) return undefined;
     const t = setInterval(() => api(`/public/table/${tableToken}`).then(setCfg).catch(() => {}), 6000);
@@ -89,31 +94,45 @@ export default function CustomerOrder() {
     const name = form.name.trim(); const phone = form.phone.trim();
     if (!adding) {
       if (!name) return setFormErr('أدخل اسمك');
-      if (!/^\+?[0-9\s-]{7,15}$/.test(phone)) return setFormErr('أدخل رقم جوال صحيح');
+      if (isEvent) {
+        if (phone && !/^\+?[0-9\s-]{7,15}$/.test(phone)) return setFormErr('رقم الجوال غير صحيح');
+        if (cfg.event.places.length && !form.place) return setFormErr('اختر مكانك');
+      } else if (!/^\+?[0-9\s-]{7,15}$/.test(phone)) return setFormErr('أدخل رقم جوال صحيح');
     }
+    if (isEvent && cfg.event.order_cap && sub > cfg.event.order_cap) return setFormErr(`تجاوزت سقف الطلب الواحد (${fmt(cfg.event.order_cap, cur)})`);
     setBusy(true);
     try {
-      const r = await api(`/public/table/${tableToken}/orders`, { method: 'POST', body: {
-        device_id: deviceId(), guests: Number(form.guests) || 1, customer_name: name, customer_phone: phone, notes: form.notes,
+      const r = await api(`${base}/orders`, { method: 'POST', body: {
+        device_id: deviceId(), guests: Number(form.guests) || 1, customer_name: name, customer_phone: phone, notes: form.notes, place: form.place,
         order_token: adding ? done?.token : undefined,
         items: cart.map((l) => ({ item_id: l.item_id, qty: l.qty, modifier_ids: l.mods.map((m) => m.id), notes: l.notes })),
       } });
       safe(() => { localStorage.setItem('ph-co-name', name); localStorage.setItem('ph-co-phone', phone); localStorage.setItem(lastKey(tableToken), JSON.stringify({ code: r.code, token: r.token })); });
       setCart([]); setSheet(false); setAdding(false); setDone({ code: r.code, token: r.token });
-      api(`/public/table/${tableToken}`).then(setCfg).catch(() => {});
+      if (!isEvent) api(base).then(setCfg).catch(() => {});
     } catch (e) { setFormErr(e.message); } finally { setBusy(false); }
   }
 
   if (error && !cfg) return <Shell cfg={cfg}><div className="co-state"><QrCode size={44} aria-hidden /><h2>رمز الطاولة غير صالح</h2><p>امسح رمز QR الموجود على طاولتك، أو اطلب المساعدة من النادل.</p></div></Shell>;
   if (!cfg) return <Shell cfg={cfg}><div className="co-state"><p className="muted">جارِ التحميل…</p></div></Shell>;
   if (!cfg.enabled) return <Shell cfg={cfg}><div className="co-state"><Ban size={44} aria-hidden /><h2>الطلب عبر QR متوقف حالياً</h2><p>نادِ النادل لتقديم طلبك.</p></div></Shell>;
-  const mine = done && cfg.table.busy && done.code === cfg.open_code;
-  if (done && !adding && (mine || !cfg.table.busy)) return <Shell cfg={cfg}><Tracker order={done} cur={cur} phone={cfg.phone} billAllowed={!!cfg.bill_allowed} onAdd={() => setAdding(true)} onClosed={() => { safe(() => localStorage.removeItem(lastKey(tableToken))); setDone(null); setCfg({ ...cfg, table: { ...cfg.table, busy: false } }); }} /></Shell>;
+  if (isEvent && cfg.event.state !== 'open' && !done) {
+    const st = cfg.event.state;
+    return <Shell cfg={cfg}><div className="co-state"><Ban size={44} aria-hidden /><h2>{st === 'not_started' ? 'لم تبدأ الفعالية بعد' : st === 'ended' ? 'انتهت فترة الطلب' : 'الطلب متوقف مؤقتاً'}</h2><p>{st === 'not_started' ? `يبدأ الطلب ${when(cfg.event.starts_at)}` : st === 'ended' ? `انتهى الطلب ${when(cfg.event.ends_at)}` : 'تواصل مع المنظّم أو المطعم.'}</p></div></Shell>;
+  }
+  const mine = isEvent ? !!done : done && cfg.table.busy && done.code === cfg.open_code;
+  if (done && !adding && (isEvent || mine || !cfg.table.busy)) return <Shell cfg={cfg}><Tracker order={done} cur={cur} phone={cfg.phone} billAllowed={!!cfg.bill_allowed} institution={isEvent && cfg.event.billing === 'institution'} onAdd={() => setAdding(true)} onClosed={() => { safe(() => localStorage.removeItem(lastKey(tableToken))); setDone(null); if (!isEvent) setCfg({ ...cfg, table: { ...cfg.table, busy: false } }); }} /></Shell>;
   if (waitingOpen) return <Shell cfg={cfg}><div className="co-state"><HandPlatter size={44} aria-hidden /><h2>أهلاً بك! {cfg.table.name}</h2><p>الطلب من هاتفك يبدأ عندما يفتح النادل الطاولة. ستظهر القائمة تلقائياً بمجرد فتحها.</p>{askedAt && Date.now() - askedAt < 60000 ? <div className="co-sent"><CircleCheckBig size={18} aria-hidden /> تم إبلاغ النادل، ستفتح القائمة خلال لحظات</div> : <button className="btn btn-primary btn-lg" onClick={askOpen}><BellRing size={18} /> {askedAt ? 'تنبيه النادل مرة أخرى' : 'اطلب من النادل فتح الطاولة'}</button>}{askErr && <div className="alert alert-err">{askErr}</div>}</div></Shell>;
-  if (cfg.table.busy && !mine) return <Shell cfg={cfg}><div className="co-state"><Armchair size={44} aria-hidden /><h2>{cfg.table.name} عليها طلب مفتوح</h2><p>لإضافة أصناف نادِ النادل.</p></div></Shell>;
+  if (!isEvent && cfg.table.busy && !mine) return <Shell cfg={cfg}><div className="co-state"><Armchair size={44} aria-hidden /><h2>{cfg.table.name} عليها طلب مفتوح</h2><p>لإضافة أصناف نادِ النادل.</p></div></Shell>;
 
   return (
     <Shell cfg={cfg}>
+      {isEvent && (
+        <div className="co-rules">
+          <span className="co-rules-ico" aria-hidden><Info size={16} /></span>
+          <span>{cfg.event.menu_mode === 'selected' ? 'قائمة مخصصة لمؤسستكم' : cfg.event.menu_mode === 'cap' ? `الأصناف حتى ${fmt(cfg.event.price_cap, cur)} للصنف` : 'قائمة المطعم الكاملة'}{cfg.event.order_cap ? ` · سقف الطلب ${fmt(cfg.event.order_cap, cur)}` : ''}{cfg.event.billing === 'institution' ? ' · الحساب على المؤسسة' : ''}</span>
+        </div>
+      )}
       <div className="co-tools">
         <label className="menu-search"><Search size={18} aria-hidden /><input type="search" placeholder="ابحث عن طبق…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="بحث" /></label>
       </div>
@@ -169,19 +188,25 @@ export default function CustomerOrder() {
                 ))}
               </ul>
               <div className="co-form">
-                <p className="co-badge"><Armchair size={15} aria-hidden /> {cfg.table.name}{adding ? ' · إضافة على طلبك' : ''}</p>
+                <p className="co-badge">{isEvent ? <><Building2 size={15} aria-hidden /> {cfg.event.name}</> : <><Armchair size={15} aria-hidden /> {cfg.table.name}</>}{adding ? ' · إضافة على طلبك' : ''}</p>
                 {!adding && <><label><span><UserRound size={14} aria-hidden /> الاسم *</span><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoComplete="name" /></label>
-                <label><span><Phone size={14} aria-hidden /> رقم الجوال *</span><input inputMode="tel" dir="ltr" placeholder="05xxxxxxxx" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} autoComplete="tel" /></label>
-                <label><span>عدد الأشخاص</span><input type="number" min="1" max="30" value={form.guests} onChange={(e) => setForm({ ...form, guests: e.target.value })} /></label></>}
+                <label><span><Phone size={14} aria-hidden /> رقم الجوال {isEvent ? '(اختياري)' : '*'}</span><input inputMode="tel" dir="ltr" placeholder="05xxxxxxxx" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} autoComplete="tel" /></label>
+                {isEvent ? (
+                  <label><span><PinIcon size={14} aria-hidden /> المكان / الطاولة{cfg.event.places.length ? ' *' : ''}</span>
+                    {cfg.event.places.length ? <select value={form.place} onChange={(e) => setForm({ ...form, place: e.target.value })}><option value="">اختر مكانك</option>{cfg.event.places.map((p) => <option key={p} value={p}>{p}</option>)}</select>
+                      : <input value={form.place} onChange={(e) => setForm({ ...form, place: e.target.value })} placeholder="مثال: طاولة 3" />}
+                  </label>
+                ) : <label><span>عدد الأشخاص</span><input type="number" min="1" max="30" value={form.guests} onChange={(e) => setForm({ ...form, guests: e.target.value })} /></label>}</>}
                 <label><span>ملاحظات للمطبخ</span><input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="مثال: بدون بصل" /></label>
               </div>
               <div className="co-sum">
                 <div><span>المجموع</span><span>{fmt(sub, cur)}</span></div>
-                <small>تُضاف الضريبة (إن وجدت) عند الحساب النهائي.</small>
+                {isEvent && cfg.event.order_cap ? <small className={sub > cfg.event.order_cap ? 'co-over' : ''}>سقف الطلب الواحد {fmt(cfg.event.order_cap, cur)}{sub > cfg.event.order_cap ? ' — خفّض الكمية أو الأصناف' : ''}</small> : null}
+                <small>{isEvent && cfg.event.billing === 'institution' ? 'الحساب على المؤسسة، لا تدفع شيئاً.' : 'تُضاف الضريبة (إن وجدت) عند الحساب النهائي.'}</small>
               </div>
               {formErr && <div className="alert alert-err">{formErr}</div>}
             </div>
-            <footer><button className="btn btn-primary btn-lg btn-block" onClick={submit} disabled={busy}><Send size={19} /> {busy ? 'جارِ الإرسال…' : 'إرسال الطلب للمطبخ'}</button></footer>
+            <footer><button className="btn btn-primary btn-lg btn-block" onClick={submit} disabled={busy}><Send size={19} /> {busy ? 'جارِ الإرسال…' : isEvent && cfg.event.needs_approval ? 'إرسال الطلب للاعتماد' : 'إرسال الطلب للمطبخ'}</button></footer>
           </section>
         </div>
       )}
@@ -194,7 +219,7 @@ function Shell({ cfg, children }) {
     <div className="co">
       <header className="co-head">
         <span className="brand-mark" aria-hidden><UtensilsCrossed size={20} strokeWidth={2.2} /></span>
-        <div><strong>{cfg?.name || 'المطعم'}</strong><small>{cfg?.table ? `${cfg.table.name} · اطلب من هاتفك` : 'اطلب من هاتفك'}</small></div>
+        <div><strong>{cfg?.name || 'المطعم'}</strong><small>{cfg?.event ? `${cfg.event.name} · قائمة المؤسسة` : cfg?.table ? `${cfg.table.name} · اطلب من هاتفك` : 'اطلب من هاتفك'}</small></div>
       </header>
       {children}
     </div>
@@ -233,7 +258,7 @@ function Picker({ item, cur, onClose, onAdd }) {
 }
 
 /** متابعة حالة الطلب للزبون: تتحدث فوراً عند ضغط المطبخ على أي مرحلة */
-function Tracker({ order, cur, phone, billAllowed, onAdd, onClosed }) {
+function Tracker({ order, cur, phone, billAllowed, institution, onAdd, onClosed }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   const [live, setLive] = useState(true);
@@ -305,8 +330,8 @@ function Tracker({ order, cur, phone, billAllowed, onAdd, onClosed }) {
   return (
     <div className="co-track">
       <span className="co-check" aria-hidden><CircleCheckBig size={42} /></span>
-      <h2>{pend ? 'طلبك بانتظار تأكيد النادل' : closed && data.status === 'cancelled' ? 'لم يُقبل الطلب' : st >= 2 && !closed ? 'طلبك جاهز! 🎉' : 'تم إرسال طلبك للمطبخ'}</h2>
-      <p className="muted">رقم الطلب{data?.table_name ? ` · ${data.table_name}` : ''}</p>
+      <h2>{pend ? (data?.event ? 'طلبك بانتظار الاعتماد' : 'طلبك بانتظار تأكيد النادل') : closed && data.status === 'cancelled' ? 'لم يُقبل الطلب' : st >= 2 && !closed ? 'طلبك جاهز! 🎉' : 'تم إرسال طلبك للمطبخ'}</h2>
+      <p className="muted">رقم الطلب{data?.table_name ? ` · ${data.table_name}` : ''}{data?.event ? ` · ${data.event.name}${data.place ? ` · ${data.place}` : ''}` : ''}</p>
       <p className="co-code" dir="ltr">{order.code}</p>
       <p className={`co-live ${live ? 'on' : ''}`}><i aria-hidden /> {live ? 'تحديث مباشر' : 'انقطع الاتصال، نحاول مجدداً…'}{data && !closed ? ` · منذ ${mins} د` : ''}</p>
       {flash && <div className="co-flash" role="status">{st >= 2 ? '🔔' : '✨'} {flash}</div>}
@@ -358,6 +383,7 @@ function Tracker({ order, cur, phone, billAllowed, onAdd, onClosed }) {
       <p className="muted small"><Clock size={13} aria-hidden /> احتفظ بهذه الصفحة مفتوحة وستتحدث الحالة تلقائياً.{phone ? <> للاستفسار <bdi dir="ltr">{phone}</bdi></> : null}</p>
       {closed ? <button className="btn btn-block" onClick={onClosed}>طلب جديد</button> : (
         <>
+          {institution && !pend && data && <div className="co-billwait" role="status"><Building2 size={18} aria-hidden /><div><strong>الحساب على المؤسسة</strong><small>لا حاجة لطلب الحساب أو الدفع</small></div></div>}
           {billAllowed && !pend && data && !data.bill && data.items.length > 0 && (st >= 2
             ? <button className="btn btn-ok btn-lg btn-block" onClick={() => setBillOpen(true)}><Receipt size={19} /> طلب الحساب</button>
             : <div className="co-billwait" role="status"><Receipt size={18} aria-hidden /><div><strong>طلب الحساب</strong><small>يتاح بعد تجهيز طلبك في المطبخ</small></div><span className="co-billwait-lock" aria-hidden>🔒</span></div>)}

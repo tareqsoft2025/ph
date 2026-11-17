@@ -22,7 +22,7 @@ export default function Receipt({ order, onClose }) {
           <div className="r-sep" />
           <div>{order.status === 'paid' ? 'فاتورة ضريبية مبسطة' : 'فاتورة مبدئية'}</div>
           <div className="r-code" dir="ltr">{order.code}</div>
-          <div>{ORDER_TYPES[order.type]}{order.table_name ? ` · ${order.table_name}` : ''}{order.customer_name ? ` · ${order.customer_name}` : ''}</div>
+          <div>{order.event_name ? `${order.event_name}${order.place ? ` · ${order.place}` : ''}` : <>{ORDER_TYPES[order.type]}{order.table_name ? ` · ${order.table_name}` : ''}</>}{order.customer_name ? ` · ${order.customer_name}` : ''}</div>
           <div dir="ltr">{order.closed_at || order.created_at}</div>
         </div>
         <div className="r-sep" />

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LogIn, ReceiptText, Banknote, Ban, Percent, Send, ArrowRightLeft, BellRing, UtensilsCrossed, Package, Wallet,
-  Settings, QrCode, ShieldCheck, KeyRound, IdCard, CalendarOff, Fingerprint, HandCoins, CalendarDays, ChefHat, History, Search, Activity as ActivityIcon,
+  Settings, Building2, QrCode, ShieldCheck, KeyRound, IdCard, CalendarOff, Fingerprint, HandCoins, CalendarDays, ChefHat, History, Search, Activity as ActivityIcon,
 } from 'lucide-react';
 import { api } from '../api.js';
 import { useData, useMoney, Loading, Empty, PageHead, ROLE_LABELS, PAY_METHODS, todayStr, timeOf } from '../lib.jsx';
@@ -10,7 +10,7 @@ import { useData, useMoney, Loading, Empty, PageHead, ROLE_LABELS, PAY_METHODS, 
 const CATEGORIES = [
   ['', 'كل العمليات'], ['order', 'الطلبات'], ['kitchen', 'المطبخ'], ['shift', 'الورديات'], ['item', 'الأصناف'], ['menu', 'القائمة'],
   ['stock', 'المخزون'], ['employee', 'الموظفون'], ['attendance', 'الحضور'], ['leave', 'الإجازات'], ['payroll', 'الرواتب'],
-  ['qr', 'طلبات QR'], ['reservation', 'الحجوزات'], ['user', 'المستخدمون'], ['permissions', 'الصلاحيات'], ['settings', 'الإعدادات'], ['auth', 'الدخول'],
+  ['qr', 'طلبات QR'], ['event', 'فعاليات المؤسسات'], ['reservation', 'الحجوزات'], ['user', 'المستخدمون'], ['permissions', 'الصلاحيات'], ['settings', 'الإعدادات'], ['auth', 'الدخول'],
 ];
 
 
@@ -37,6 +37,14 @@ export function describe(a, money) {
     'qr.table_open': [QrCode, `فتح ${name || d.name || 'الطاولة'} لطلب QR${d.answered_request ? ' (استلام طلب الزبون)' : ''}${d.minutes ? ` · ${d.minutes >= 60 ? `${+(d.minutes / 60).toFixed(1)} ساعة` : `${d.minutes} د`}` : ''}`],
     'qr.request_bill': [ReceiptText, `الزبون طلب الحساب${code}${d.method ? ` · ${({ cash: 'نقداً', wallet: 'محفظة', bank: 'بنك', jawwalpay: 'جوال بي' })[d.method]}` : ''}${d.name ? ` · ${d.name}` : ''}${d.phone ? ` · ${d.phone}` : ''}${d.total ? ` · ${money(d.total)}` : ''}`],
     'qr.cancel_bill': [Ban, `الزبون ألغى طلب الحساب${code}`],
+    'event.create': [Building2, `إنشاء فعالية مؤسسة «${d.name || ''}»${d.mode ? ` (${({ selected: 'قائمة محددة', full: 'قائمة كاملة', cap: 'سقف سعر' })[d.mode]})` : ''}`],
+    'event.update': [Building2, `تعديل فعالية «${d.name || ''}»`],
+    'event.pause': [Building2, `إيقاف الطلب لفعالية «${d.name || ''}»`],
+    'event.resume': [Building2, `تفعيل الطلب لفعالية «${d.name || ''}»`],
+    'event.delete': [Building2, 'حذف فعالية'],
+    'event.rotate_token': [Building2, `تغيير رمز QR لفعالية «${d.name || ''}»`],
+    'event.settle': [Banknote, `تحصيل من المؤسسة «${d.name || ''}»: ${d.settled} طلب · ${money(d.total)} (${PAY_METHODS[d.method]})`],
+    'event.order': [Building2, `طلب موظف مؤسسة «${d.event || ''}»${code}${d.place ? ` · ${d.place}` : ''} · ${d.customer || ''} · ${d.items || ''} صنف · ${money(d.total)}${d.needs_confirm ? ' · بانتظار الاعتماد' : ''}`],
     'qr.table_close': [QrCode, `إغلاق ${name || d.name || 'الطاولة'} لطلب QR`],
     'qr.order': [QrCode, `${d.added ? 'إضافة' : 'طلب'} من الزبون عبر QR${code}${d.table ? ` · ${d.table}` : ''} · ${d.items || ''} صنف · ${money(d.total)}${d.customer ? ` · ${d.customer}` : ''}${d.needs_confirm ? ' · بانتظار التأكيد' : ''}${d.waiter ? ` · المسؤول: ${d.waiter}` : ''}`],
     'settings.table_qr_rotate': [QrCode, `تغيير رمز QR لـ ${d.name || ''}`],
@@ -159,7 +167,7 @@ export default function Activity() {
                       <div className="act-body">
                         <p>{text}</p>
                         <small className="muted">
-                          {a.user_name || (/^qr\./.test(a.action) || ['order.send', 'order.add_items', 'order.create'].includes(a.action) ? 'الزبون (QR)' : 'النظام')}{a.user_role ? ` · ${ROLE_LABELS[a.user_role]}` : ''}
+                          {a.user_name || (/^qr\./.test(a.action) || a.action === 'event.order' || ['order.send', 'order.add_items', 'order.create'].includes(a.action) ? 'الزبون (QR)' : 'النظام')}{a.user_role ? ` · ${ROLE_LABELS[a.user_role]}` : ''}
                           {a.order_code && <> · <button className="link-btn small" onClick={() => navigate(`/pos/${a.entity_id}`)}>فتح الطلب</button></>}
                           {a.entity === 'table' && /^qr\./.test(a.action) && <> · <button className="link-btn small" onClick={() => navigate(`/tables?table=${a.entity_id}`)}>عرض الطاولة</button></>}
                         </small>

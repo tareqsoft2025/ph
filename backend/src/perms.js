@@ -29,6 +29,7 @@ export const PERMISSIONS = [
   { key: 'settings.manage', group: 'الإدارة', label: 'تعديل الإعدادات والطاولات' },
   { key: 'activity.view', group: 'الإدارة', label: 'عرض سجل الحركات' },
   { key: 'users.manage', group: 'الإدارة', label: 'إدارة المستخدمين' },
+  { key: 'events.manage', group: 'الإدارة', label: 'فعاليات المؤسسات: إنشاء QR للمؤسسة وتحديد قائمتها وكشف حسابها' },
 
   { key: 'hr.employees', group: 'الموارد البشرية', label: 'ملفات الموظفين ومستنداتهم' },
   { key: 'hr.attendance', group: 'الموارد البشرية', label: 'إدارة حضور الفريق' },

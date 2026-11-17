@@ -53,7 +53,7 @@ export default function Orders() {
             <div key={o.id} className="order-row" role="button" tabIndex={0} onClick={() => navigate(`/pos/${o.id}`)} onKeyDown={(e) => e.key === 'Enter' && navigate(`/pos/${o.id}`)}>
               <span className="o-num"><span className="order-code" dir="ltr">{o.code}</span>{o.source === 'online' && <span className="badge badge-warn src-online">{o.pending_confirm ? 'بانتظار التأكيد' : 'QR'}</span>}</span>
               <span className="o-info">
-                <strong>{ORDER_TYPES[o.type]}{o.table_name ? ` · ${o.table_name}` : ''}{o.customer_name ? ` · ${o.customer_name}` : ''}</strong>
+                <strong>{o.event_name ? orderWhere(o) : <>{ORDER_TYPES[o.type]}{o.table_name ? ` · ${o.table_name}` : ''}</>}{o.customer_name ? ` · ${o.customer_name}` : ''}</strong>
                 <small className="muted">{timeOf(o.created_at)} · {o.items_count} صنف{o.waiter_name ? ` · ${o.waiter_name}` : ''}{o.status === 'open' ? ` · منذ ${minutesSince(o.created_at)} د` : ''}</small>
               </span>
               <span className="o-badges">

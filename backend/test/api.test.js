@@ -429,3 +429,118 @@ test('live command-center snapshot: floor, stages, KPIs; managers only', async (
   assert.ok(live.orders.every((o) => o.stage && 'items' in o && 'age_min' in o));
   assert.ok(live.kpis.sales_today >= 0 && live.kpis.paid_today >= 0);
 });
+
+test('corporate events: QR per institution, selected menu / full menu / price cap, order cap, window, billing and bulk settlement', async () => {
+  const admin = await login('admin', 'admin123');
+  const waiter = await login('waiter', '1234');
+  const kitchen = await login('kitchen', '1234');
+  const cashier = await login('cashier', '1234');
+  const menu = (await api('/menu', { token: admin })).data;
+  const plain = menu.items.filter((i) => i.available && !i.modifiers.length);
+  assert.ok(plain.length >= 4);
+  const cheap = [...plain].sort((a, b) => a.price - b.price);
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const now = Date.now();
+  const win = (fromH, toH) => ({ starts_at: fmt(new Date(now + fromH * 36e5)), ends_at: fmt(new Date(now + toH * 36e5)) });
+  const base = { name: 'شركة الأفق', contact_name: 'سعد', contact_phone: '0501234567', ...win(-1, 3) };
+
+  // الصلاحية والتحقق
+  assert.equal((await api('/events', { token: waiter })).status, 403);
+  assert.equal((await api('/events', { method: 'POST', token: admin, body: { ...base, menu_mode: 'selected', item_ids: [] } })).status, 400, 'selected menu needs items');
+  assert.equal((await api('/events', { method: 'POST', token: admin, body: { ...base, menu_mode: 'cap' } })).status, 400, 'cap mode needs a price');
+  assert.equal((await api('/events', { method: 'POST', token: admin, body: { ...base, ...win(3, 1), menu_mode: 'full' } })).status, 400, 'end must be after start');
+
+  // قائمة محددة
+  const sel = [cheap[0].id, cheap[1].id];
+  const e1 = await api('/events', { method: 'POST', token: admin, body: { ...base, menu_mode: 'selected', item_ids: sel, order_cap: Math.round(cheap[0].price + cheap[1].price) + 1, places: ['قاعة 1', 'قاعة 2'], billing: 'institution' } });
+  assert.equal(e1.status, 201, JSON.stringify(e1.data));
+  const list = (await api('/events', { token: admin })).data;
+  const ev1 = list.find((e) => e.id === e1.data.id);
+  assert.equal(ev1.state, 'open');
+  const det = (await api(`/events/${ev1.id}`, { token: admin })).data;
+  const tok = det.token;
+  assert.ok(tok && tok.length >= 24);
+
+  const info = (await api(`/public/event/${tok}`)).data;
+  assert.equal(info.event.name, 'شركة الأفق');
+  assert.equal(info.event.menu_mode, 'selected');
+  assert.equal((await api('/public/event/' + 'z'.repeat(24))).status, 404);
+  const pm = (await api(`/public/event/${tok}/menu`)).data;
+  assert.deepEqual(pm.items.map((i) => i.id).sort(), [...sel].sort(), 'only the predefined items are offered');
+  const post = (t, body) => api(`/public/event/${t}/orders`, { method: 'POST', body });
+  const line = (id, qty = 1) => ({ item_id: id, qty });
+  assert.equal((await post(tok, { customer_name: '', place: 'قاعة 1', items: [line(sel[0])] })).status, 400, 'name required');
+  assert.equal((await post(tok, { customer_name: 'نورة', place: 'قاعة 1', items: [line(cheap[3].id)] })).status, 400, 'item outside the list is refused');
+  assert.equal((await post(tok, { customer_name: 'نورة', place: 'غرفة سرية', items: [line(sel[0])] })).status, 400, 'place must be one of the configured places');
+  assert.equal((await post(tok, { customer_name: 'نورة', place: 'قاعة 1', items: [line(sel[0], 5)] })).status, 400, 'order cap enforced');
+  const ok = await post(tok, { customer_name: 'نورة', place: 'قاعة 1', device_id: 'ev-a', items: [line(sel[0]), line(sel[1])] });
+  assert.equal(ok.status, 201, JSON.stringify(ok.data));
+  assert.equal(ok.data.needs_confirm, false);
+  const kt = (await api('/kitchen', { token: kitchen })).data.find((k) => k.code === ok.data.code);
+  assert.ok(kt && kt.event_name === 'شركة الأفق' && kt.place === 'قاعة 1', 'kitchen sees the institution and place');
+  const ok2 = await post(tok, { customer_name: 'خالد', customer_phone: '0507654321', place: 'قاعة 2', device_id: 'ev-b', items: [line(sel[0])] });
+  assert.equal(ok2.status, 201, 'several employees order independently, phone optional');
+  const tr = (await api(`/public/orders/${ok.data.code}?t=${ok.data.token}`)).data;
+  assert.equal(tr.event.name, 'شركة الأفق');
+  assert.equal(tr.place, 'قاعة 1');
+  // الحساب على المؤسسة: لا طلب حساب فردي
+  const kid = (await api('/kitchen', { token: kitchen })).data.find((k) => k.code === ok.data.code).order_id;
+  await api(`/kitchen/orders/${kid}/bump`, { method: 'POST', token: kitchen, body: { status: 'ready' } });
+  const bill = await api(`/public/orders/${ok.data.code}/bill?t=${ok.data.token}`, { method: 'POST', body: { method: 'cash' } });
+  assert.equal(bill.status, 400);
+  assert.match(bill.data.error, /المؤسسة/);
+  // كشف الحساب والتحصيل الجماعي
+  const after = (await api(`/events/${ev1.id}`, { token: admin })).data;
+  assert.equal(after.orders.length, 2);
+  assert.equal(after.open_orders, 2);
+  assert.ok(after.total > 0);
+  const od = (await api('/orders?status=open', { token: cashier })).data.find((o) => o.code === ok.data.code);
+  assert.equal(od.event_name, 'شركة الأفق');
+  assert.equal((await api(`/events/${ev1.id}/settle`, { method: 'POST', token: waiter, body: { method: 'cash' } })).status, 403);
+  await api('/shifts/open', { method: 'POST', token: cashier, body: { opening_cash: 0 } }).catch(() => {});
+  const settle = await api(`/events/${ev1.id}/settle`, { method: 'POST', token: admin, body: { method: 'card' } });
+  assert.equal(settle.status, 200, JSON.stringify(settle.data));
+  assert.equal(settle.data.settled, 2);
+  const done = (await api(`/events/${ev1.id}`, { token: admin })).data;
+  assert.equal(done.open_orders, 0);
+  assert.equal(Math.round(done.paid * 100), Math.round(done.total * 100), 'everything is paid');
+
+  // قائمة كاملة + أفراد يدفعون
+  const e2 = (await api('/events', { method: 'POST', token: admin, body: { ...base, name: 'جمعية الخير', menu_mode: 'full', billing: 'individual', needs_approval: true } })).data;
+  const tok2 = (await api(`/events/${e2.id}`, { token: admin })).data.token;
+  const full = (await api(`/public/event/${tok2}/menu`)).data;
+  assert.ok(full.items.length >= menu.items.filter((i) => i.active !== 0).length - 1, 'full menu is open');
+  const o3 = await post(tok2, { customer_name: 'ليلى', items: [line(cheap[3].id)] });
+  assert.equal(o3.status, 201);
+  assert.equal(o3.data.needs_confirm, true, 'approval mode holds the order');
+  assert.ok(!(await api('/kitchen', { token: kitchen })).data.some((k) => k.code === o3.data.code), 'not in kitchen before approval');
+
+  // سقف السعر
+  const capPrice = cheap[2].price;
+  const e3 = (await api('/events', { method: 'POST', token: admin, body: { ...base, name: 'ورشة', menu_mode: 'cap', price_cap: capPrice } })).data;
+  const tok3 = (await api(`/events/${e3.id}`, { token: admin })).data.token;
+  const cm = (await api(`/public/event/${tok3}/menu`)).data;
+  assert.ok(cm.items.length > 0 && cm.items.every((i) => i.price <= capPrice), 'only items within the price cap');
+  const pricey = [...plain].sort((a, b) => b.price - a.price)[0];
+  assert.ok(pricey.price > capPrice);
+  assert.equal((await post(tok3, { customer_name: 'سامي', items: [line(pricey.id)] })).status, 400, 'item above the cap is refused');
+  assert.equal((await post(tok3, { customer_name: 'سامي', items: [line(cheap[0].id)] })).status, 201);
+
+  // النافذة الزمنية والإيقاف وتغيير الرمز
+  const e4 = (await api('/events', { method: 'POST', token: admin, body: { ...base, name: 'قادمة', ...win(2, 4), menu_mode: 'full' } })).data;
+  const tok4 = (await api(`/events/${e4.id}`, { token: admin })).data.token;
+  assert.equal((await api(`/public/event/${tok4}`)).data.event.state, 'not_started');
+  assert.equal((await api(`/public/event/${tok4}/menu`)).status, 403);
+  assert.equal((await post(tok4, { customer_name: 'x', items: [line(cheap[0].id)] })).status, 403);
+  await api(`/events/${e3.id}`, { method: 'PUT', token: admin, body: { ...base, name: 'ورشة', menu_mode: 'cap', price_cap: capPrice, active: false } });
+  assert.equal((await api(`/public/event/${tok3}`)).data.event.state, 'paused');
+  assert.equal((await post(tok3, { customer_name: 'سامي', items: [line(cheap[0].id)] })).status, 403, 'paused event refuses orders');
+  const rot = await api(`/events/${e4.id}/rotate-token`, { method: 'POST', token: admin });
+  assert.notEqual(rot.data.token, tok4);
+  assert.equal((await api(`/public/event/${tok4}`)).status, 404, 'old QR stops working');
+  assert.equal((await api(`/events/${ev1.id}`, { method: 'DELETE', token: admin })).status, 400, 'cannot delete an event that has orders');
+  assert.equal((await api(`/events/${e4.id}`, { method: 'DELETE', token: admin })).status, 200);
+  // سجل الحركات
+  assert.ok((await api('/audit?category=event', { token: admin })).data.rows.some((a) => a.action === 'event.settle'));
+});

@@ -111,7 +111,7 @@ export default function Live() {
                   const TI = TYPE_ICON[o.type] || ShoppingBag;
                   return (
                     <button key={o.id} className={`lv-chip ${o.late ? 'late' : ''} ${selOrder?.id === o.id ? 'sel' : ''} ${o.source === 'online' ? 'qr' : ''}`} onClick={() => setSel({ kind: 'order', id: o.id })} title={o.code}>
-                      <TI size={12} aria-hidden /><span>{o.table_id ? tableName[o.table_id] : ORDER_TYPES[o.type]}</span><em>{mmss(Date.now() - ts(o.created_at))}</em>
+                      <TI size={12} aria-hidden /><span>{o.table_id ? tableName[o.table_id] : o.event_name ? `${o.event_name}${o.place ? ` · ${o.place}` : ''}` : ORDER_TYPES[o.type]}</span><em>{mmss(Date.now() - ts(o.created_at))}</em>
                     </button>
                   );
                 })}
@@ -160,7 +160,7 @@ export default function Live() {
             ) : (
               <>
                 <header>
-                  <div><strong>{selTable?.name || (selOrder && ORDER_TYPES[selOrder.type])}</strong>{selOrder && <small dir="ltr">{selOrder.code}</small>}</div>
+                  <div><strong>{selTable?.name || (selOrder && (selOrder.event_name ? selOrder.event_name : ORDER_TYPES[selOrder.type]))}</strong>{selOrder && <small dir="ltr">{selOrder.code}</small>}</div>
                   <button className="icon-btn" onClick={() => setSel(null)} aria-label="إغلاق"><X size={18} /></button>
                 </header>
                 {selOrder ? (

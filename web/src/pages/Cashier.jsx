@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api.js';
 import {
-  useApp, useData, useMoney, useNow, has, Loading, Empty, ORDER_TYPES, ITEM_STATUS, minutesSince, timeOf, todayStr,
+  useApp, useData, useMoney, useNow, has, Loading, Empty, ORDER_TYPES, orderWhere, ITEM_STATUS, minutesSince, timeOf, todayStr,
 } from '../lib.jsx';
 import { PayModal, DiscountModal, BILL_LABEL } from '../components/PaymentModals.jsx';
 import Receipt from '../components/Receipt.jsx';
@@ -38,7 +38,7 @@ export default function Cashier() {
       if (filter === 'bill' && !o.bill_requested_at) return false;
       if (['dine_in', 'takeaway', 'delivery'].includes(filter) && o.type !== filter) return false;
       const t = q.trim();
-      return !t || [o.code, o.table_name, o.customer_name, o.customer_phone].some((v) => v && String(v).includes(t));
+      return !t || [o.code, o.table_name, o.event_name, o.customer_name, o.customer_phone].some((v) => v && String(v).includes(t));
     });
     // من طلب الحساب أولاً، ثم الأقدم
     return list.sort((a, b) => (b.bill_requested_at ? 1 : 0) - (a.bill_requested_at ? 1 : 0) || a.id - b.id);
@@ -96,7 +96,7 @@ export default function Cashier() {
                 <button key={o.id} className={`cq-item ${selectedId === o.id ? 'active' : ''} ${o.bill_requested_at ? 'bill' : ''}`} onClick={() => select(o.id)}>
                   <span className="cq-icon" aria-hidden><Icon size={18} /></span>
                   <span className="cq-main">
-                    <strong>{o.type === 'dine_in' ? o.table_name : ORDER_TYPES[o.type]}{o.customer_name ? ` · ${o.customer_name}` : ''}{o.source === 'online' && <span className="badge badge-warn src-online">{o.pending_confirm ? 'بانتظار التأكيد' : 'QR'}</span>}</strong>
+                    <strong>{orderWhere(o)}{o.customer_name ? ` · ${o.customer_name}` : ''}{o.source === 'online' && <span className="badge badge-warn src-online">{o.pending_confirm ? 'بانتظار التأكيد' : 'QR'}</span>}</strong>
                     <small><bdi dir="ltr">{o.code}</bdi> · {o.items_count} صنف · <Clock size={11} aria-hidden /> {minutesSince(o.created_at)} د</small>
                   </span>
                   <span className="cq-side">
@@ -160,7 +160,7 @@ function OrderPanel({ id, onDone, onBack }) {
         <button className="btn btn-ghost btn-sm cpanel-back" onClick={onBack}>رجوع</button>
         <span className="cq-icon lg" aria-hidden><Icon size={22} /></span>
         <div className="cpanel-id">
-          <h2>{o.type === 'dine_in' ? o.table_name : ORDER_TYPES[o.type]}</h2>
+          <h2>{orderWhere(o)}</h2>
           <span className="order-code" dir="ltr">{o.code}</span>
         </div>
         <button className="btn btn-sm" onClick={() => setTimeline(true)}><History size={16} /> التسلسل</button>

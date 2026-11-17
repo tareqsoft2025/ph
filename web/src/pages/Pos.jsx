@@ -265,7 +265,7 @@ export default function Pos() {
             <>
               <div className="cart-id">
                 <span className="order-code" dir="ltr">{order.code}</span>
-                <span className="muted">{ORDER_TYPES[order.type]}{order.table_name ? ` · ${order.table_name}` : ''}{order.guests ? ` · ${order.guests} أشخاص` : ''}</span>
+                <span className="muted">{order.event_name ? `مؤسسة · ${order.event_name}${order.place ? ` · ${order.place}` : ''}` : <>{ORDER_TYPES[order.type]}{order.table_name ? ` · ${order.table_name}` : ''}</>}{order.guests ? ` · ${order.guests} أشخاص` : ''}</span>
                 {order.customer_name && <span className="muted small">{order.customer_name} · <bdi dir="ltr">{order.customer_phone}</bdi></span>}
               </div>
               <div className="row gap-s">

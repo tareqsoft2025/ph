@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Radio, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
+  LayoutDashboard, Radio, Building2, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
   UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, IdCard, Fingerprint, CalendarOff, Banknote, HandCoins, History, KeyRound, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff, Smartphone, Sun, Moon, SunMoon, Ellipsis, PanelRightClose, PanelRightOpen,
 } from 'lucide-react';
 import {
@@ -19,6 +19,7 @@ import ServerSetup from './pages/ServerSetup.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Live from './pages/Live.jsx';
 import Home from './pages/Home.jsx';
+import Events from './pages/Events.jsx';
 import AppShell from './components/AppShell.jsx';
 import { isAppUi, setAppUi } from './appui.js';
 import Pos from './pages/Pos.jsx';
@@ -51,6 +52,7 @@ const NAV = [
     { to: '/tables', label: 'الطاولات', icon: Armchair, perms: ['tables.view', 'pos.create'] },
     { to: '/orders', label: 'الطلبات', icon: ClipboardList, perms: ['orders.view', 'pos.create', 'payments.collect'] },
     { to: '/kitchen', label: 'شاشة المطبخ', icon: ChefHat, perms: ['kitchen.view', 'kitchen.update'] },
+    { to: '/events', label: 'فعاليات المؤسسات', icon: Building2, perms: ['events.manage'] },
     { to: '/reservations', label: 'الحجوزات', icon: CalendarDays, perms: ['reservations.manage'] },
     { to: '/shifts', label: 'الورديات', icon: Wallet, perms: ['shifts.manage', 'reports.view'] },
   ] },
@@ -120,7 +122,7 @@ export default function App() {
   }, [serverMissing, startSession]);
 
   // صفحة الطلب العامة للزبائن: بلا تسجيل دخول
-  if ((location.pathname.startsWith('/t/') || location.pathname === '/order')) return <Routes><Route path="/t/:token" element={<CustomerOrder />} /><Route path="*" element={<NoQr />} /></Routes>;
+  if ((location.pathname.startsWith('/t/') || location.pathname.startsWith('/e/') || location.pathname === '/order')) return <Routes><Route path="/t/:token" element={<CustomerOrder />} /><Route path="/e/:token" element={<CustomerOrder kind="event" />} /><Route path="*" element={<NoQr />} /></Routes>;
   if (booting) return <div className="center-screen"><Loading /></div>;
   if (serverMissing) return <ServerSetup onDone={() => setServerMissing(false)} />;
   if (!user) {
@@ -151,6 +153,7 @@ export default function App() {
       <Route path="/home" element={<Home items={allowedItems} groups={groups} />} />
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/live" element={<Live />} />
+      <Route path="/events" element={<Events />} />
       <Route path="/pos/:orderId?" element={<Pos />} />
       <Route path="/tables" element={<Tables />} />
       <Route path="/orders" element={<Orders />} />
