@@ -76,6 +76,16 @@ export function useData(path, events = [], deps = []) {
     return () => { events.forEach((e) => s.off(e, h)); s.off('connect', h); };
   }, [events.join(',')]); // eslint-disable-line
 
+  // شبكة أمان للتحديث التلقائي: عند عودة التطبيق/التبويب للواجهة أو رجوع الاتصال، وكل 20 ثانية إن كانت الصفحة تتابع أحداثاً
+  useEffect(() => {
+    if (!events.length) return undefined;
+    const vis = () => { if (document.visibilityState === 'visible') reload(); };
+    document.addEventListener('visibilitychange', vis);
+    window.addEventListener('online', vis);
+    const t = setInterval(vis, 20000);
+    return () => { document.removeEventListener('visibilitychange', vis); window.removeEventListener('online', vis); clearInterval(t); };
+  }, [events.join(',')]); // eslint-disable-line
+
   return { data, error, loading, reload, setData };
 }
 

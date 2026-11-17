@@ -26,7 +26,7 @@ export default function Kitchen() {
   const [station, setStation] = useState('');
   const [lane, setLane] = useState('new');
   const [focus, setFocus] = useState(false);
-  const { data, loading } = useData(`/kitchen${station ? `?station=${station}` : ''}`, ['kitchen'], [station]);
+  const { data, loading, reload } = useData(`/kitchen${station ? `?station=${station}` : ''}`, ['kitchen'], [station]);
   const [run, busy] = useAction();
   const seen = useRef(null);
   const [fresh, setFresh] = useState(new Set());
@@ -84,8 +84,9 @@ export default function Kitchen() {
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   }, [data]);
 
-  const bump = (o, status) => run(() => api(`/kitchen/orders/${o.order_id}/bump`, { method: 'POST', body: { status } }));
-  const setItem = (i) => run(() => api(`/kitchen/items/${i.id}`, { method: 'PATCH', body: { status: NEXT_ITEM[i.status] } }));
+  // بعد الضغط على مرحلة الطلب تُحدَّث الشاشة فوراً دون انتظار الحدث اللحظي
+  const bump = async (o, status) => { await run(() => api(`/kitchen/orders/${o.order_id}/bump`, { method: 'POST', body: { status } })); reload(); };
+  const setItem = async (i) => { await run(() => api(`/kitchen/items/${i.id}`, { method: 'PATCH', body: { status: NEXT_ITEM[i.status] } })); reload(); };
 
   const now = new Date();
 
