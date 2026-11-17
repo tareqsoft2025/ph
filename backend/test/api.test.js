@@ -94,6 +94,19 @@ test('full dine-in flow: order → kitchen → pay → stock deducted', async ()
   const logged = pay.data.order.events.filter((e) => e.type === 'payment').reduce((a, e) => a + e.data.amount, 0);
   assert.equal(Math.round(logged * 100) / 100, pay.data.order.total, 'payment events record actual amounts after change');
 
+  // سجل التحصيلات: الكاشير يرى تحصيلاته فقط، والمدير يرى الجميع مع اسم المحصّل
+  const hist = (await api('/payments/history', { token: cashier })).data;
+  assert.equal(hist.all, false);
+  assert.equal(hist.rows.length, 1);
+  assert.equal(hist.rows[0].order_id, order.id);
+  assert.ok(hist.rows[0].user_name);
+  assert.equal(hist.summary.byMethod.length, 2, 'card + cash');
+  const adminHist = (await api('/payments/history', { token: admin })).data;
+  assert.equal(adminHist.all, true);
+  assert.ok(adminHist.rows.length >= 1 && adminHist.summary.byCashier.length >= 1 && adminHist.cashiers.length >= 1);
+  assert.equal((await api(`/payments/history?user_id=${hist.rows[0].user_id + 99}`, { token: admin })).data.rows.length, 0);
+  assert.equal((await api('/payments/history', { token: waiter })).status, 403, 'waiter has no access');
+
   const beefAfter = (await api('/ingredients', { token: admin })).data.find((i) => i.name === 'لحم بقري').stock;
   assert.ok(Math.abs(beefBefore - beefAfter - 0.3) < 1e-9);
 

@@ -41,6 +41,7 @@ Authorization: Bearer <token>
 | POST/PUT/DELETE | `/tables[/:id]` | manager | إدارة الطاولات |
 | GET | `/orders?status=&type=&date=&from=&to=` | مسجّل | قائمة الطلبات |
 | GET | `/orders/:id` | مسجّل | طلب مع الأصناف والدفعات وتسلسل العملية `events` |
+| GET | `/payments/history?from=&to=&method=&q=&user_id=` | payments.collect / payments.view_all | سجل التحصيلات: الكاشير يرى تحصيلاته فقط، ومن يملك `payments.view_all` يرى الجميع مع اسم المحصّل وملخص حسب الطريقة والموظف |
 | POST | `/orders` | cashier, waiter | إنشاء طلب (انظر المثال أدناه) |
 | POST | `/orders/:id/items` | cashier, waiter | `{items[], send}` إضافة أصناف |
 | PATCH | `/orders/:id/items/:lineId` | cashier, waiter | `{qty, notes}` أو `{cancel: true}` |
