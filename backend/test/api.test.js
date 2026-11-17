@@ -200,35 +200,50 @@ test('bill request notifies cashier; custom permissions are enforced', async () 
   assert.equal((await api('/audit', { token: waiter })).status, 403);
 });
 
-test('public ordering link: menu, order → kitchen, tracking, and can be disabled any time', async () => {
+test('table QR ordering: per-table secret token, dine-in only, add-on, rotate and disable', async () => {
   const admin = await login('admin', 'admin123');
   const kitchen = await login('kitchen', '1234');
-  const cfg = (await api('/public/config')).data;
-  assert.equal(cfg.enabled, true);
-  const menu = (await api('/public/menu')).data;
+  const waiter = await login('waiter', '1234');
+  // الرموز: للإدارة فقط ولا تظهر في قائمة الطاولات العادية
+  assert.equal((await api('/tables/qr', { token: waiter })).status, 403);
+  const qrs = (await api('/tables/qr', { token: admin })).data;
+  assert.ok(qrs.length >= 2 && qrs.every((t) => t.token && t.token.length >= 24));
+  assert.equal(new Set(qrs.map((t) => t.token)).size, qrs.length, 'each table has its own token');
+  assert.ok((await api('/tables', { token: waiter })).data.every((t) => !('qr_token' in t)));
+  const [t1, t2] = qrs;
+  // لا يوجد رابط عام: المعرّفات والمسارات القديمة لا تعمل
+  assert.ok([401, 404].includes((await api('/public/config')).status), 'old public config route is gone');
+  assert.equal((await api('/public/table/' + t1.id)).status, 404, 'table id is not a valid token');
+  assert.equal((await api('/public/table/' + 'a'.repeat(24))).status, 404);
+  const info = (await api('/public/table/' + t1.token)).data;
+  assert.equal(info.table.name, t1.name);
+  const menu = (await api(`/public/table/${t1.token}/menu`)).data;
   assert.ok(menu.items.length && menu.items.every((i) => !('station' in i)));
   const item = menu.items.find((i) => i.available);
-  const bad = await api('/public/orders', { method: 'POST', body: { type: 'takeaway', customer_name: '', customer_phone: '', items: [{ item_id: item.id, qty: 1 }] } });
-  assert.equal(bad.status, 400);
-  const empty = await api('/public/orders', { method: 'POST', body: { type: 'takeaway', customer_name: 'زبون', customer_phone: '0501234567', items: [] } });
-  assert.equal(empty.status, 400);
-  const ok = await api('/public/orders', { method: 'POST', body: { type: 'takeaway', customer_name: 'زبون الرابط', customer_phone: '0501234567', items: [{ item_id: item.id, qty: 2 }] } });
+  const post = (tok, body) => api(`/public/table/${tok}/orders`, { method: 'POST', body });
+  assert.equal((await post(t1.token, { customer_name: '', customer_phone: '', items: [{ item_id: item.id, qty: 1 }] })).status, 400);
+  const ok = await post(t1.token, { guests: 2, customer_name: 'زبون QR', customer_phone: '0501234567', items: [{ item_id: item.id, qty: 2 }] });
   assert.equal(ok.status, 201, JSON.stringify(ok.data));
   const { code, token } = ok.data;
-  const k = (await api('/kitchen', { token: kitchen })).data;
-  assert.ok(k.some((o) => o.code === code), 'order reaches the kitchen');
-  const tr = await api(`/public/orders/${code}?t=${token}`);
-  assert.equal(tr.status, 200);
-  assert.equal(tr.data.items[0].qty, 2);
+  const k = (await api('/kitchen', { token: kitchen })).data.find((o) => o.code === code);
+  assert.ok(k && k.table_name === t1.name, 'order reaches the kitchen for the right table');
   assert.equal((await api(`/public/orders/${code}?t=wrong`)).status, 404, 'tracking needs the token');
-  const staffView = (await api('/orders?status=open', { token: admin })).data.find((o) => o.code === code);
-  assert.equal(staffView.source, 'online');
-  // إيقاف الرابط
+  assert.equal((await api(`/public/orders/${code}?t=${token}`)).data.items[0].qty, 2);
+  // الطاولة صارت مشغولة: غريب لا يستطيع الإضافة، وصاحب الطلب يستطيع
+  assert.equal((await post(t1.token, { customer_name: 'غريب', customer_phone: '0507654321', items: [{ item_id: item.id, qty: 1 }] })).status, 400);
+  const add = await post(t1.token, { order_token: token, items: [{ item_id: item.id, qty: 1 }] });
+  assert.equal(add.status, 201, JSON.stringify(add.data));
+  assert.equal((await api(`/public/orders/${code}?t=${token}`)).data.items.reduce((a, i) => a + i.qty, 0), 3);
+  // رمز طاولة لا يفتح طاولة أخرى
+  assert.equal((await api('/public/table/' + t2.token)).data.table.name, t2.name);
+  assert.equal((await post(t2.token, { order_token: token, customer_name: 'x', customer_phone: '0501112222', items: [{ item_id: item.id, qty: 1 }] })).data.code !== code, true);
+  // تغيير رمز الطاولة يبطل البطاقة القديمة
+  const rot = await api(`/tables/${t1.id}/qr/rotate`, { method: 'POST', token: admin });
+  assert.notEqual(rot.data.token, t1.token);
+  assert.equal((await api('/public/table/' + t1.token)).status, 404, 'old card no longer works');
+  assert.equal((await api('/public/table/' + rot.data.token)).status, 200);
+  // إيقاف الطلب
   await api('/settings', { method: 'PUT', token: admin, body: { online_ordering: '0' } });
-  assert.equal((await api('/public/menu')).status, 403);
-  assert.equal((await api('/public/orders', { method: 'POST', body: { type: 'takeaway', customer_name: 'زبون', customer_phone: '0501234567', items: [{ item_id: item.id, qty: 1 }] } })).status, 403);
+  assert.equal((await api(`/public/table/${rot.data.token}/menu`)).status, 403);
   await api('/settings', { method: 'PUT', token: admin, body: { online_ordering: '1' } });
-  // نوع الطلب المعطّل
-  await api('/settings', { method: 'PUT', token: admin, body: { online_delivery: '0' } });
-  assert.equal((await api('/public/orders', { method: 'POST', body: { type: 'delivery', customer_name: 'زبون', customer_phone: '0501234567', address: 'x', items: [{ item_id: item.id, qty: 1 }] } })).status, 400);
 });

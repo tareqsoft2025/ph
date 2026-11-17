@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { get, all, run, tx, getSettings, setSettings, audit } from './db.js';
+import { get, all, run, tx, getSettings, setSettings, audit, randomToken, ensureTableTokens } from './db.js';
 import { authenticate, allow, signToken, ROLES } from './auth.js';
 import { need, hasPerm, PERMISSIONS, ROLES_EDITABLE, DEFAULTS, rolePerms, setRolePerms, resetRolePerms, usersWithPerm } from './perms.js';
 import { bad, notFound, pick, updateSql, normalize, round2, today } from './util.js';
@@ -30,7 +30,9 @@ export function buildRouter(emit) {
     res.json({ token: signToken(user), user: { id: user.id, name: user.name, username: user.username, role: user.role } });
   });
 
-  // ───────────── الطلب العام عبر الرابط (بلا تسجيل دخول) ─────────────
+  // ───────────── الطلب من رمز QR الطاولة (بلا تسجيل دخول) ─────────────
+  // الرمز عشوائي (96 بت) خاص بطاولة واحدة؛ لا يوجد رابط عام للطلب، ويمكن تغيير رمز أي طاولة لإبطال البطاقة القديمة.
+  ensureTableTokens();
   const hits = new Map();
   const limited = (req, key, max, windowMs) => {
     const ip = String(req.headers?.['x-forwarded-for'] || req.ip || 'local').split(',')[0].trim();
@@ -44,26 +46,31 @@ export function buildRouter(emit) {
   };
   const onlineOn = () => getSettings().online_ordering === '1';
   const clip = (v, n) => String(v ?? '').trim().slice(0, n);
-  const PUBLIC_USER = { id: null, name: 'الزبون (رابط الطلب)', role: 'public' };
+  const PUBLIC_USER = { id: null, name: 'الزبون (رمز الطاولة)', role: 'public' };
+  const tableByToken = (req) => {
+    if (limited(req, 'tk', 60, 60 * 1000)) throw Object.assign(bad('طلبات كثيرة، حاول بعد قليل'), { status: 429 });
+    const tok = String(req.params.token || '');
+    const t = tok.length >= 16 ? get('SELECT id, name, seats, area FROM dining_tables WHERE qr_token = ? AND active = 1', tok) : null;
+    if (!t) throw notFound('رمز الطاولة غير صالح');
+    return t;
+  };
 
-  r.get('/public/config', (req, res) => {
+  r.get('/public/table/:token', (req, res) => {
+    const t = tableByToken(req);
     const s = getSettings();
-    const out = {
+    const open = get("SELECT id, code, source, track_token FROM orders WHERE table_id = ? AND status = 'open'", t.id);
+    res.json({
       enabled: s.online_ordering === '1',
-      name: s.restaurant_name, currency: s.currency, phone: s.phone, delivery_fee: Number(s.delivery_fee) || 0,
-      types: { dine_in: s.online_dine_in === '1', takeaway: s.online_takeaway === '1', delivery: s.online_delivery === '1' },
-      table: null,
-    };
-    const tid = Number(req.query.table);
-    if (out.enabled && tid) {
-      const t = get('SELECT id, name, seats, area FROM dining_tables WHERE id = ? AND active = 1', tid);
-      if (t) out.table = { ...t, busy: !!get("SELECT 1 AS x FROM orders WHERE table_id = ? AND status = 'open'", tid) };
-    }
-    res.json(out);
+      name: s.restaurant_name, currency: s.currency, phone: s.phone,
+      table: { name: t.name, seats: t.seats, area: t.area, busy: !!open },
+      // الطلب المفتوح من هذا الرمز (لإتاحة الإضافة عليه لمن يملك رمز متابعته فقط)
+      open_code: open?.source === 'online' ? open.code : null,
+    });
   });
 
-  r.get('/public/menu', (req, res) => {
-    if (!onlineOn()) return res.status(403).json({ error: 'الطلب عبر الرابط متوقف حالياً', reason: 'disabled' });
+  r.get('/public/table/:token/menu', (req, res) => {
+    tableByToken(req);
+    if (!onlineOn()) return res.status(403).json({ error: 'الطلب عبر QR متوقف حالياً', reason: 'disabled' });
     const categories = all('SELECT id, name, icon FROM categories WHERE active = 1 ORDER BY sort, id');
     const items = all('SELECT id, category_id, name, description, price, image, available FROM menu_items WHERE active = 1 ORDER BY sort, id');
     const mods = all('SELECT id, item_id, name, price FROM modifiers ORDER BY id');
@@ -71,37 +78,38 @@ export function buildRouter(emit) {
     res.json({ categories, items });
   });
 
-  r.post('/public/orders', (req, res) => {
-    if (!onlineOn()) return res.status(403).json({ error: 'الطلب عبر الرابط متوقف حالياً', reason: 'disabled' });
-    if (limited(req, 'po', 6, 10 * 60 * 1000)) return res.status(429).json({ error: 'طلبات كثيرة، حاول بعد قليل' });
-    const s = getSettings();
+  r.post('/public/table/:token/orders', (req, res) => {
+    const t = tableByToken(req);
+    if (!onlineOn()) return res.status(403).json({ error: 'الطلب عبر QR متوقف حالياً', reason: 'disabled' });
+    if (limited(req, 'po', 8, 10 * 60 * 1000)) return res.status(429).json({ error: 'طلبات كثيرة، حاول بعد قليل' });
     const b = req.body || {};
-    const type = b.type;
-    if (!['dine_in', 'takeaway', 'delivery'].includes(type) || s[`online_${type}`] !== '1') throw bad('هذا النوع من الطلبات غير متاح حالياً');
     const items = Array.isArray(b.items) ? b.items : [];
     if (!items.length) throw bad('أضف أصنافاً للطلب');
-    if (items.length > 40 || items.reduce((a, i) => a + (Math.min(Number(i.qty) || 1, 99)), 0) > 80) throw bad('عدد الأصناف كبير جداً، تواصل مع المطعم');
-    const data = {
-      type,
-      table_id: type === 'dine_in' ? Number(b.table_id) || null : null,
-      guests: type === 'dine_in' ? Math.min(Math.max(parseInt(b.guests, 10) || 1, 1), 30) : null,
-      customer_name: clip(b.customer_name, 60),
-      customer_phone: clip(b.customer_phone, 20),
-      address: clip(b.address, 200),
-      notes: clip(b.notes, 300) || null,
-      items: items.map((i) => ({ item_id: Number(i.item_id), qty: Math.min(Math.max(parseInt(i.qty, 10) || 1, 1), 20), modifier_ids: Array.isArray(i.modifier_ids) ? i.modifier_ids.slice(0, 10).map(Number) : [], notes: clip(i.notes, 100) || null })),
-    };
-    if (type === 'dine_in' && !get('SELECT 1 AS x FROM dining_tables WHERE id = ? AND active = 1', data.table_id)) throw bad('الطاولة غير صحيحة');
-    const token = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
-    const id = Orders.createOrder(data, PUBLIC_USER);
-    run("UPDATE orders SET source = 'online', track_token = ? WHERE id = ?", token, id);
-    Orders.logEvent(id, 'online', null, 'طلب من رابط الزبون');
+    if (items.length > 40 || items.reduce((a, i) => a + Math.min(Number(i.qty) || 1, 99), 0) > 80) throw bad('عدد الأصناف كبير جداً، نادِ النادل');
+    const lines = items.map((i) => ({ item_id: Number(i.item_id), qty: Math.min(Math.max(parseInt(i.qty, 10) || 1, 1), 20), modifier_ids: Array.isArray(i.modifier_ids) ? i.modifier_ids.slice(0, 10).map(Number) : [], notes: clip(i.notes, 100) || null }));
+    const open = get("SELECT * FROM orders WHERE table_id = ? AND status = 'open'", t.id);
+    let id;
+    if (open) {
+      // إضافة على طلب الطاولة المفتوح: لا تُقبل إلا بشرط أن يكون طلباً من الرمز ومع رمز متابعته
+      if (open.source !== 'online' || !open.track_token || open.track_token !== String(b.order_token || '')) throw bad('الطاولة عليها طلب مفتوح، نادِ النادل لإضافة أصناف');
+      id = open.id;
+      Orders.addItems(id, lines, PUBLIC_USER);
+    } else {
+      const token = randomToken();
+      id = Orders.createOrder({
+        type: 'dine_in', table_id: t.id, guests: Math.min(Math.max(parseInt(b.guests, 10) || 1, 1), 30),
+        customer_name: clip(b.customer_name, 60), customer_phone: clip(b.customer_phone, 20), notes: clip(b.notes, 300) || null, items: lines,
+      }, PUBLIC_USER);
+      run("UPDATE orders SET source = 'online', track_token = ? WHERE id = ?", token, id);
+      Orders.logEvent(id, 'online', null, 'طلب من رمز QR الطاولة');
+    }
     Orders.sendToKitchen(id, PUBLIC_USER);
     const o = Orders.getOrder(id);
+    const tok = get('SELECT track_token FROM orders WHERE id = ?', id).track_token;
     const { where } = Orders.orderLabel(id);
-    notify({ perms: ['payments.collect'], type: 'online_order', level: 'info', link: `/cashier?order=${id}`, title: `طلب جديد من الرابط ${o.code}`, body: `${where} · ${o.items.length} صنف · ${o.total}` });
+    notify({ perms: ['payments.collect', 'pos.create'], type: 'online_order', level: 'info', link: `/pos/${id}`, title: `${open ? 'إضافة على' : 'طلب جديد من'} ${where} (QR) ${o.code}`, body: `${o.items.length} صنف · ${o.total}` });
     changed('orders', 'kitchen', 'tables');
-    res.status(201).json({ code: o.code, token, total: o.total, type: o.type });
+    res.status(201).json({ code: o.code, token: tok, total: o.total, added: !!open });
   });
 
   r.get('/public/orders/:code', (req, res) => {
@@ -110,7 +118,7 @@ export function buildRouter(emit) {
     if (!o || !o.track_token || o.track_token !== String(req.query.t || '')) return res.status(404).json({ error: 'الطلب غير موجود' });
     const full = Orders.getOrder(o.id);
     res.json({
-      code: full.code, type: full.type, status: full.status, table_name: full.table_name, total: full.total, created_at: full.created_at,
+      code: full.code, status: full.status, table_name: full.table_name, total: full.total, created_at: full.created_at,
       items: full.items.filter((i) => i.status !== 'cancelled').map((i) => ({ name: i.name, qty: i.qty, status: i.status })),
     });
   });
@@ -289,7 +297,7 @@ export function buildRouter(emit) {
   // ───────────── الطاولات ─────────────
   r.get('/tables', need('tables.view', 'pos.create', 'payments.collect', 'settings.manage', 'reservations.manage'), (req, res) => {
     const tables = all(`
-      SELECT t.*, o.id AS order_id, o.number AS order_number, o.code AS order_code, o.total AS order_total, o.created_at AS opened_at,
+      SELECT t.id, t.name, t.seats, t.area, t.active, o.id AS order_id, o.number AS order_number, o.code AS order_code, o.total AS order_total, o.created_at AS opened_at,
         o.guests, w.name AS waiter_name,
         (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'ready') AS ready_items,
         (SELECT r.customer_name || ' ' || substr(r.reserved_at, 12, 5) FROM reservations r
@@ -301,10 +309,23 @@ export function buildRouter(emit) {
       WHERE t.active = 1 ORDER BY t.area, t.id`);
     res.json(tables.map((t) => ({ ...t, status: t.order_id ? 'occupied' : t.reservation ? 'reserved' : 'free' })));
   });
+  // رموز QR للطاولات (للإدارة فقط)
+  r.get('/tables/qr', need('settings.manage'), (req, res) => {
+    ensureTableTokens();
+    res.json(all('SELECT id, name, seats, area, qr_token AS token FROM dining_tables WHERE active = 1 ORDER BY id'));
+  });
+  r.post('/tables/:id/qr/rotate', need('settings.manage'), (req, res) => {
+    const t = get('SELECT id, name FROM dining_tables WHERE id = ?', Number(req.params.id));
+    if (!t) throw notFound('الطاولة غير موجودة');
+    const token = randomToken();
+    run('UPDATE dining_tables SET qr_token = ? WHERE id = ?', token, t.id);
+    audit(req.user.id, 'settings.table_qr_rotate', 'table', t.id, { name: t.name });
+    res.json({ id: t.id, name: t.name, token });
+  });
   r.post('/tables', need('settings.manage'), (req, res) => {
     const { name, seats, area } = req.body || {};
     if (!name) throw bad('أدخل اسم الطاولة');
-    const info = run('INSERT INTO dining_tables(name, seats, area) VALUES(?,?,?)', name, Number(seats) || 4, area || 'الصالة');
+    const info = run('INSERT INTO dining_tables(name, seats, area, qr_token) VALUES(?,?,?,?)', name, Number(seats) || 4, area || 'الصالة', randomToken());
     audit(req.user.id, 'settings.table_create', 'table', Number(info.lastInsertRowid), { name });
     changed('tables');
     res.status(201).json({ id: Number(info.lastInsertRowid) });

@@ -7,6 +7,7 @@ function migrate() {
   const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
   if (!cols('orders').includes('code')) db.exec('ALTER TABLE orders ADD COLUMN code TEXT');
   if (!cols('order_items').includes('sent_by')) db.exec('ALTER TABLE order_items ADD COLUMN sent_by INTEGER');
+  if (!cols('dining_tables').includes('qr_token')) db.exec('ALTER TABLE dining_tables ADD COLUMN qr_token TEXT');
   if (!cols('orders').includes('source')) db.exec("ALTER TABLE orders ADD COLUMN source TEXT NOT NULL DEFAULT 'staff'");
   if (!cols('orders').includes('track_token')) db.exec('ALTER TABLE orders ADD COLUMN track_token TEXT');
   if (!cols('orders').includes('bill_requested_at')) db.exec('ALTER TABLE orders ADD COLUMN bill_requested_at TEXT');
@@ -93,10 +94,7 @@ const DEFAULT_SETTINGS = {
   delivery_fee: '10',
   receipt_footer: 'شكراً لزيارتكم',
   loyalty_points_per_unit: '1', // نقطة لكل وحدة عملة
-  online_ordering: '1',          // السماح للزبائن بالطلب عبر الرابط العام (يمكن إيقافه في أي وقت)
-  online_dine_in: '1',           // طلب من الطاولة (QR)
-  online_takeaway: '1',          // طلب سفري
-  online_delivery: '1',          // طلب توصيل
+  online_ordering: '1',          // السماح للزبائن بالطلب من رمز QR الطاولة (يمكن إيقافه في أي وقت)
   late_grace_minutes: '10',      // سماحية التأخير بالدقائق
   late_deduction: '1',           // خصم التأخير من الراتب (1/0)
   doc_alert_days: '30',          // التنبيه قبل انتهاء المستندات بأيام
@@ -127,4 +125,18 @@ export function setSettings(obj) {
 export function audit(userId, action, entity, entityId, details) {
   run('INSERT INTO audit_log(user_id,action,entity,entity_id,details) VALUES(?,?,?,?,?)',
     userId ?? null, action, entity ?? null, entityId ?? null, details ? JSON.stringify(details) : null);
+}
+
+/** رمز عشوائي غير قابل للتخمين (96 بت) */
+export function randomToken(bytes = 12) {
+  const a = new Uint8Array(bytes);
+  globalThis.crypto.getRandomValues(a);
+  return [...a].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** يعطي كل طاولة رمز QR خاصاً بها إن لم يكن لها */
+export function ensureTableTokens() {
+  for (const t of all('SELECT id FROM dining_tables WHERE qr_token IS NULL OR qr_token = \'\'')) {
+    run('UPDATE dining_tables SET qr_token = ? WHERE id = ?', randomToken(), t.id);
+  }
 }

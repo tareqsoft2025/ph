@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BellRing, Send, Link2, Copy, QrCode, Printer, ExternalLink, Check } from 'lucide-react';
+import { BellRing, Send, QrCode, Printer } from 'lucide-react';
 import QRCode from 'qrcode';
 import { api, isNative, getServerUrl, setServerUrl } from '../api.js';
 import { useNotifications, devicePermission, requestDevicePermission } from '../notifications.jsx';
@@ -141,9 +141,9 @@ function PushSettings() {
   );
 }
 
-/** رابط الطلب العام للزبائن: يُفعَّل ويُلغى فوراً */
+/** الطلب من رمز QR الطاولة: يُفعَّل ويُلغى فوراً */
 function useOrderBase() {
-  return (isNative ? `${getServerUrl()}/` : `${window.location.origin}${window.location.pathname}`) + '#/order';
+  return (isNative ? `${getServerUrl()}/` : `${window.location.origin}${window.location.pathname}`) + '#/t/';
 }
 
 function Qr({ url, size = 200 }) {
@@ -155,72 +155,63 @@ function Qr({ url, size = 200 }) {
 function OnlineOrderingSettings() {
   const { settings, setSettings } = useApp();
   const toast = useToast();
-  const base = useOrderBase();
-  const [qrOpen, setQrOpen] = useState(false);
-  const [tablesOpen, setTablesOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [open, setOpen] = useState(false);
   const on = settings.online_ordering === '1';
-  const flip = async (key) => {
-    const next = settings[key] === '1' ? '0' : '1';
+  const flip = async () => {
+    const next = on ? '0' : '1';
     try {
-      setSettings(await api('/settings', { method: 'PUT', body: { [key]: next } }));
-      if (key === 'online_ordering') toast(next === '1' ? 'تم تفعيل الطلب عبر الرابط' : 'تم إيقاف الطلب عبر الرابط فوراً', next === '1' ? 'ok' : 'warn');
+      setSettings(await api('/settings', { method: 'PUT', body: { online_ordering: next } }));
+      toast(next === '1' ? 'تم تفعيل الطلب عبر QR' : 'تم إيقاف الطلب عبر QR فوراً', next === '1' ? 'ok' : 'warn');
     } catch (e) { toast(e.message, 'err'); }
   };
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(base); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { window.prompt('انسخ الرابط', base); }
-  };
-  const types = [['online_dine_in', 'الطلب من الطاولة (QR)'], ['online_takeaway', 'طلب سفري'], ['online_delivery', 'طلب توصيل']];
   return (
     <section className="card online-card">
-      <h3><Link2 size={18} aria-hidden /> الطلب عبر الرابط (للزبائن)</h3>
-      <p className="muted small">يفتح الزبون الرابط من هاتفه فيشاهد المنيو ويرسل طلبه للمطبخ مباشرة بدون تسجيل دخول. يمكنك إيقافه في أي وقت.</p>
+      <h3><QrCode size={18} aria-hidden /> الطلب من رمز QR الطاولة</h3>
+      <p className="muted small">لكل طاولة رمز QR خاص بها (رمز عشوائي مشفّر لا يمكن تخمينه). يمسحه الزبون من هاتفه فيشاهد المنيو ويرسل طلبه للمطبخ على طاولته فقط. لا يوجد رابط عام للطلب.</p>
       <label className={`switch online-main ${on ? 'on' : ''}`}>
-        <input type="checkbox" checked={on} onChange={() => flip('online_ordering')} />
-        <span>{on ? 'الطلب عبر الرابط مفعّل' : 'الطلب عبر الرابط متوقف'}</span>
+        <input type="checkbox" checked={on} onChange={flip} />
+        <span>{on ? 'الطلب عبر QR مفعّل' : 'الطلب عبر QR متوقف'}</span>
       </label>
-      {on && (
-        <>
-          <div className="online-link">
-            <input readOnly dir="ltr" value={base} onFocus={(e) => e.target.select()} aria-label="رابط الطلب" />
-            <button className="btn" onClick={copy}>{copied ? <Check size={16} /> : <Copy size={16} />} {copied ? 'تم النسخ' : 'نسخ'}</button>
-          </div>
-          <div className="btn-row">
-            <a className="btn" href={base} target="_blank" rel="noreferrer"><ExternalLink size={16} /> فتح الرابط</a>
-            <button className="btn" onClick={() => setQrOpen(true)}><QrCode size={16} /> رمز QR</button>
-            <button className="btn" onClick={() => setTablesOpen(true)}><Printer size={16} /> QR لكل طاولة</button>
-          </div>
-          <div className="switch-list" style={{ marginTop: 12 }}>
-            {types.map(([k, label]) => (
-              <label key={k} className="switch"><input type="checkbox" checked={settings[k] === '1'} onChange={() => flip(k)} /> {label}</label>
-            ))}
-          </div>
-        </>
-      )}
-      {qrOpen && (
-        <Modal title="رمز QR للرابط" onClose={() => setQrOpen(false)}>
-          <div className="qr-one"><Qr url={base} size={260} /><p className="muted small" dir="ltr">{base}</p></div>
-        </Modal>
-      )}
-      {tablesOpen && <TableQrs base={base} onClose={() => setTablesOpen(false)} />}
+      <div className="btn-row">
+        <button className="btn btn-primary" onClick={() => setOpen(true)}><Printer size={16} /> بطاقات QR للطاولات وطباعتها</button>
+      </div>
+      {open && <TableQrs onClose={() => setOpen(false)} />}
     </section>
   );
 }
 
-function TableQrs({ base, onClose }) {
-  const { data } = useData('/tables', ['tables']);
+/** بطاقات QR: كل بطاقة مرتبطة بطاولتها فقط، وتُطبع كلها أو بطاقة واحدة */
+function TableQrs({ onClose }) {
+  const base = useOrderBase();
+  const toast = useToast();
   const { settings } = useApp();
+  const { data, reload } = useData('/tables/qr', ['tables']);
+  const [one, setOne] = useState(null);
+  const printNow = (id) => {
+    setOne(id);
+    const done = () => { setOne(null); window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    setTimeout(() => window.print(), 80);
+  };
+  const rotate = async (t) => {
+    if (!window.confirm(`تغيير رمز ${t.name}؟ ستتوقف البطاقة المطبوعة القديمة عن العمل ويجب طباعة بطاقة جديدة.`)) return;
+    try { await api(`/tables/${t.id}/qr/rotate`, { method: 'POST' }); toast('تم تغيير الرمز، اطبع البطاقة الجديدة'); reload(); } catch (e) { toast(e.message, 'err'); }
+  };
   return (
-    <Modal title="رموز QR للطاولات" onClose={onClose} wide>
-      <div className="qr-sheet">
-        <div className="qr-actions btn-row"><button className="btn btn-primary" onClick={() => window.print()}><Printer size={17} /> طباعة</button></div>
+    <Modal title="بطاقات QR للطاولات" onClose={onClose} wide>
+      <div className={`qr-sheet ${one ? 'one' : ''}`}>
+        <div className="qr-actions btn-row"><button className="btn btn-primary" onClick={() => { setOne(null); setTimeout(() => window.print(), 50); }}><Printer size={17} /> طباعة كل البطاقات</button></div>
         <div className="qr-grid">
           {(data || []).map((t) => (
-            <div key={t.id} className="qr-card">
+            <div key={t.id} className={`qr-card ${one === t.id ? 'sel' : ''}`} data-url={`${base}${t.token}`}>
               <strong>{settings.restaurant_name}</strong>
-              <Qr url={`${base}?table=${t.id}`} size={150} />
+              <Qr url={`${base}${t.token}`} size={150} />
               <span className="qr-table">{t.name}</span>
-              <small>امسح الرمز واطلب من هاتفك</small>
+              <small>امسح الرمز لعرض المنيو وإرسال طلبك</small>
+              <span className="qr-card-actions">
+                <button className="btn btn-sm" onClick={() => printNow(t.id)}><Printer size={14} /> طباعة</button>
+                <button className="btn btn-sm btn-danger-ghost" onClick={() => rotate(t)}>تغيير الرمز</button>
+              </span>
             </div>
           ))}
         </div>

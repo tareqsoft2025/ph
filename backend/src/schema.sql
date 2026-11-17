@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS dining_tables (
   name   TEXT NOT NULL,
   seats  INTEGER NOT NULL DEFAULT 4,
   area   TEXT NOT NULL DEFAULT 'الصالة',
-  active INTEGER NOT NULL DEFAULT 1
+  active INTEGER NOT NULL DEFAULT 1,
+  qr_token TEXT                 -- رمز QR العشوائي الخاص بالطاولة (يُستخدم في رابط الزبون)
 );
 
 CREATE TABLE IF NOT EXISTS customers (
