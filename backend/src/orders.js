@@ -1,12 +1,31 @@
 // منطق الطلبات: الحساب، الإضافة، الإرسال للمطبخ، الدفع
 import { get, all, run, tx, getSettings, audit } from './db.js';
 import { bad, notFound, round2 } from './util.js';
-import { notify } from './notify.js';
+import { notify, customerNotify } from './notify.js';
 import { hasPerm } from './perms.js';
 
 const TYPE_LABEL = { dine_in: 'صالة', takeaway: 'سفري', delivery: 'توصيل' };
 
 /** يسجّل خطوة في تسلسل عمليات الطلب */
+const CUSTOMER_MSG = {
+  welcome: ['🔔 تم تفعيل إشعارات طلبك', 'سنخبرك فور تغيّر حالته حتى لو أغلقت الصفحة.'],
+  confirmed: ['✅ تم قبول طلبك', 'وصل طلبك إلى المطبخ.'],
+  preparing: ['👨‍🍳 بدأ تحضير طلبك', 'الشيف يجهّز طلبك الآن.'],
+  ready: ['🔔 طلبك جاهز!', 'سيصلك إلى طاولتك خلال لحظات.'],
+  served: ['🍽️ بالهناء والعافية', 'تم تقديم طلبك.'],
+  rejected: ['⚠️ تعذّر قبول طلبك', 'نادِ النادل للمساعدة.'],
+  cancelled: ['⚠️ أُلغي طلبك', 'نادِ النادل للمساعدة.'],
+  paid: ['💚 شكراً لزيارتكم', 'نتمنى أن نراكم قريباً.'],
+};
+/** إشعار لزبون طلب QR (Web Push) عند تغيّر حالة طلبه */
+export function notifyCustomer(orderId, kind, extra = null) {
+  const o = get("SELECT code FROM orders WHERE id = ? AND source = 'online'", orderId);
+  if (!o) return;
+  const [title, body] = CUSTOMER_MSG[kind] || [];
+  if (!title) return;
+  customerNotify(orderId, { kind, title, body: extra || body, tag: o.code, code: o.code });
+}
+
 export function logEvent(orderId, type, userId, message = null, data = null) {
   run('INSERT INTO order_events(order_id, type, message, data, user_id) VALUES(?,?,?,?,?)',
     orderId, type, message, data ? JSON.stringify(data) : null, userId ?? null);
@@ -264,6 +283,7 @@ export function pay(orderId, payments, user) {
     if (closed) {
       closeOrder(orderId, user);
       logEvent(orderId, 'paid', user.id, change ? `تم السداد · الباقي للعميل ${change}` : 'تم السداد وإغلاق الطلب', { total: order.total, change });
+      notifyCustomer(orderId, 'paid');
     }
     audit(user.id, 'order.pay', 'order', orderId, { payments, change });
     return { change, closed };
@@ -310,7 +330,7 @@ function closeOrder(orderId, user) {
   }
 }
 
-export function cancelOrder(orderId, reason, user) {
+export function cancelOrder(orderId, reason, user, quiet = false) {
   const order = get('SELECT * FROM orders WHERE id = ?', orderId);
   assertOpen(order);
   if (order.paid > 0) throw bad('لا يمكن إلغاء طلب عليه دفعات');
@@ -319,6 +339,7 @@ export function cancelOrder(orderId, reason, user) {
   run("UPDATE order_items SET status = 'cancelled' WHERE order_id = ? AND status NOT IN ('served')", orderId);
   audit(user.id, 'order.cancel', 'order', orderId, { reason });
   logEvent(orderId, 'cancelled', user.id, reason ? `إلغاء الطلب: ${reason}` : 'إلغاء الطلب');
+  if (!quiet) notifyCustomer(orderId, 'cancelled', reason ? `السبب: ${reason}` : null);
 }
 
 export function moveTable(orderId, tableId, user) {
@@ -350,6 +371,7 @@ export function kitchenProgress(orderId, status, user, changed) {
   const pending = get("SELECT COUNT(*) AS c FROM order_items WHERE order_id = ? AND status IN ('new','preparing')", orderId).c;
   if (status === 'ready' && pending === 0) {
     logEvent(orderId, 'ready', user.id, 'الطلب جاهز للتقديم');
+    notifyCustomer(orderId, 'ready');
     audit(user.id, 'kitchen.ready', 'order', orderId);
     const o = get('SELECT waiter_id, type FROM orders WHERE id = ?', orderId);
     const { code, where } = orderLabel(orderId);
@@ -360,9 +382,10 @@ export function kitchenProgress(orderId, status, user, changed) {
     });
   } else if (status === 'preparing') {
     const already = get("SELECT id FROM order_events WHERE order_id = ? AND type = 'preparing' AND id > COALESCE((SELECT MAX(id) FROM order_events WHERE order_id = ? AND type = 'sent'), 0)", orderId, orderId);
-    if (!already) logEvent(orderId, 'preparing', user.id, msg);
+    if (!already) { logEvent(orderId, 'preparing', user.id, msg); notifyCustomer(orderId, 'preparing'); }
   } else if (status === 'served') {
     logEvent(orderId, 'served', user.id, msg);
+    notifyCustomer(orderId, 'served');
   }
 }
 
@@ -387,6 +410,7 @@ export function confirmOrder(orderId, user) {
   const n = sendToKitchen(orderId, user);
   run('UPDATE orders SET pending_confirm = 0 WHERE id = ?', orderId);
   logEvent(orderId, 'confirmed', user.id, 'تأكيد طلب الزبون وإرساله للمطبخ');
+  notifyCustomer(orderId, 'confirmed');
   audit(user.id, 'order.confirm', 'order', orderId, { items: n, table: get('SELECT name FROM dining_tables WHERE id = ?', order.table_id)?.name || null });
   return n;
 }
@@ -396,6 +420,7 @@ export function rejectOrder(orderId, reason, user) {
   const order = get('SELECT * FROM orders WHERE id = ?', orderId);
   assertOpen(order);
   if (!order.pending_confirm) throw bad('هذا الطلب لا ينتظر تأكيداً');
-  cancelOrder(orderId, reason || 'رفضه الموظف', user);
+  cancelOrder(orderId, reason || 'رفضه الموظف', user, true);
+  notifyCustomer(orderId, 'rejected', reason ? `السبب: ${reason}` : null);
   audit(user.id, 'order.reject', 'order', orderId, { reason });
 }

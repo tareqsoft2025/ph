@@ -335,3 +335,27 @@ test('table QR ordering: per-table secret token, table opening, waiter confirmat
   assert.equal((await api(`/public/table/${rot.data.token}/menu`)).status, 403);
   await api('/settings', { method: 'PUT', token: admin, body: { online_ordering: '1' } });
 });
+
+test('customer web push subscription: needs the order token, validates the endpoint', async () => {
+  const admin = await login('admin', 'admin123');
+  const waiter = await login('waiter', '1234');
+  await api('/settings', { method: 'PUT', token: admin, body: { qr_confirm_mode: 'never', qr_require_open: '0' } });
+  const key = (await api('/public/push/key')).data;
+  assert.equal(key.enabled, true);
+  assert.ok(key.key && key.key.length > 60, 'VAPID public key is served');
+  const t = (await api('/tables/qr', { token: admin })).data.find((x) => x.name === 'طاولة 9') || (await api('/tables/qr', { token: admin })).data.at(-1);
+  const menu = (await api(`/public/table/${t.token}/menu`)).data;
+  const item = menu.items.find((i) => i.available && !i.modifiers.length);
+  const o = await api(`/public/table/${t.token}/orders`, { method: 'POST', body: { guests: 1, customer_name: 'زبون', customer_phone: '0559990001', device_id: 'dev-wp', items: [{ item_id: item.id, qty: 1 }] } });
+  assert.equal(o.status, 201, JSON.stringify(o.data));
+  const { code, token } = o.data;
+  const body = { subscription: { endpoint: 'https://push.example.invalid/abc', keys: { p256dh: 'BPk', auth: 'au' } }, url: 'https://r.example/#/t/x' };
+  const post = (tok, b) => api(`/public/orders/${code}/push?t=${tok}`, { method: 'POST', body: b });
+  assert.equal((await post('wrong', body)).status, 404, 'needs the order token');
+  assert.equal((await post(token, { subscription: { endpoint: 'http://insecure/x', keys: { p256dh: 'a', auth: 'b' } } })).status, 400, 'https endpoints only');
+  assert.equal((await post(token, { subscription: { endpoint: 'https://x.example/a', keys: {} } })).status, 400);
+  assert.equal((await post(token, body)).status, 200);
+  assert.equal((await post(token, body)).status, 200, 're-subscribing is idempotent');
+  assert.equal((await api('/public/orders/ORD-NOPE/push?t=x', { method: 'POST', body })).status, 404);
+  await api('/settings', { method: 'PUT', token: admin, body: { qr_confirm_mode: 'smart', qr_require_open: '1' } });
+});

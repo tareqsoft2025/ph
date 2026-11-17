@@ -11,7 +11,8 @@ import { verifyToken } from './auth.js';
 import { ensureSeed } from './seed.js';
 import { get } from './db.js';
 import { loadServiceAccount, createPushSender } from './push.js';
-import { setPushSender } from './notify.js';
+import { setPushSender, setWebPush } from './notify.js';
+import { createWebPush } from './webpush.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -27,6 +28,9 @@ if (pushSender) {
 } else {
   console.log('ℹ️  الإشعارات الفورية غير مفعّلة — راجع docs/FIREBASE.md');
 }
+
+// إشعارات Web Push لزبائن QR (VAPID): تُفعَّل تلقائياً وتُولَّد مفاتيحها مرة واحدة
+try { setWebPush(createWebPush()); } catch (e) { console.error('⚠️ تعذّر تفعيل Web Push:', e.message); }
 
 const app = express();
 const server = createServer(app);

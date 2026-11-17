@@ -4,6 +4,7 @@ import {
   UtensilsCrossed, Search, Plus, Minus, Armchair, QrCode, X, Send, CircleCheckBig, ChefHat, BellRing, HandPlatter, Clock, SlidersHorizontal, Ban, Phone, UserRound, MapPin, Receipt,
 } from 'lucide-react';
 import { api, watchOrder } from '../api.js';
+import { pushSupported, pushKey, enableOrderPush, isIOS, isStandalone } from '../webpush.js';
 
 const safe = (f, d = null) => { try { return f(); } catch { return d; } };
 const deviceId = () => { let d = safe(() => localStorage.getItem('ph-co-device')); if (!d) { d = Math.random().toString(36).slice(2, 12) + Date.now().toString(36); safe(() => localStorage.setItem('ph-co-device', d)); } return d; };
@@ -237,6 +238,7 @@ function Tracker({ order, cur, phone, onAdd, onClosed }) {
   const [flash, setFlash] = useState('');
   const prev = useRef(-1);
   const [, tick] = useState(0);
+  const [pp, setPp] = useState({ state: 'hidden' });   // hidden | ask | on | denied | busy | ios
 
   useEffect(() => {
     let alive = true;
@@ -254,6 +256,28 @@ function Tracker({ order, cur, phone, onAdd, onClosed }) {
     const clock = setInterval(() => tick((n) => n + 1), 30000);
     return () => { alive = false; off(); clearInterval(poll); clearInterval(clock); document.removeEventListener('visibilitychange', vis); };
   }, [order.code, order.token]);
+
+  // إشعارات خارج الصفحة (Web Push): تظهر البطاقة إن كان الخادم والمتصفح يدعمانها
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!pushSupported()) { if (isIOS() && !isStandalone() && alive) setPp({ state: 'ios' }); return; }
+      if (!(await pushKey())) return;
+      const subKey = `ph-wp-${order.code}`;
+      if (Notification.permission === 'denied') { alive && setPp({ state: 'denied' }); return; }
+      if (Notification.permission === 'granted' && safe(() => localStorage.getItem(subKey))) { alive && setPp({ state: 'on' }); return; }
+      alive && setPp({ state: 'ask' });
+    })();
+    return () => { alive = false; };
+  }, [order.code]);
+  const askPush = async () => {
+    setPp({ state: 'busy' });
+    try {
+      const r = await enableOrderPush(order.code, order.token);
+      if (r === 'granted') { safe(() => localStorage.setItem(`ph-wp-${order.code}`, '1')); setPp({ state: 'on' }); }
+      else setPp({ state: r === 'denied' ? 'denied' : 'ask' });
+    } catch { setPp({ state: 'ask' }); }
+  };
 
   const pend = !!data?.pending_confirm;
   const st = data ? stage(data.items) : 0;
@@ -283,6 +307,17 @@ function Tracker({ order, cur, phone, onAdd, onClosed }) {
       <p className={`co-live ${live ? 'on' : ''}`}><i aria-hidden /> {live ? 'تحديث مباشر' : 'انقطع الاتصال، نحاول مجدداً…'}{data && !closed ? ` · منذ ${mins} د` : ''}</p>
       {flash && <div className="co-flash" role="status">{st >= 2 ? '🔔' : '✨'} {flash}</div>}
       {err && !data && <div className="alert alert-err">{err}</div>}
+      {!closed && pp.state === 'ask' && (
+        <div className="co-pushcard">
+          <span className="co-pushicon" aria-hidden><BellRing size={22} /></span>
+          <div><strong>أبقَ على اطلاع بطلبك</strong><small>اسمح بالإشعارات لتصلك «تم القبول» و«بدأ التحضير» و«طلبك جاهز» حتى لو أغلقت الصفحة.</small></div>
+          <button className="btn btn-primary btn-sm" onClick={askPush}>تفعيل الإشعارات</button>
+        </div>
+      )}
+      {!closed && pp.state === 'busy' && <div className="co-pushcard"><span className="co-pushicon" aria-hidden><BellRing size={22} /></span><div><strong>جارِ التفعيل…</strong><small>اضغط «السماح» في نافذة المتصفح.</small></div></div>}
+      {!closed && pp.state === 'on' && <div className="co-pushcard on"><span className="co-pushicon" aria-hidden><CircleCheckBig size={22} /></span><div><strong>الإشعارات مفعّلة</strong><small>ستصلك تحديثات طلبك حتى لو أغلقت الصفحة.</small></div></div>}
+      {!closed && pp.state === 'denied' && <div className="co-pushcard warn"><span className="co-pushicon" aria-hidden><Ban size={22} /></span><div><strong>الإشعارات محظورة</strong><small>لتفعيلها: اضغط أيقونة القفل بجانب عنوان الصفحة ← الإشعارات ← السماح، ثم أعد فتح الصفحة.</small></div></div>}
+      {!closed && pp.state === 'ios' && <div className="co-pushcard warn"><span className="co-pushicon" aria-hidden><BellRing size={22} /></span><div><strong>لتصلك الإشعارات على آيفون</strong><small>اضغط زر المشاركة ثم «إضافة إلى الشاشة الرئيسية» وافتح الطلب منها.</small></div></div>}
       {data && (
         <>
           {pend && <div className="alert alert-warn"><Clock size={16} aria-hidden /> سيصل طلبك للمطبخ فور تأكيد النادل له.</div>}

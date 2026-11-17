@@ -1846,3 +1846,15 @@ body { background: var(--bg) radial-gradient(900px 420px at 100% -10%, color-mix
 .perm-nudge svg { color: var(--accent); flex-shrink: 0; }
 @media (max-width: 960px) { .perm-nudge { bottom: calc(76px + env(safe-area-inset-bottom)); } }
 @media (prefers-reduced-motion: reduce) { .ntoast-hot { animation: none; } }
+
+/* ═════════ بطاقة تفعيل إشعارات الزبون ═════════ */
+.co-pushcard { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-4); border-radius: var(--radius-lg); background: linear-gradient(135deg, var(--accent-soft), var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); text-align: start; animation: rise 300ms var(--ease); }
+.co-pushcard > div { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; line-height: 1.5; }
+.co-pushcard strong { font-family: var(--font-display); }
+.co-pushcard small { color: var(--muted); font-size: var(--text-xs); }
+.co-pushicon { width: 42px; height: 42px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: #fff; box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 35%, transparent); }
+.co-pushcard.on { background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+.co-pushcard.on .co-pushicon { background: var(--ok); box-shadow: none; }
+.co-pushcard.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
+.co-pushcard.warn .co-pushicon { background: var(--warn); box-shadow: none; }
+@media (max-width: 420px) { .co-pushcard { flex-wrap: wrap; } .co-pushcard .btn { width: 100%; } }
