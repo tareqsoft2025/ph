@@ -34,16 +34,17 @@ export function logEvent(orderId, type, userId, message = null, data = null) {
 
 /** وصف مختصر للطلب: الكود + الطاولة أو العميل */
 export function orderLabel(orderId) {
-  const o = get('SELECT o.code, o.type, o.customer_name, t.name AS table_name FROM orders o LEFT JOIN dining_tables t ON t.id = o.table_id WHERE o.id = ?', orderId);
-  return { code: o.code, where: o.table_name || `${TYPE_LABEL[o.type]}${o.customer_name ? ` · ${o.customer_name}` : ''}` };
+  const o = get('SELECT o.code, o.type, o.customer_name, o.place, t.name AS table_name, e.name AS event_name FROM orders o LEFT JOIN dining_tables t ON t.id = o.table_id LEFT JOIN events e ON e.id = o.event_id WHERE o.id = ?', orderId);
+  return { code: o.code, where: o.table_name || (o.event_name ? `${o.event_name}${o.place ? ` · ${o.place}` : ''}` : `${TYPE_LABEL[o.type]}${o.customer_name ? ` · ${o.customer_name}` : ''}`) };
 }
 
 const PHONE_RE = /^\+?[0-9\s-]{7,15}$/;
 
 export function getOrder(id) {
   const order = get(`
-    SELECT o.*, t.name AS table_name, w.name AS waiter_name, c.name AS cashier_name
+    SELECT o.*, t.name AS table_name, w.name AS waiter_name, c.name AS cashier_name, ev.name AS event_name, ev.billing AS event_billing
     FROM orders o
+    LEFT JOIN events ev ON ev.id = o.event_id
     LEFT JOIN dining_tables t ON t.id = o.table_id
     LEFT JOIN users w ON w.id = o.waiter_id
     LEFT JOIN users c ON c.id = o.cashier_id
@@ -111,15 +112,16 @@ export function createOrder(data, user) {
   if (!['dine_in', 'takeaway', 'delivery'].includes(type)) throw bad('نوع الطلب غير صحيح');
   const name = String(data.customer_name || '').trim();
   const phone = String(data.customer_phone || '').trim();
-  if (type === 'dine_in') {
+  const isEvent = !!data.event_id;   // طلب موظف مؤسسة: بلا طاولة محددة وجواله اختياري
+  if (type === 'dine_in' && !isEvent) {
     if (!data.table_id) throw bad('اختر الطاولة');
     if (!(Number(data.guests) >= 1)) throw bad('أدخل عدد الأشخاص');
     const busy = get("SELECT id FROM orders WHERE table_id = ? AND status = 'open'", data.table_id);
     if (busy) throw bad('الطاولة مشغولة بطلب مفتوح');
   }
-  if (!name) throw bad('أدخل اسم العميل');
-  if (!phone) throw bad('أدخل رقم جوال العميل');
-  if (!PHONE_RE.test(phone)) throw bad('رقم الجوال غير صحيح');
+  if (!name) throw bad(isEvent ? 'أدخل اسمك' : 'أدخل اسم العميل');
+  if (!phone && !isEvent) throw bad('أدخل رقم جوال العميل');
+  if (phone && !PHONE_RE.test(phone)) throw bad('رقم الجوال غير صحيح');
   if (type === 'delivery' && !String(data.address || '').trim()) throw bad('أدخل عنوان التوصيل');
   data = { ...data, customer_name: name, customer_phone: phone };
 
@@ -140,11 +142,11 @@ export function createOrder(data, user) {
     const number = nextOrderNumber();
     const d = new Date();
     const code = `ORD-${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(number).padStart(4, '0')}`;
-    const info = run(`INSERT INTO orders(number, code, type, table_id, customer_id, customer_name, customer_phone, address, guests, notes, waiter_id, shift_id)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-      number, code, type, type === 'dine_in' ? data.table_id : null, customerId,
+    const info = run(`INSERT INTO orders(number, code, type, table_id, customer_id, customer_name, customer_phone, address, guests, notes, waiter_id, shift_id, event_id, place)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      number, code, type, type === 'dine_in' && !isEvent ? data.table_id : null, customerId,
       data.customer_name || null, data.customer_phone || null, data.address || null,
-      data.guests || null, data.notes || null, user.id, shift?.id ?? null);
+      data.guests || null, data.notes || null, user.id, shift?.id ?? null, data.event_id || null, data.place || null);
     const id = Number(info.lastInsertRowid);
     logEvent(id, 'created', user.id, `طلب ${TYPE_LABEL[type]} جديد`, { type, table_id: data.table_id || null, guests: data.guests || null });
     if (Array.isArray(data.items) && data.items.length) {
@@ -436,6 +438,7 @@ export function customerBill(orderId, { method, name, phone }) {
   if (!get("SELECT 1 AS x FROM order_items WHERE order_id = ? AND status != 'cancelled'", orderId)) throw bad('لا توجد أصناف في الطلب');
   // لا يُطلب الحساب إلا بعد أن يجهّز المطبخ كل الأصناف
   if (get("SELECT 1 AS x FROM order_items WHERE order_id = ? AND status NOT IN ('ready', 'served', 'cancelled')", orderId)) throw bad('يتاح طلب الحساب بعد تجهيز طلبك في المطبخ');
+  if (order.event_id && get('SELECT billing FROM events WHERE id = ?', order.event_id)?.billing === 'institution') throw bad('الحساب على المؤسسة، لا حاجة لطلب الحساب');
   if (!BILL_METHODS[method]) throw bad('اختر طريقة الدفع');
   const nm = String(name || '').trim().slice(0, 60);
   const ph = String(phone || '').trim().slice(0, 20);

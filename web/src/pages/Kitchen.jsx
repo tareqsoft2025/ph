@@ -151,7 +151,7 @@ export default function Kitchen() {
                       <header className="kt-head">
                         <div className="kt-where">
                           <TypeIcon size={20} aria-hidden />
-                          <strong>{o.type === 'dine_in' ? o.table_name : TYPE_LABEL[o.type]}</strong>
+                          <strong>{o.table_name || (o.event_name ? `${o.event_name}${o.place ? ` · ${o.place}` : ''}` : TYPE_LABEL[o.type])}</strong>
                           {o.type !== 'dine_in' && o.customer_name && <span className="kt-cust">{o.customer_name}</span>}
                         </div>
                         <span className="kt-timer" title="منذ الإرسال للمطبخ"><Clock size={14} aria-hidden /> <span dir="ltr">{el.text}</span></span>

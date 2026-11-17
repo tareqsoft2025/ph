@@ -9,6 +9,8 @@ export const ROLE_LABELS = {
   admin: 'المدير العام', manager: 'مدير الفرع', cashier: 'كاشير', waiter: 'نادل', kitchen: 'المطبخ', staff: 'موظف',
 };
 export const ORDER_TYPES = { dine_in: 'صالة', takeaway: 'سفري', delivery: 'توصيل' };
+/** عنوان الطلب: الطاولة، أو المؤسسة والمكان (طلب فعالية)، أو نوع الطلب */
+export const orderWhere = (o) => o.table_name || (o.event_name ? `${o.event_name}${o.place ? ` · ${o.place}` : ''}` : ORDER_TYPES[o.type]);
 export const PAY_METHODS = { cash: 'نقدي', card: 'بطاقة', wallet: 'محفظة' };
 export const STATIONS = { kitchen: 'المطبخ', grill: 'المشويات', drinks: 'المشروبات', dessert: 'الحلويات' };
 export const LEAVE_TYPES = { annual: 'سنوية', sick: 'مرضية', unpaid: 'بدون راتب', emergency: 'اضطرارية' };

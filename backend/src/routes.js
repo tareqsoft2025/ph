@@ -194,6 +194,95 @@ export function buildRouter(emit) {
     res.status(201).json({ code: o.code, token: get('SELECT track_token FROM orders WHERE id = ?', id).track_token, total: o.total, added, needs_confirm: needsConfirm });
   });
 
+  // ───────────── QR المؤسسة (فعالية): موظفو مؤسسة استأجرت المكان يطلبون من قائمة محددة ─────────────
+  const eventState = (ev) => {
+    if (!ev.active) return 'paused';
+    const now = get("SELECT datetime('now','localtime') AS n").n;
+    return now < ev.starts_at ? 'not_started' : now > ev.ends_at ? 'ended' : 'open';
+  };
+  const eventByToken = (req) => {
+    if (limited(req, 'ev', 90, 60 * 1000)) throw Object.assign(bad('طلبات كثيرة، حاول بعد قليل'), { status: 429 });
+    const tok = String(req.params.token || '');
+    const ev = tok.length >= 16 ? get('SELECT * FROM events WHERE token = ?', tok) : null;
+    if (!ev) { qrLog(req, null, 'bad_token', `event:${tok.slice(0, 10)}`); throw notFound('رمز المؤسسة غير صالح'); }
+    return ev;
+  };
+  const evPublic = (ev) => ({
+    name: ev.name, state: eventState(ev), starts_at: ev.starts_at, ends_at: ev.ends_at, menu_mode: ev.menu_mode,
+    price_cap: ev.menu_mode === 'cap' ? ev.price_cap : null, order_cap: ev.order_cap, billing: ev.billing, needs_approval: !!ev.needs_approval,
+    places: ev.places ? JSON.parse(ev.places) : [],
+  });
+  const eventMenu = (ev) => {
+    const mods = all('SELECT id, item_id, name, price FROM modifiers ORDER BY id');
+    let items = all('SELECT id, category_id, name, description, price, image, available FROM menu_items WHERE active = 1 ORDER BY sort, id');
+    if (ev.menu_mode === 'selected') { const ok = new Set(all('SELECT item_id FROM event_items WHERE event_id = ?', ev.id).map((x) => x.item_id)); items = items.filter((i) => ok.has(i.id)); }
+    else if (ev.menu_mode === 'cap') items = items.filter((i) => i.price <= ev.price_cap);
+    for (const it of items) it.modifiers = mods.filter((m) => m.item_id === it.id).map(({ id, name, price }) => ({ id, name, price }));
+    const cats = new Set(items.map((i) => i.category_id));
+    return { categories: all('SELECT id, name, icon FROM categories WHERE active = 1 ORDER BY sort, id').filter((c) => cats.has(c.id)), items };
+  };
+
+  r.get('/public/event/:token', (req, res) => {
+    const ev = eventByToken(req);
+    const s = getSettings();
+    res.json({ enabled: s.online_ordering === '1', restaurant: s.restaurant_name, currency: s.currency, phone: s.phone, event: evPublic(ev) });
+  });
+  r.get('/public/event/:token/menu', (req, res) => {
+    const ev = eventByToken(req);
+    if (!onlineOn()) return res.status(403).json({ error: 'الطلب عبر QR متوقف حالياً', reason: 'disabled' });
+    if (eventState(ev) !== 'open') return res.status(403).json({ error: 'الطلب غير متاح الآن لهذه الفعالية', reason: eventState(ev) });
+    res.json(eventMenu(ev));
+  });
+  r.post('/public/event/:token/orders', (req, res) => {
+    const ev = eventByToken(req);
+    if (!onlineOn()) return res.status(403).json({ error: 'الطلب عبر QR متوقف حالياً', reason: 'disabled' });
+    if (eventState(ev) !== 'open') return res.status(403).json({ error: 'الطلب غير متاح الآن لهذه الفعالية', reason: eventState(ev) });
+    if (limited(req, 'eo', Number(globalThis.process?.env?.QR_RATE_LIMIT) || 20, 10 * 60 * 1000)) return res.status(429).json({ error: 'طلبات كثيرة، حاول بعد قليل' });
+    const b = req.body || {};
+    const dev = clip(b.device_id, 40);
+    const items = Array.isArray(b.items) ? b.items : [];
+    if (!items.length) throw bad('أضف أصنافاً للطلب');
+    if (items.length > 30 || items.reduce((a, i) => a + Math.min(Number(i.qty) || 1, 99), 0) > 60) throw bad('عدد الأصناف كبير جداً');
+    const lines = items.map((i) => ({ item_id: Number(i.item_id), qty: Math.min(Math.max(parseInt(i.qty, 10) || 1, 1), 20), modifier_ids: Array.isArray(i.modifier_ids) ? i.modifier_ids.slice(0, 10).map(Number) : [], notes: clip(i.notes, 100) || null }));
+    // قائمة المؤسسة وسقف السعر وسقف الطلب
+    const allowed = ev.menu_mode === 'selected' ? new Set(all('SELECT item_id FROM event_items WHERE event_id = ?', ev.id).map((x) => x.item_id)) : null;
+    let est = 0;
+    for (const l of lines) {
+      const it = get('SELECT id, name, price FROM menu_items WHERE id = ? AND active = 1', l.item_id);
+      if (!it) throw bad('الصنف غير موجود');
+      if (allowed && !allowed.has(it.id)) throw bad(`«${it.name}» ليس ضمن قائمة المؤسسة`);
+      if (ev.menu_mode === 'cap' && it.price > ev.price_cap) throw bad(`«${it.name}» أعلى من السقف المسموح (${ev.price_cap})`);
+      const mp = l.modifier_ids.length ? all(`SELECT price FROM modifiers WHERE item_id = ? AND id IN (${l.modifier_ids.map(() => '?').join(',')})`, it.id, ...l.modifier_ids).reduce((a, m) => a + m.price, 0) : 0;
+      est += (it.price + mp) * l.qty;
+    }
+    const place = clip(b.place, 40);
+    const places = ev.places ? JSON.parse(ev.places) : [];
+    if (places.length && !places.includes(place)) throw bad('اختر مكانك من القائمة');
+    const open = b.order_token ? get("SELECT * FROM orders WHERE track_token = ? AND event_id = ? AND status = 'open'", String(b.order_token), ev.id) : null;
+    const before = open ? open.subtotal : 0;
+    if (ev.order_cap && before + est > ev.order_cap + 0.001) throw bad(`تجاوز سقف الطلب الواحد (${ev.order_cap})`);
+    let id; let added = false;
+    if (open) { id = open.id; added = true; Orders.addItems(id, lines, PUBLIC_USER); }
+    else {
+      id = Orders.createOrder({ type: 'dine_in', event_id: ev.id, place: place || null, customer_name: clip(b.customer_name, 60), customer_phone: clip(b.customer_phone, 20), notes: clip(b.notes, 300) || null, items: lines }, PUBLIC_USER);
+      run("UPDATE orders SET source = 'online', track_token = ?, device_id = ? WHERE id = ?", randomToken(), dev || null, id);
+      Orders.logEvent(id, 'online', null, `طلب من فعالية «${ev.name}»${place ? ` · ${place}` : ''}`, { event: ev.name });
+    }
+    const o = Orders.getOrder(id);
+    const { where } = Orders.orderLabel(id);
+    if (ev.needs_approval) {
+      run('UPDATE orders SET pending_confirm = 1 WHERE id = ?', id);
+      notify({ perms: ['pos.create', 'payments.collect'], roles: ['admin', 'manager'], type: 'online_confirm', level: 'warning', link: `/pos/${id}`, title: `طلب مؤسسة بانتظار التأكيد · ${where}`, body: `${o.code} · ${o.items.length} صنف · ${o.customer_name}` });
+    } else {
+      Orders.sendToKitchen(id, PUBLIC_USER);
+      notify({ perms: ['pos.create', 'payments.collect'], roles: ['admin', 'manager'], type: 'online_order', level: 'info', link: `/pos/${id}`, title: `${added ? 'إضافة على' : 'طلب جديد من'} ${where} ${o.code}`, body: `${o.customer_name} · ${o.items.length} صنف · ${o.total}` });
+    }
+    audit(null, 'event.order', 'order', id, { event: ev.name, place: place || null, customer: o.customer_name, items: lines.reduce((a, l) => a + l.qty, 0), total: o.total, added, needs_confirm: !!ev.needs_approval });
+    changed('orders', 'kitchen', 'tables');
+    emit('public-order', id);
+    res.status(201).json({ code: o.code, token: get('SELECT track_token FROM orders WHERE id = ?', id).track_token, total: o.total, added, needs_confirm: !!ev.needs_approval });
+  });
+
   // إشعارات Web Push للزبون (تصله حتى لو أغلق الصفحة)
   r.get('/public/push/key', (req, res) => res.json({ enabled: !!webPushKey(), key: webPushKey() }));
   r.post('/public/orders/:code/push', (req, res) => {
@@ -243,6 +332,7 @@ export function buildRouter(emit) {
     const full = Orders.getOrder(o.id);
     res.json({
       code: full.code, status: full.status, table_name: full.table_name, total: full.total, created_at: full.created_at,
+      event: full.event_name ? { name: full.event_name, billing: full.event_billing } : null, place: full.place || null,
       bill: full.bill_requested_at ? { at: full.bill_requested_at, method: full.bill_method, name: full.bill_name, phone: full.bill_phone } : null,
       pending_confirm: !!full.pending_confirm, cancel_reason: full.status === 'cancelled' ? full.cancel_reason : null,
       items: full.items.filter((i) => i.status !== 'cancelled').map((i) => ({ name: i.name, qty: i.qty, status: i.status })),
@@ -510,12 +600,13 @@ export function buildRouter(emit) {
     if (to) { where.push('date(o.created_at) <= ?'); params.push(to); }
     if (!hasPerm(req.user, 'orders.view') && !hasPerm(req.user, 'payments.collect') && !status) { where.push("o.status = 'open'"); }
     const rows = all(`
-      SELECT o.*, t.name AS table_name, w.name AS waiter_name,
+      SELECT o.*, t.name AS table_name, ev.name AS event_name, w.name AS waiter_name,
         (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status != 'cancelled') AS items_count,
         (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'ready') AS ready_items,
         (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'pending') AS pending_items
       FROM orders o
       LEFT JOIN dining_tables t ON t.id = o.table_id
+      LEFT JOIN events ev ON ev.id = o.event_id
       LEFT JOIN users w ON w.id = o.waiter_id
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
       ORDER BY o.id DESC LIMIT 300`, ...params);
@@ -646,10 +737,11 @@ export function buildRouter(emit) {
   r.get('/kitchen', need('kitchen.view', 'kitchen.update'), (req, res) => {
     const { station } = req.query;
     const items = all(`
-      SELECT oi.*, o.number, o.code, o.source, o.type, o.guests, o.customer_name, o.notes AS order_notes, t.name AS table_name,
+      SELECT oi.*, o.number, o.code, o.source, o.type, o.guests, o.customer_name, o.notes AS order_notes, o.place, ev.name AS event_name, t.name AS table_name,
         w.name AS waiter_name, sb.name AS sent_by_name, sb.role AS sent_by_role
       FROM order_items oi
       JOIN orders o ON o.id = oi.order_id
+      LEFT JOIN events ev ON ev.id = o.event_id
       LEFT JOIN dining_tables t ON t.id = o.table_id
       LEFT JOIN users w ON w.id = o.waiter_id
       LEFT JOIN users sb ON sb.id = oi.sent_by
@@ -660,7 +752,7 @@ export function buildRouter(emit) {
     for (const it of items) {
       if (!map.has(it.order_id)) {
         map.set(it.order_id, {
-          order_id: it.order_id, number: it.number, code: it.code, source: it.source, type: it.type, table_name: it.table_name,
+          order_id: it.order_id, number: it.number, code: it.code, source: it.source, type: it.type, table_name: it.table_name, event_name: it.event_name, place: it.place,
           guests: it.guests, customer_name: it.customer_name,
           waiter_name: it.waiter_name, sent_by_name: it.sent_by_name || it.waiter_name, sent_by_role: it.sent_by_role,
           notes: it.order_notes, sent_at: it.sent_at, items: [],
@@ -924,7 +1016,7 @@ export function buildRouter(emit) {
         (SELECT r.customer_name || ' ' || substr(r.reserved_at, 12, 5) FROM reservations r
           WHERE r.table_id = t.id AND r.status = 'booked' AND date(r.reserved_at) = date('now','localtime') ORDER BY r.reserved_at LIMIT 1) AS reservation
       FROM dining_tables t WHERE t.active = 1 ORDER BY t.id`);
-    const open = all(`SELECT o.id, o.code, o.type, o.table_id, o.source, o.total, o.guests, o.created_at, o.customer_name, o.bill_requested_at, o.bill_method,
+    const open = all(`SELECT o.id, o.code, o.type, o.table_id, o.source, o.place, (SELECT name FROM events WHERE id = o.event_id) AS event_name, o.total, o.guests, o.created_at, o.customer_name, o.bill_requested_at, o.bill_method,
         o.pending_confirm, w.name AS waiter_name FROM orders o LEFT JOIN users w ON w.id = o.waiter_id WHERE o.status = 'open' ORDER BY o.id`);
     const lines = all(`SELECT oi.order_id, oi.name, oi.qty, oi.status, oi.sent_at, oi.ready_at FROM order_items oi
       JOIN orders o ON o.id = oi.order_id WHERE o.status = 'open' AND oi.status != 'cancelled'`);
@@ -987,6 +1079,112 @@ export function buildRouter(emit) {
       },
       hourly, by_type: byType, by_source: bySource,
     });
+  });
+
+  // ───────────── فعاليات المؤسسات (إدارة) ─────────────
+  const evRow = (e) => ({ ...e, places: e.places ? JSON.parse(e.places) : [], state: eventState(e) });
+  const toDb = (s) => { const v = String(s || '').trim().replace('T', ' '); return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(v) ? (v.length === 16 ? `${v}:00` : v) : null; };
+  const readEvent = (b) => {
+    const name = clip(b.name, 80);
+    if (!name) throw bad('أدخل اسم المؤسسة أو الفعالية');
+    const starts = toDb(b.starts_at); const ends = toDb(b.ends_at);
+    if (!starts || !ends) throw bad('حدّد وقت البداية والنهاية');
+    if (ends <= starts) throw bad('وقت النهاية يجب أن يكون بعد البداية');
+    const menu_mode = ['full', 'selected', 'cap'].includes(b.menu_mode) ? b.menu_mode : 'selected';
+    const price_cap = Number(b.price_cap) > 0 ? Number(b.price_cap) : null;
+    if (menu_mode === 'cap' && !price_cap) throw bad('حدّد أقصى سعر للصنف');
+    const item_ids = [...new Set((Array.isArray(b.item_ids) ? b.item_ids : []).map(Number).filter(Boolean))];
+    if (menu_mode === 'selected' && !item_ids.length) throw bad('اختر أصنافاً للقائمة المحددة');
+    const order_cap = Number(b.order_cap) > 0 ? Number(b.order_cap) : null;
+    const places = (Array.isArray(b.places) ? b.places : String(b.places || '').split('\n')).map((p) => clip(p, 40)).filter(Boolean).slice(0, 80);
+    return {
+      name, contact_name: clip(b.contact_name, 60) || null, contact_phone: clip(b.contact_phone, 20) || null, starts, ends, menu_mode, price_cap, order_cap, item_ids,
+      billing: b.billing === 'individual' ? 'individual' : 'institution', needs_approval: b.needs_approval ? 1 : 0, places: places.length ? JSON.stringify(places) : null, notes: clip(b.notes, 300) || null,
+      active: b.active === false || b.active === 0 ? 0 : 1,
+    };
+  };
+  const saveItems = (id, ids) => { run('DELETE FROM event_items WHERE event_id = ?', id); for (const i of ids) run('INSERT OR IGNORE INTO event_items(event_id, item_id) SELECT ?, id FROM menu_items WHERE id = ?', id, i); };
+  const evStats = (id) => get(`SELECT COUNT(*) AS orders, COALESCE(SUM(CASE WHEN status != 'cancelled' THEN total END), 0) AS total, COALESCE(SUM(CASE WHEN status = 'paid' THEN total END), 0) AS paid,
+      COALESCE(SUM(CASE WHEN status = 'open' THEN 1 END), 0) AS open_orders FROM orders WHERE event_id = ?`, id);
+
+  r.get('/events', need('events.manage'), (req, res) => {
+    res.json(all('SELECT * FROM events ORDER BY starts_at DESC, id DESC').map((e) => ({ ...evRow(e), item_count: get('SELECT COUNT(*) AS c FROM event_items WHERE event_id = ?', e.id).c, ...evStats(e.id) })));
+  });
+  r.get('/events/:id', need('events.manage'), (req, res) => {
+    const e = get('SELECT * FROM events WHERE id = ?', Number(req.params.id));
+    if (!e) throw notFound('الفعالية غير موجودة');
+    res.json({
+      ...evRow(e), ...evStats(e.id), item_ids: all('SELECT item_id FROM event_items WHERE event_id = ?', e.id).map((x) => x.item_id),
+      orders: all(`SELECT o.id, o.code, o.customer_name, o.customer_phone, o.place, o.status, o.total, o.paid, o.created_at, o.pending_confirm,
+          (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status != 'cancelled') AS items_count
+        FROM orders o WHERE o.event_id = ? ORDER BY o.id DESC LIMIT 500`, e.id),
+    });
+  });
+  r.post('/events', need('events.manage'), (req, res) => {
+    const d = readEvent(req.body || {});
+    const info = run('INSERT INTO events(name, contact_name, contact_phone, starts_at, ends_at, menu_mode, price_cap, order_cap, billing, needs_approval, places, notes, token, active, created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      d.name, d.contact_name, d.contact_phone, d.starts, d.ends, d.menu_mode, d.price_cap, d.order_cap, d.billing, d.needs_approval, d.places, d.notes, randomToken(), d.active, req.user.id);
+    const id = Number(info.lastInsertRowid);
+    saveItems(id, d.menu_mode === 'selected' ? d.item_ids : []);
+    audit(req.user.id, 'event.create', 'event', id, { name: d.name, mode: d.menu_mode });
+    res.status(201).json({ id });
+  });
+  r.put('/events/:id', need('events.manage'), (req, res) => {
+    const id = Number(req.params.id);
+    if (!get('SELECT 1 AS x FROM events WHERE id = ?', id)) throw notFound('الفعالية غير موجودة');
+    const d = readEvent(req.body || {});
+    run('UPDATE events SET name=?, contact_name=?, contact_phone=?, starts_at=?, ends_at=?, menu_mode=?, price_cap=?, order_cap=?, billing=?, needs_approval=?, places=?, notes=?, active=? WHERE id = ?',
+      d.name, d.contact_name, d.contact_phone, d.starts, d.ends, d.menu_mode, d.price_cap, d.order_cap, d.billing, d.needs_approval, d.places, d.notes, d.active, id);
+    saveItems(id, d.menu_mode === 'selected' ? d.item_ids : []);
+    audit(req.user.id, 'event.update', 'event', id, { name: d.name, mode: d.menu_mode, active: d.active });
+    res.json({ id });
+  });
+  r.post('/events/:id/active', need('events.manage'), (req, res) => {
+    const id = Number(req.params.id);
+    const e = get('SELECT name FROM events WHERE id = ?', id);
+    if (!e) throw notFound('الفعالية غير موجودة');
+    const active = req.body?.active ? 1 : 0;
+    run('UPDATE events SET active = ? WHERE id = ?', active, id);
+    audit(req.user.id, active ? 'event.resume' : 'event.pause', 'event', id, { name: e.name });
+    res.json({ active });
+  });
+  r.delete('/events/:id', need('events.manage'), (req, res) => {
+    const id = Number(req.params.id);
+    if (get('SELECT 1 AS x FROM orders WHERE event_id = ?', id)) throw bad('لا يمكن حذف فعالية عليها طلبات، أوقفها بدلاً من ذلك');
+    run('DELETE FROM events WHERE id = ?', id);
+    audit(req.user.id, 'event.delete', 'event', id);
+    res.json({ ok: true });
+  });
+  r.post('/events/:id/rotate-token', need('events.manage'), (req, res) => {
+    const id = Number(req.params.id);
+    const e = get('SELECT name FROM events WHERE id = ?', id);
+    if (!e) throw notFound('الفعالية غير موجودة');
+    const token = randomToken();
+    run('UPDATE events SET token = ? WHERE id = ?', token, id);
+    audit(req.user.id, 'event.rotate_token', 'event', id, { name: e.name });
+    res.json({ token });
+  });
+  // تحصيل دفعة واحدة من المؤسسة: يسدد كل طلبات الفعالية المفتوحة بالطريقة المختارة
+  r.post('/events/:id/settle', need('events.manage'), (req, res) => {
+    if (!hasPerm(req.user, 'payments.collect')) return res.status(403).json({ error: 'ليس لديك صلاحية التحصيل' });
+    const id = Number(req.params.id);
+    const e = get('SELECT * FROM events WHERE id = ?', id);
+    if (!e) throw notFound('الفعالية غير موجودة');
+    const method = String(req.body?.method || '');
+    if (!['cash', 'card', 'wallet'].includes(method)) throw bad('اختر طريقة الدفع');
+    let settled = 0; let total = 0; let skipped = 0;
+    for (const o of all("SELECT id FROM orders WHERE event_id = ? AND status = 'open' ORDER BY id", id)) {
+      const full = Orders.getOrder(o.id);
+      const has_items = full.items.some((i) => i.status !== 'cancelled');
+      const rem = round2(full.total - full.paid);
+      if (full.pending_confirm || !has_items || rem <= 0) { skipped++; continue; }
+      Orders.pay(o.id, [{ method, amount: rem }], req.user);
+      settled++; total = round2(total + rem);
+      emit('public-order', o.id);
+    }
+    audit(req.user.id, 'event.settle', 'event', id, { name: e.name, method, settled, total, skipped });
+    changed('orders', 'tables', 'inventory', 'kitchen');
+    res.json({ settled, total, skipped });
   });
 
   r.get('/audit', need('activity.view'), (req, res) => {

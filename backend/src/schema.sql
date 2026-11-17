@@ -143,6 +143,8 @@ CREATE TABLE IF NOT EXISTS orders (
   bill_method     TEXT,                            -- طريقة الدفع التي اختارها الزبون عند طلب الحساب: cash/wallet/bank/jawwalpay
   bill_name       TEXT,                            -- اسم الدافع
   bill_phone      TEXT,                            -- رقم المحفظة / جوال بي
+  event_id        INTEGER,                         -- فعالية/مؤسسة استأجرت المكان (طلب من QR المؤسسة)
+  place           TEXT,                            -- المكان/الطاولة التي كتبها موظف المؤسسة
   created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   closed_at       TEXT
 );
@@ -387,4 +389,30 @@ CREATE INDEX IF NOT EXISTS idx_wps_order ON web_push_subs(order_id);
 CREATE TABLE IF NOT EXISTS server_keys (
   name  TEXT PRIMARY KEY,
   value TEXT NOT NULL
+);
+
+-- فعاليات المؤسسات: مؤسسة تستأجر المكان ويطلب موظفوها من قائمة محددة عبر QR خاص بها
+CREATE TABLE IF NOT EXISTS events (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  name           TEXT NOT NULL,                    -- اسم المؤسسة / الفعالية
+  contact_name   TEXT,
+  contact_phone  TEXT,
+  starts_at      TEXT NOT NULL,                    -- بداية السماح بالطلب
+  ends_at        TEXT NOT NULL,                    -- نهاية السماح بالطلب
+  menu_mode      TEXT NOT NULL DEFAULT 'selected' CHECK (menu_mode IN ('full','selected','cap')),
+  price_cap      REAL,                             -- (وضع cap) أقصى سعر للصنف الواحد
+  order_cap      REAL,                             -- أقصى مجموع للطلب الواحد قبل الضريبة (اختياري)
+  billing        TEXT NOT NULL DEFAULT 'institution' CHECK (billing IN ('institution','individual')),
+  needs_approval INTEGER NOT NULL DEFAULT 0,       -- يحتاج تأكيد الموظف قبل المطبخ
+  places         TEXT,                             -- JSON: قائمة أماكن/طاولات يختار منها الموظف (اختياري)
+  notes          TEXT,
+  token          TEXT UNIQUE,
+  active         INTEGER NOT NULL DEFAULT 1,
+  created_by     INTEGER,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE TABLE IF NOT EXISTS event_items (
+  event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  item_id  INTEGER NOT NULL REFERENCES menu_items(id),
+  PRIMARY KEY (event_id, item_id)
 );
