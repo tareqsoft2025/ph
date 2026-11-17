@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
-  UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, IdCard, Fingerprint, CalendarOff, Banknote, HandCoins, History, KeyRound, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff,
+  UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, IdCard, Fingerprint, CalendarOff, Banknote, HandCoins, History, KeyRound, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff, Sun, Moon, SunMoon, Ellipsis, PanelRightClose, PanelRightOpen,
 } from 'lucide-react';
 import {
   api, connectSocket, disconnectSocket, getToken, setToken, needsServerUrl, setUnauthorizedHandler, getServerUrl,
@@ -12,6 +12,7 @@ import { NotificationsProvider, NotificationBell } from './notifications.jsx';
 import ApkDownload from './components/ApkDownload.jsx';
 import AttendanceGate from './components/AttendanceGate.jsx';
 import { teardownPush } from './push.js';
+import { getTheme, setTheme, nextTheme } from './theme.js';
 import Login from './pages/Login.jsx';
 import ServerSetup from './pages/ServerSetup.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -79,6 +80,10 @@ export default function App() {
   const [online, setOnline] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
+  const [theme, setThemeState] = useState(getTheme());
+  const [rail, setRail] = useState(() => { try { return localStorage.getItem('ph-rail') === '1'; } catch { return false; } });
+  const toggleRail = () => setRail((r) => { try { localStorage.setItem('ph-rail', r ? '0' : '1'); } catch { /* */ } return !r; });
+  const cycleTheme = () => { const t = nextTheme(theme); setTheme(t); setThemeState(t); };
 
   const logout = useCallback(async () => {
     await teardownPush();
@@ -123,12 +128,20 @@ export default function App() {
   const pref = ALL_NAV.find((n) => n.to === PREFERRED[user.role]);
   const home = pref && allowed(user, pref) ? pref.to : (groups[0]?.items[0]?.to || '/attendance');
   const current = ALL_NAV.find((n) => location.pathname.startsWith(n.to));
+  // شريط التنقل السفلي للجوال: أهم 4 صفحات مسموحة للمستخدم + «المزيد»
+  const QUICK = ['/tables', '/orders', '/kitchen', '/cashier', '/dashboard', '/attendance'];
+  const quick = QUICK.map((to) => ALL_NAV.find((n) => n.to === to)).filter((n) => n && allowed(user, n)).slice(0, 4);
+  const focusMode = location.pathname.startsWith('/pos');
+  const ThemeIcon = theme === 'dark' ? Moon : theme === 'light' ? Sun : SunMoon;
+  const themeLabel = { auto: 'المظهر: تلقائي', light: 'المظهر: فاتح', dark: 'المظهر: داكن' }[theme];
+  const hour = new Date().getHours();
+  const greet = hour < 12 ? 'صباح الخير' : hour < 18 ? 'مساء الخير' : 'مساء النور';
 
   return (
     <AppContext.Provider value={{ user, settings, setSettings, logout }}>
       <NotificationsProvider user={user}>
       <AttendanceGate>
-      <div className={`shell ${menuOpen ? 'menu-open' : ''} ${location.pathname.startsWith('/kitchen') ? 'route-kitchen' : ''}`}>
+      <div className={`shell ${menuOpen ? 'menu-open' : ''} ${rail ? 'rail' : ''} ${focusMode ? 'focus' : ''} ${location.pathname.startsWith('/kitchen') ? 'route-kitchen' : ''}`}>
         <aside className="sidebar" aria-label="القائمة الرئيسية">
           <div className="brand">
             <span className="brand-mark" aria-hidden><UtensilsCrossed size={20} strokeWidth={2.2} /></span>
@@ -142,7 +155,7 @@ export default function App() {
               <div key={g.group} className="nav-group">
                 <span className="nav-group-label">{g.group}</span>
                 {g.items.map((n) => (
-                  <NavLink key={n.to} to={n.to} className="nav-link">
+                  <NavLink key={n.to} to={n.to} className="nav-link" title={n.label}>
                     <n.icon size={19} strokeWidth={1.8} aria-hidden />
                     <span>{n.label}</span>
                   </NavLink>
@@ -154,6 +167,7 @@ export default function App() {
             <div className="me">
               <div className="avatar" aria-hidden>{user.name.slice(0, 1)}</div>
               <div className="me-text"><strong>{user.name}</strong><small>{ROLE_LABELS[user.role]}</small></div>
+              <button className="icon-btn rail-toggle" onClick={toggleRail} aria-label={rail ? 'توسيع القائمة' : 'تصغير القائمة'} title={rail ? 'توسيع القائمة' : 'تصغير القائمة'}>{rail ? <PanelRightOpen size={18} /> : <PanelRightClose size={18} />}</button>
               <button className="icon-btn" onClick={logout} aria-label="تسجيل الخروج" title="تسجيل الخروج"><LogOut size={18} /></button>
             </div>
           </div>
@@ -165,7 +179,9 @@ export default function App() {
             <div className="topbar-title">
               {current && <current.icon size={20} strokeWidth={1.8} aria-hidden />}
               <span>{current?.label || settings?.restaurant_name}</span>
+              <small className="topbar-greet">{greet}، {user.name.split(' ')[0]}</small>
             </div>
+            <button className="icon-btn" onClick={cycleTheme} aria-label={themeLabel} title={themeLabel}><ThemeIcon size={19} /></button>
             <span className={`conn ${online ? 'on' : 'off'}`} title={getServerUrl() || 'الخادم'}>
               {online ? <Wifi size={14} /> : <WifiOff size={14} />}
               <span className="conn-label">{online ? 'متصل' : 'غير متصل'}</span>
@@ -201,6 +217,14 @@ export default function App() {
             </Routes>
           </div>
         </main>
+        {!focusMode && (
+          <nav className="bottom-nav" aria-label="التنقل السريع">
+            {quick.map((n) => (
+              <NavLink key={n.to} to={n.to} className="bn-item"><n.icon size={22} strokeWidth={1.8} aria-hidden /><span>{n.label}</span></NavLink>
+            ))}
+            <button className="bn-item" onClick={() => setMenuOpen(true)}><Ellipsis size={22} aria-hidden /><span>المزيد</span></button>
+          </nav>
+        )}
       </div>
       </AttendanceGate>
       </NotificationsProvider>
