@@ -13,8 +13,10 @@ import '@fontsource/alexandria/600.css';
 import '@fontsource/alexandria/700.css';
 import './styles.css';
 import { applyTheme } from './theme.js';
+import { applyAppUi } from './appui.js';
 
 applyTheme();
+applyAppUi();
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
