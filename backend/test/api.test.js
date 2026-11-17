@@ -359,3 +359,49 @@ test('customer web push subscription: needs the order token, validates the endpo
   assert.equal((await api('/public/orders/ORD-NOPE/push?t=x', { method: 'POST', body })).status, 404);
   await api('/settings', { method: 'PUT', token: admin, body: { qr_confirm_mode: 'smart', qr_require_open: '1' } });
 });
+
+test('customer bill request: payment method + name/phone reach the cashier and are saved to customers', async () => {
+  const admin = await login('admin', 'admin123');
+  const cashier = await login('cashier', '1234');
+  await api('/settings', { method: 'PUT', token: admin, body: { qr_confirm_mode: 'never', qr_require_open: '0' } });
+  const tbl = (await api('/tables/qr', { token: admin })).data.at(-2);
+  const item = (await api(`/public/table/${tbl.token}/menu`)).data.items.find((i) => i.available && !i.modifiers.length);
+  const o = await api(`/public/table/${tbl.token}/orders`, { method: 'POST', body: { guests: 2, customer_name: 'سامي', customer_phone: '0561112233', device_id: 'dev-bill', items: [{ item_id: item.id, qty: 2 }] } });
+  assert.equal(o.status, 201, JSON.stringify(o.data));
+  const { code, token } = o.data;
+  const bill = (body, t = token) => api(`/public/orders/${code}/bill?t=${t}`, { method: 'POST', body });
+
+  assert.equal((await bill({ method: 'wallet', name: 'سامي', phone: '0561112233' }, 'wrong')).status, 404, 'needs the order token');
+  assert.equal((await bill({ method: 'crypto' })).status, 400, 'unknown method');
+  assert.equal((await bill({ method: 'jawwalpay', name: 'سامي', phone: '' })).status, 400, 'Jawwal Pay needs the phone number');
+  assert.equal((await bill({ method: 'wallet', name: '', phone: '0561112233' })).status, 400, 'name required for e-payment');
+  const ok = await bill({ method: 'jawwalpay', name: 'سامي علي', phone: '0569998877' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+
+  const tr = (await api(`/public/orders/${code}?t=${token}`)).data;
+  assert.equal(tr.bill.method, 'jawwalpay');
+  assert.equal(tr.bill.phone, '0569998877');
+  const row = (await api('/orders?status=open', { token: cashier })).data.find((x) => x.code === code);
+  assert.equal(row.bill_method, 'jawwalpay');
+  assert.ok(row.bill_requested_at, 'order is flagged as bill requested');
+  const nt = (await api('/notifications', { token: cashier })).data.rows.find((n) => n.type === 'bill_request' && n.body.includes(code));
+  assert.ok(nt && nt.title.includes('جوال بي') && nt.body.includes('0569998877') && nt.link === `/cashier?order=${row.id}`, 'cashier notification carries method, phone and links to the order');
+  const cust = (await api('/customers?q=0561112233', { token: cashier })).data.find((c) => c.phone === '0561112233');
+  assert.equal(cust.pay_method, 'jawwalpay');
+  assert.equal(cust.pay_phone, '0569998877');
+  assert.equal(cust.pay_name, 'سامي علي');
+  const det = (await api(`/orders/${row.id}`, { token: cashier })).data;
+  assert.ok(det.events.some((e) => e.type === 'bill_requested' && /جوال بي/.test(e.message)), 'timeline records the request');
+  assert.ok((await api('/audit?category=qr', { token: admin })).data.rows.some((a) => a.action === 'qr.request_bill' && a.details.method === 'jawwalpay'), 'audit records the request');
+  // لا إضافة بعد طلب الحساب
+  assert.equal((await api(`/public/table/${tbl.token}/orders`, { method: 'POST', body: { order_token: token, items: [{ item_id: item.id, qty: 1 }] } })).status, 400);
+  // إلغاء طلب الحساب
+  assert.equal((await api(`/public/orders/${code}/bill?t=${token}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await api(`/public/orders/${code}?t=${token}`)).data.bill, null);
+  // نقداً: بلا بيانات
+  assert.equal((await bill({ method: 'cash' })).status, 200);
+  // السماح قابل للإيقاف
+  await api('/settings', { method: 'PUT', token: admin, body: { qr_allow_bill: '0' } });
+  assert.equal((await bill({ method: 'cash' })).status, 400);
+  await api('/settings', { method: 'PUT', token: admin, body: { qr_allow_bill: '1', qr_confirm_mode: 'smart', qr_require_open: '1' } });
+});

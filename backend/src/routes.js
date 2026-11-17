@@ -94,6 +94,7 @@ export function buildRouter(emit) {
       table: { name: t.name, seats: t.seats, area: t.area, busy: !!open, open: tableOpen(t) },
       // الطلب المفتوح من هذا الرمز (لإتاحة الإضافة عليه لمن يملك رمز متابعته فقط)
       open_code: open?.source === 'online' ? open.code : null,
+      bill_allowed: s.qr_allow_bill === '1',
     });
   });
 
@@ -141,6 +142,7 @@ export function buildRouter(emit) {
     if (open) {
       // إضافة على طلب الطاولة المفتوح: لا تُقبل إلا بشرط أن يكون طلباً من الرمز ومع رمز متابعته
       if (open.source !== 'online' || !open.track_token || open.track_token !== String(b.order_token || '')) throw bad('الطاولة عليها طلب مفتوح، نادِ النادل لإضافة أصناف');
+      if (open.bill_requested_at) throw bad('تم طلب الحساب لهذه الطاولة، نادِ النادل لإضافة أصناف');
       id = open.id; added = true; before = open.subtotal;
       Orders.addItems(id, lines, PUBLIC_USER);
     } else {
@@ -211,6 +213,29 @@ export function buildRouter(emit) {
     res.json({ ok: true });
   });
 
+  // طلب الحساب من الزبون: طريقة الدفع (محفظة / بنك / جوال بي / نقداً) + الاسم ورقم الجوال → للكاشير
+  const billOrder = (req) => {
+    if (limited(req, 'bl', 20, 10 * 60 * 1000)) throw Object.assign(bad('طلبات كثيرة، حاول بعد قليل'), { status: 429 });
+    if (!onlineOn() || getSettings().qr_allow_bill !== '1') throw bad('طلب الحساب من الهاتف غير متاح، نادِ النادل');
+    const o = get("SELECT id, track_token FROM orders WHERE code = ? AND source = 'online'", String(req.params.code));
+    if (!o || !o.track_token || o.track_token !== String(req.query.t || '')) throw notFound('الطلب غير موجود');
+    return o;
+  };
+  r.post('/public/orders/:code/bill', (req, res) => {
+    const o = billOrder(req);
+    Orders.customerBill(o.id, { method: String(req.body?.method || ''), name: req.body?.name, phone: req.body?.phone });
+    changed('orders', 'tables');
+    emit('public-order', o.id);
+    res.json({ ok: true, code: String(req.params.code) });
+  });
+  r.delete('/public/orders/:code/bill', (req, res) => {
+    const o = billOrder(req);
+    Orders.cancelCustomerBill(o.id);
+    changed('orders', 'tables');
+    emit('public-order', o.id);
+    res.json({ ok: true });
+  });
+
   r.get('/public/orders/:code', (req, res) => {
     if (limited(req, 'pg', 120, 60 * 1000)) return res.status(429).json({ error: 'طلبات كثيرة، حاول بعد قليل' });
     const o = get('SELECT * FROM orders WHERE code = ? AND source = ?', String(req.params.code), 'online');
@@ -218,6 +243,7 @@ export function buildRouter(emit) {
     const full = Orders.getOrder(o.id);
     res.json({
       code: full.code, status: full.status, table_name: full.table_name, total: full.total, created_at: full.created_at,
+      bill: full.bill_requested_at ? { at: full.bill_requested_at, method: full.bill_method, name: full.bill_name, phone: full.bill_phone } : null,
       pending_confirm: !!full.pending_confirm, cancel_reason: full.status === 'cancelled' ? full.cancel_reason : null,
       items: full.items.filter((i) => i.status !== 'cancelled').map((i) => ({ name: i.name, qty: i.qty, status: i.status })),
     });

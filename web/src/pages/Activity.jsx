@@ -35,6 +35,8 @@ function describe(a, money) {
     'order.reject': [Ban, `رفض طلب QR${code}${d.reason ? `: ${d.reason}` : ''}`],
     'qr.request_open': [BellRing, `${name || d.name || 'طاولة'}: الزبون يطلب فتح الطلب بالـ QR`],
     'qr.table_open': [QrCode, `فتح ${name || d.name || 'الطاولة'} لطلب QR${d.answered_request ? ' (استلام طلب الزبون)' : ''}${d.minutes ? ` · ${d.minutes >= 60 ? `${+(d.minutes / 60).toFixed(1)} ساعة` : `${d.minutes} د`}` : ''}`],
+    'qr.request_bill': [ReceiptText, `الزبون طلب الحساب${code}${d.method ? ` · ${({ cash: 'نقداً', wallet: 'محفظة', bank: 'بنك', jawwalpay: 'جوال بي' })[d.method]}` : ''}${d.name ? ` · ${d.name}` : ''}${d.phone ? ` · ${d.phone}` : ''}${d.total ? ` · ${money(d.total)}` : ''}`],
+    'qr.cancel_bill': [Ban, `الزبون ألغى طلب الحساب${code}`],
     'qr.table_close': [QrCode, `إغلاق ${name || d.name || 'الطاولة'} لطلب QR`],
     'qr.order': [QrCode, `${d.added ? 'إضافة' : 'طلب'} من الزبون عبر QR${code}${d.table ? ` · ${d.table}` : ''} · ${d.items || ''} صنف · ${money(d.total)}${d.customer ? ` · ${d.customer}` : ''}${d.needs_confirm ? ' · بانتظار التأكيد' : ''}${d.waiter ? ` · المسؤول: ${d.waiter}` : ''}`],
     'settings.table_qr_rotate': [QrCode, `تغيير رمز QR لـ ${d.name || ''}`],

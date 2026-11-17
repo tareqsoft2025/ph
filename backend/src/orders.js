@@ -16,6 +16,7 @@ const CUSTOMER_MSG = {
   rejected: ['⚠️ تعذّر قبول طلبك', 'نادِ النادل للمساعدة.'],
   cancelled: ['⚠️ أُلغي طلبك', 'نادِ النادل للمساعدة.'],
   paid: ['💚 شكراً لزيارتكم', 'نتمنى أن نراكم قريباً.'],
+  bill: ['🧾 تم إرسال طلب الحساب', 'يرجى التوجه إلى الكاشير وذكر كود العملية.'],
 };
 /** إشعار لزبون طلب QR (Web Push) عند تغيّر حالة طلبه */
 export function notifyCustomer(orderId, kind, extra = null) {
@@ -423,4 +424,47 @@ export function rejectOrder(orderId, reason, user) {
   cancelOrder(orderId, reason || 'رفضه الموظف', user, true);
   notifyCustomer(orderId, 'rejected', reason ? `السبب: ${reason}` : null);
   audit(user.id, 'order.reject', 'order', orderId, { reason });
+}
+
+export const BILL_METHODS = { cash: 'نقداً', wallet: 'محفظة', bank: 'بنك', jawwalpay: 'جوال بي' };
+
+/** طلب الحساب من الزبون (QR): يُرسل للكاشير مع طريقة الدفع والبيانات، ويُحفظ في قائمة العملاء */
+export function customerBill(orderId, { method, name, phone }) {
+  const order = get('SELECT * FROM orders WHERE id = ?', orderId);
+  assertOpen(order);
+  if (order.pending_confirm) throw bad('طلبك بانتظار تأكيد النادل، انتظر قليلاً');
+  if (!get("SELECT 1 AS x FROM order_items WHERE order_id = ? AND status != 'cancelled'", orderId)) throw bad('لا توجد أصناف في الطلب');
+  if (!BILL_METHODS[method]) throw bad('اختر طريقة الدفع');
+  const nm = String(name || '').trim().slice(0, 60);
+  const ph = String(phone || '').trim().slice(0, 20);
+  if (method !== 'cash') {
+    if (!nm) throw bad('أدخل الاسم');
+    if ((method === 'wallet' || method === 'jawwalpay') && !PHONE_RE.test(ph)) throw bad(method === 'jawwalpay' ? 'أدخل رقم جوال بي' : 'أدخل رقم المحفظة');
+    if (method === 'bank' && ph && !PHONE_RE.test(ph)) throw bad('رقم الجوال غير صحيح');
+  }
+  tx(() => {
+    run("UPDATE orders SET bill_requested_at = datetime('now','localtime'), bill_method = ?, bill_name = ?, bill_phone = ? WHERE id = ?", method, nm || null, ph || null, orderId);
+    logEvent(orderId, 'bill_requested', null, `طلب الحساب من الزبون · ${BILL_METHODS[method]}`, { method, name: nm || null, phone: ph || null });
+    // حفظ بيانات الدفع في قائمة العملاء (على جوال التواصل المسجَّل في الطلب)
+    if (method !== 'cash' && order.customer_phone) {
+      const c = get('SELECT id FROM customers WHERE phone = ?', order.customer_phone);
+      if (c) run('UPDATE customers SET pay_method = ?, pay_phone = ?, pay_name = ?, name = COALESCE(NULLIF(name, \'\'), ?) WHERE id = ?', method, ph || null, nm, nm, c.id);
+      else run('INSERT INTO customers(name, phone, pay_method, pay_phone, pay_name) VALUES(?,?,?,?,?)', nm, order.customer_phone, method, ph || null, nm);
+    }
+  });
+  audit(null, 'qr.request_bill', 'order', orderId, { method, name: nm || null, phone: ph || null, total: order.total });
+  const { code, where } = orderLabel(orderId);
+  notify({
+    perms: ['payments.collect'], roles: ['admin', 'manager'], userIds: [order.waiter_id], type: 'bill_request', level: 'warning', link: `/cashier?order=${orderId}`,
+    title: `${where} تطلب الحساب · ${BILL_METHODS[method]}`, body: `${code} · المبلغ ${order.total}${nm ? ` · ${nm}` : ''}${ph ? ` · ${ph}` : ''}`,
+  });
+  notifyCustomer(orderId, 'bill', `يرجى التوجه إلى الكاشير · كود العملية ${code}`);
+}
+
+export function cancelCustomerBill(orderId) {
+  const order = get('SELECT * FROM orders WHERE id = ?', orderId);
+  assertOpen(order);
+  run('UPDATE orders SET bill_requested_at = NULL, bill_method = NULL, bill_name = NULL, bill_phone = NULL WHERE id = ?', orderId);
+  logEvent(orderId, 'bill_cancelled', null, 'ألغى الزبون طلب الحساب');
+  audit(null, 'qr.cancel_bill', 'order', orderId);
 }

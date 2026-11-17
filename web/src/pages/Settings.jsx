@@ -178,6 +178,7 @@ function OnlineOrderingSettings() {
       </label>
       <div className="qr-sec">
         <h4>الأمان</h4>
+        <label className="switch"><input type="checkbox" checked={settings.qr_allow_bill === '1'} onChange={() => put('qr_allow_bill', settings.qr_allow_bill === '1' ? '0' : '1')} /> السماح للزبون بطلب الحساب من هاتفه (محفظة / بنك / جوال بي / نقداً) فيصلك للكاشير</label>
         <label className="switch"><input type="checkbox" checked={settings.qr_require_open === '1'} onChange={() => put('qr_require_open', settings.qr_require_open === '1' ? '0' : '1')} /> لا يُقبل طلب إلا بعد أن يفتح النادل الطاولة (موصى به)</label>
         <div className="grid-2">
           <Field label="تأكيد الموظف قبل المطبخ">

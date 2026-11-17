@@ -1858,3 +1858,40 @@ body { background: var(--bg) radial-gradient(900px 420px at 100% -10%, color-mix
 .co-pushcard.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
 .co-pushcard.warn .co-pushicon { background: var(--warn); box-shadow: none; }
 @media (max-width: 420px) { .co-pushcard { flex-wrap: wrap; } .co-pushcard .btn { width: 100%; } }
+
+/* ═════════ طلب الحساب من الزبون ═════════ */
+.co-bill-total { display: flex; justify-content: space-between; align-items: center; margin: 0; padding: var(--s-3) var(--s-4); border-radius: var(--radius-md); background: var(--primary-soft); color: var(--primary); }
+.co-bill-total strong { font-family: var(--font-display); font-size: var(--text-xl); }
+.co-methods { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--s-2); }
+.co-method { font: inherit; font-weight: 700; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: var(--s-4) var(--s-2); border-radius: var(--radius-lg); border: 2px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; transition: all 150ms var(--ease); }
+.co-method.on { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); box-shadow: 0 6px 16px color-mix(in srgb, var(--primary) 22%, transparent); }
+.co-ticket { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--s-2); padding: var(--s-5) var(--s-4); border-radius: var(--radius-lg); background: var(--surface); border: 2px dashed color-mix(in srgb, var(--ok) 55%, var(--border)); box-shadow: var(--shadow-md); animation: pop 380ms cubic-bezier(.2,1.4,.4,1); }
+.co-ticket::before, .co-ticket::after { content: ''; position: absolute; top: 50%; width: 18px; height: 18px; border-radius: 50%; background: var(--bg); border: 2px dashed color-mix(in srgb, var(--ok) 55%, var(--border)); }
+.co-ticket::before { inset-inline-start: -11px; } .co-ticket::after { inset-inline-end: -11px; }
+.co-ticket-ico { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: var(--ok); color: #fff; }
+.co-ticket h3 { margin: 0; font-size: var(--text-lg); }
+.co-ticket-msg { margin: 0; font-weight: 700; color: var(--ok); font-size: var(--text-lg); }
+.co-ticket-code { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; padding: var(--s-3); border-radius: var(--radius-md); background: var(--surface-2); text-align: center; }
+.co-ticket-code small { color: var(--muted); font-size: var(--text-xs); }
+.co-ticket-code strong { font-family: var(--font-display); font-size: var(--text-2xl); letter-spacing: .06em; color: var(--primary); }
+.co-ticket-copy { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--muted); }
+.co-ticket-rows { width: 100%; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.co-ticket-rows > div { display: flex; justify-content: space-between; gap: var(--s-3); font-size: var(--text-sm); }
+.co-ticket-rows dt { color: var(--muted); } .co-ticket-rows dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .co-ticket { animation: none; } }
+
+/* ═════════ بطاقة طلب الحساب عند الكاشير ═════════ */
+.bill-card { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-4); margin-bottom: var(--s-3); border-radius: var(--radius-lg); background: linear-gradient(135deg, var(--warn-soft), var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 50%, var(--border)); box-shadow: var(--shadow-sm); animation: rise 280ms var(--ease); }
+.bc-ico { width: 46px; height: 46px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; background: var(--warn); color: #fff; }
+.bc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.bc-kicker { font-size: var(--text-xs); color: var(--muted); }
+.bc-method { font-family: var(--font-display); font-size: var(--text-lg); }
+.bc-rows { display: flex; flex-wrap: wrap; gap: 4px var(--s-4); margin-top: 2px; }
+.bc-rows > span { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-sm); }
+.bc-rows small { color: var(--muted); }
+.bc-rows b { font-variant-numeric: tabular-nums; }
+.bc-copy { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: var(--muted); }
+.bc-copy:hover { background: var(--surface-2); color: var(--primary); }
+.bc-amount { font-family: var(--font-display); font-size: var(--text-xl); font-variant-numeric: tabular-nums; color: var(--ok); white-space: nowrap; }
+.pay-hint { margin: 0 0 var(--s-3); padding: var(--s-2) var(--s-3); border-radius: var(--radius-md); background: var(--warn-soft); font-size: var(--text-sm); }
+@media (max-width: 640px) { .bill-card { flex-wrap: wrap; } .bc-amount { width: 100%; text-align: end; } }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
-  UtensilsCrossed, Search, Plus, Minus, Armchair, QrCode, X, Send, CircleCheckBig, ChefHat, BellRing, HandPlatter, Clock, SlidersHorizontal, Ban, Phone, UserRound, MapPin, Receipt,
+  UtensilsCrossed, Search, Plus, Minus, Armchair, QrCode, X, Send, Banknote, Wallet, Landmark, Smartphone, Copy, Check, CircleCheckBig, ChefHat, BellRing, HandPlatter, Clock, SlidersHorizontal, Ban, Phone, UserRound, MapPin, Receipt,
 } from 'lucide-react';
 import { api, watchOrder } from '../api.js';
 import { pushSupported, pushKey, enableOrderPush, isIOS, isStandalone } from '../webpush.js';
@@ -11,6 +11,8 @@ const deviceId = () => { let d = safe(() => localStorage.getItem('ph-co-device')
 const lastKey = (t) => `ph-online-last-${String(t).slice(0, 10)}`;
 const fmt = (n, cur) => `${(Math.round(Number(n) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${cur || ''}`.trim();
 const STEPS = [['new', 'تم الاستلام', Receipt], ['preparing', 'قيد التحضير', ChefHat], ['ready', 'جاهز', BellRing], ['served', 'تم التقديم', HandPlatter]];
+const BILL_LABEL = { cash: 'نقداً', wallet: 'محفظة', bank: 'بنك', jawwalpay: 'جوال بي' };
+const BILL_METHODS = [['jawwalpay', 'جوال بي', Smartphone], ['wallet', 'محفظة', Wallet], ['bank', 'بنك', Landmark], ['cash', 'نقداً', Banknote]];
 const stage = (items) => {
   if (!items.length) return 0;
   if (items.every((i) => i.status === 'served')) return 3;
@@ -106,7 +108,7 @@ export default function CustomerOrder() {
   if (!cfg) return <Shell cfg={cfg}><div className="co-state"><p className="muted">جارِ التحميل…</p></div></Shell>;
   if (!cfg.enabled) return <Shell cfg={cfg}><div className="co-state"><Ban size={44} aria-hidden /><h2>الطلب عبر QR متوقف حالياً</h2><p>نادِ النادل لتقديم طلبك.</p></div></Shell>;
   const mine = done && cfg.table.busy && done.code === cfg.open_code;
-  if (done && !adding && (mine || !cfg.table.busy)) return <Shell cfg={cfg}><Tracker order={done} cur={cur} phone={cfg.phone} onAdd={() => setAdding(true)} onClosed={() => { safe(() => localStorage.removeItem(lastKey(tableToken))); setDone(null); setCfg({ ...cfg, table: { ...cfg.table, busy: false } }); }} /></Shell>;
+  if (done && !adding && (mine || !cfg.table.busy)) return <Shell cfg={cfg}><Tracker order={done} cur={cur} phone={cfg.phone} billAllowed={!!cfg.bill_allowed} onAdd={() => setAdding(true)} onClosed={() => { safe(() => localStorage.removeItem(lastKey(tableToken))); setDone(null); setCfg({ ...cfg, table: { ...cfg.table, busy: false } }); }} /></Shell>;
   if (waitingOpen) return <Shell cfg={cfg}><div className="co-state"><HandPlatter size={44} aria-hidden /><h2>أهلاً بك! {cfg.table.name}</h2><p>الطلب من هاتفك يبدأ عندما يفتح النادل الطاولة. ستظهر القائمة تلقائياً بمجرد فتحها.</p>{askedAt && Date.now() - askedAt < 60000 ? <div className="co-sent"><CircleCheckBig size={18} aria-hidden /> تم إبلاغ النادل، ستفتح القائمة خلال لحظات</div> : <button className="btn btn-primary btn-lg" onClick={askOpen}><BellRing size={18} /> {askedAt ? 'تنبيه النادل مرة أخرى' : 'اطلب من النادل فتح الطاولة'}</button>}{askErr && <div className="alert alert-err">{askErr}</div>}</div></Shell>;
   if (cfg.table.busy && !mine) return <Shell cfg={cfg}><div className="co-state"><Armchair size={44} aria-hidden /><h2>{cfg.table.name} عليها طلب مفتوح</h2><p>لإضافة أصناف نادِ النادل.</p></div></Shell>;
 
@@ -231,13 +233,15 @@ function Picker({ item, cur, onClose, onAdd }) {
 }
 
 /** متابعة حالة الطلب للزبون: تتحدث فوراً عند ضغط المطبخ على أي مرحلة */
-function Tracker({ order, cur, phone, onAdd, onClosed }) {
+function Tracker({ order, cur, phone, billAllowed, onAdd, onClosed }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   const [live, setLive] = useState(true);
   const [flash, setFlash] = useState('');
   const prev = useRef(-1);
   const [, tick] = useState(0);
+  const [billOpen, setBillOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [pp, setPp] = useState({ state: 'hidden' });   // hidden | ask | on | denied | busy | ios
 
   useEffect(() => {
@@ -326,6 +330,25 @@ function Tracker({ order, cur, phone, onAdd, onClosed }) {
               {STEPS.map(([k, label, I], i) => <li key={k} className={i < st ? 'done' : i === st ? 'cur' : ''}><span><I size={18} aria-hidden /></span><small>{label}</small></li>)}
             </ol>
           )}
+          {data.bill && !closed && (
+            <section className="co-ticket" aria-label="طلب الحساب">
+              <span className="co-ticket-ico" aria-hidden><Receipt size={26} /></span>
+              <h3>تم إرسال طلب الحساب</h3>
+              <p className="co-ticket-msg">يرجى التوجه إلى الكاشير</p>
+              <button className="co-ticket-code" onClick={async () => { try { await navigator.clipboard.writeText(order.code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* */ } }} aria-label="نسخ كود العملية">
+                <small>كود العملية</small>
+                <strong dir="ltr">{order.code}</strong>
+                <span className="co-ticket-copy">{copied ? <><Check size={13} /> تم النسخ</> : <><Copy size={13} /> نسخ</>}</span>
+              </button>
+              <dl className="co-ticket-rows">
+                <div><dt>طريقة الدفع</dt><dd>{BILL_LABEL[data.bill.method] || data.bill.method}</dd></div>
+                {data.bill.name && <div><dt>الاسم</dt><dd>{data.bill.name}</dd></div>}
+                {data.bill.phone && <div><dt>{data.bill.method === 'jawwalpay' ? 'رقم جوال بي' : data.bill.method === 'wallet' ? 'رقم المحفظة' : 'الجوال'}</dt><dd dir="ltr">{data.bill.phone}</dd></div>}
+                <div><dt>المبلغ</dt><dd>{fmt(data.total, cur)}</dd></div>
+              </dl>
+              <button className="btn btn-ghost btn-sm" onClick={async () => { try { await api(`/public/orders/${order.code}/bill?t=${order.token}`, { method: 'DELETE' }); setData((d) => ({ ...d, bill: null })); } catch { /* */ } }}>إلغاء طلب الحساب</button>
+            </section>
+          )}
           <ul className="co-lines flat">
             {data.items.map((i, k) => <li key={k}><b>{i.qty}×</b><span className="co-line-name">{i.name}</span><span className={`status status-${i.status}`}>{pend && i.status === 'pending' ? 'بانتظار التأكيد' : { new: 'تم الاستلام', preparing: 'قيد التحضير', ready: 'جاهز', served: 'تم التقديم' }[i.status] || i.status}</span></li>)}
           </ul>
@@ -333,7 +356,13 @@ function Tracker({ order, cur, phone, onAdd, onClosed }) {
         </>
       )}
       <p className="muted small"><Clock size={13} aria-hidden /> احتفظ بهذه الصفحة مفتوحة وستتحدث الحالة تلقائياً.{phone ? <> للاستفسار <bdi dir="ltr">{phone}</bdi></> : null}</p>
-      {closed ? <button className="btn btn-block" onClick={onClosed}>طلب جديد</button> : <button className="btn btn-primary btn-block" onClick={onAdd}><Plus size={17} /> إضافة أصناف لطلبي</button>}
+      {closed ? <button className="btn btn-block" onClick={onClosed}>طلب جديد</button> : (
+        <>
+          {billAllowed && !pend && data && !data.bill && data.items.length > 0 && <button className="btn btn-ok btn-lg btn-block" onClick={() => setBillOpen(true)}><Receipt size={19} /> طلب الحساب</button>}
+          {!data?.bill && <button className="btn btn-primary btn-block" onClick={onAdd}><Plus size={17} /> إضافة أصناف لطلبي</button>}
+        </>
+      )}
+      {billOpen && <BillSheet order={order} total={data?.total} cur={cur} onClose={() => setBillOpen(false)} onDone={(b) => { setBillOpen(false); setData((d) => ({ ...d, bill: { at: new Date().toISOString(), ...b } })); }} />}
     </div>
   );
 }
@@ -344,5 +373,51 @@ export function NoQr() {
     <Shell cfg={null}>
       <div className="co-state"><QrCode size={44} aria-hidden /><h2>الطلب عبر رمز QR فقط</h2><p>امسح رمز QR الموجود على طاولتك لعرض المنيو وإرسال طلبك.</p></div>
     </Shell>
+  );
+}
+
+/** طلب الحساب: اختيار طريقة الدفع ثم الاسم ورقم الجوال */
+function BillSheet({ order, total, cur, onClose, onDone }) {
+  const [method, setMethod] = useState('jawwalpay');
+  const [name, setName] = useState(() => safe(() => localStorage.getItem('ph-co-name'), '') || '');
+  const [phone, setPhone] = useState(() => safe(() => localStorage.getItem('ph-co-phone'), '') || '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const e = method !== 'cash';
+  const phoneLabel = method === 'jawwalpay' ? 'رقم جوال بي *' : method === 'wallet' ? 'رقم المحفظة *' : 'رقم الجوال (اختياري)';
+  const send = async () => {
+    setErr('');
+    if (e && !name.trim()) return setErr('أدخل الاسم');
+    if ((method === 'jawwalpay' || method === 'wallet') && !/^\+?[0-9\s-]{7,15}$/.test(phone.trim())) return setErr(method === 'jawwalpay' ? 'أدخل رقم جوال بي صحيحاً' : 'أدخل رقم المحفظة صحيحاً');
+    setBusy(true);
+    try {
+      const b = { method, name: e ? name.trim() : '', phone: e ? phone.trim() : '' };
+      await api(`/public/orders/${order.code}/bill?t=${order.token}`, { method: 'POST', body: b });
+      safe(() => { localStorage.setItem('ph-co-name', name.trim()); });
+      onDone(b);
+    } catch (x) { setErr(x.message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="co-sheet-wrap" onClick={onClose}>
+      <section className="co-sheet" role="dialog" aria-modal="true" aria-label="طلب الحساب" onClick={(ev) => ev.stopPropagation()}>
+        <header><h2>طلب الحساب</h2><button className="icon-btn" onClick={onClose} aria-label="إغلاق"><X size={20} /></button></header>
+        <div className="co-sheet-body">
+          <p className="co-bill-total"><span>المبلغ المطلوب</span><strong>{fmt(total, cur)}</strong></p>
+          <div className="co-methods" role="radiogroup" aria-label="طريقة الدفع">
+            {BILL_METHODS.map(([k, label, I]) => (
+              <button key={k} role="radio" aria-checked={method === k} className={`co-method ${method === k ? 'on' : ''}`} onClick={() => setMethod(k)}><I size={22} aria-hidden /><span>{label}</span></button>
+            ))}
+          </div>
+          {e ? (
+            <div className="co-form">
+              <label><span><UserRound size={14} aria-hidden /> الاسم *</span><input value={name} onChange={(ev) => setName(ev.target.value)} autoComplete="name" /></label>
+              <label><span><Phone size={14} aria-hidden /> {phoneLabel}</span><input inputMode="tel" dir="ltr" placeholder="05xxxxxxxx" value={phone} onChange={(ev) => setPhone(ev.target.value)} autoComplete="tel" /></label>
+            </div>
+          ) : <p className="muted small">ادفع نقداً عند الكاشير. لا حاجة لإدخال بيانات.</p>}
+          {err && <div className="alert alert-err">{err}</div>}
+        </div>
+        <footer><button className="btn btn-ok btn-lg btn-block" onClick={send} disabled={busy}><Send size={19} /> {busy ? 'جارِ الإرسال…' : 'إرسال للكاشير'}</button></footer>
+      </section>
+    </div>
   );
 }

@@ -92,6 +92,9 @@ CREATE TABLE IF NOT EXISTS customers (
   name       TEXT,
   phone      TEXT UNIQUE,
   address    TEXT,
+  pay_method TEXT,                 -- آخر طريقة دفع إلكتروني اختارها العميل (من طلب الحساب)
+  pay_phone  TEXT,                 -- رقم المحفظة / جوال بي
+  pay_name   TEXT,                 -- اسم الدافع
   points     INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
@@ -137,6 +140,9 @@ CREATE TABLE IF NOT EXISTS orders (
   track_token     TEXT,                            -- رمز متابعة الزبون للطلب
   pending_confirm INTEGER NOT NULL DEFAULT 0,      -- طلب QR بانتظار تأكيد النادل قبل المطبخ
   device_id       TEXT,                            -- معرّف جهاز الزبون (طلب QR)
+  bill_method     TEXT,                            -- طريقة الدفع التي اختارها الزبون عند طلب الحساب: cash/wallet/bank/jawwalpay
+  bill_name       TEXT,                            -- اسم الدافع
+  bill_phone      TEXT,                            -- رقم المحفظة / جوال بي
   created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   closed_at       TEXT
 );

@@ -3,7 +3,7 @@ import { buildRouter } from '../../../backend/src/routes.js';
 import { ensureSeed } from '../../../backend/src/seed.js';
 import { dispatch } from './express.js';
 import { bus, ALL_EVENTS } from './bus.js';
-import { saveIfDirty, reloadFromStorage, STORAGE_KEY, db } from './driver.js';
+import { saveIfDirty, reloadFromStorage, syncFromStorage, STORAGE_KEY, db } from './driver.js';
 
 ensureSeed();
 // في النسخة التجريبية يبدأ شرط الحضور الإلزامي معطّلاً (يُفعَّل من الإعدادات)
@@ -19,6 +19,7 @@ window.addEventListener('storage', (e) => {
 });
 
 export async function handle(method, url, body, token) {
+  syncFromStorage();
   const result = await dispatch(router, {
     method,
     url,

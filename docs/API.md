@@ -155,7 +155,9 @@ POST /api/orders
 | GET | `/public/table/:token/menu` | المنيو المتاح للزبون (بدون بيانات داخلية) |
 | POST | `/public/table/:token/request-open` | طلب الزبون من النادل فتح الطاولة: إشعار للنادل والمدير وعلامة على بطاقة الطاولة (تهدئة 60 ثانية) |
 | POST | `/public/table/:token/orders` | إنشاء طلب (`guests`, `customer_name`, `customer_phone`, `notes`, `items[]`) ويُرسل للمطبخ فوراً؛ يرجع `code` و`token` للمتابعة. وإن كانت الطاولة عليها طلب من الرمز نفسه يمكن الإضافة عليه بإرسال `order_token`. محدود المعدل |
-| GET | `/public/orders/:code?t=token` | متابعة حالة الطلب للزبون |
+| GET | `/public/orders/:code?t=token` | متابعة حالة الطلب للزبون (يتضمن `bill` إن طلب الحساب) |
+| POST | `/public/orders/:code/bill?t=token` | طلب الحساب من الزبون: `method` (`cash` / `wallet` / `bank` / `jawwalpay`) و`name` و`phone` (الرقم إلزامي للمحفظة وجوال بي). يصل الكاشير إشعار ببطاقة فيها طريقة الدفع والاسم والرقم وكود العملية، وتُحفظ البيانات في العملاء (`pay_method`, `pay_phone`, `pay_name`)، ويُمنع الإضافة على الطلب بعدها |
+| DELETE | `/public/orders/:code/bill?t=token` | إلغاء طلب الحساب |
 | POST | `/tables/:id/qr/open` و `/tables/:id/qr/close` | (pos.create / payments.collect / tables.view) فتح الطاولة لطلب QR (ساعتان افتراضياً، وتُغلق بالدفع أو الإلغاء وتنتقل مع النقل) أو إغلاقها |
 | POST | `/orders/:id/confirm` و `/orders/:id/reject` | قبول طلب QR بانتظار التأكيد (يُرسل للمطبخ) أو رفضه |
 | GET | `/qr/log` | (settings.manage / activity.view) سجل محاولات QR |
@@ -191,3 +193,5 @@ POST /api/orders
 |---|---|---|
 | GET | `/public/push/key` | مفتاح VAPID العام وهل الخدمة مفعّلة |
 | POST | `/public/orders/:code/push?t=token` | تسجيل اشتراك الزبون لطلبه (`subscription`, `url`) |
+
+طلب الحساب من الزبون يُضبط بالإعداد `qr_allow_bill` (من الإعدادات). طريقة الدفع التي يختارها الزبون «مقترحة» فقط: يُحدّدها الكاشير مسبقاً في نافذة الدفع (جوال بي ← محفظة، بنك ← بطاقة) ويتحقق من التحويل بنفسه ثم يُسجّل الدفع.

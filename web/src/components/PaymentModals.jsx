@@ -2,11 +2,15 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useAction, Modal, Field, PAY_METHODS } from '../lib.jsx';
 
+// طريقة الدفع المقترحة من اختيار الزبون عند طلب الحساب
+export const BILL_LABEL = { cash: 'نقداً', wallet: 'محفظة', bank: 'بنك', jawwalpay: 'جوال بي' };
+const SUGGEST = { cash: 'cash', wallet: 'wallet', jawwalpay: 'wallet', bank: 'card' };
+
 export function PayModal({ order, money, onClose, onPaid }) {
   const [run, busy] = useAction();
   const remaining = Math.round((order.total - order.paid) * 100) / 100;
   const [lines, setLines] = useState([]);
-  const [method, setMethod] = useState('cash');
+  const [method, setMethod] = useState(SUGGEST[order.bill_method] || 'cash');
   const [amount, setAmount] = useState(String(remaining));
   useEffect(() => { setLines([]); setAmount(String(remaining)); }, [remaining]);
   const entered = lines.reduce((a, l) => a + l.amount, 0);
@@ -36,6 +40,9 @@ export function PayModal({ order, money, onClose, onPaid }) {
         تأكيد الدفع {change > 0 ? `· الباقي للعميل ${money(change)}` : ''}
       </button>
     }>
+      {order.bill_method && (
+        <p className="pay-hint">الزبون اختار: <strong>{BILL_LABEL[order.bill_method]}</strong>{order.bill_name ? ` · ${order.bill_name}` : ''}{order.bill_phone ? <> · <bdi dir="ltr">{order.bill_phone}</bdi></> : null}</p>
+      )}
       <div className="pay-total">
         <span>المطلوب</span>
         <strong>{money(remaining)}</strong>
