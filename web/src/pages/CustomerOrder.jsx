@@ -9,6 +9,7 @@ import { pushSupported, pushKey, enableOrderPush, isIOS, isStandalone } from '..
 
 const safe = (f, d = null) => { try { return f(); } catch { return d; } };
 const deviceId = () => { let d = safe(() => localStorage.getItem('ph-co-device')); if (!d) { d = Math.random().toString(36).slice(2, 12) + Date.now().toString(36); safe(() => localStorage.setItem('ph-co-device', d)); } return d; };
+const FRESH_MS = 8 * 3600 * 1000;
 const lastKey = (t) => `ph-online-last-${String(t).slice(0, 10)}`;
 const when = (s) => String(s || '').replace('T', ' ').slice(0, 16);
 const fmt = (n, cur) => `${(Math.round(Number(n) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${cur || ''}`.trim();
@@ -43,7 +44,12 @@ export default function CustomerOrder({ kind = 'table' }) {
   const [form, setForm] = useState(() => ({ name: safe(() => localStorage.getItem('ph-co-name'), '') || '', phone: safe(() => localStorage.getItem('ph-co-phone'), '') || '', guests: 2, notes: '', place: '' }));
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState('');
-  const [done, setDone] = useState(() => safe(() => JSON.parse(localStorage.getItem(lastKey(tableToken)) || 'null')));
+  // آخر طلب لهذا الجهاز: يُنسى بعد 8 ساعات حتى لا تبقى بيانات زيارة قديمة عند عودة الزبون في زيارة جديدة
+  const [done, setDone] = useState(() => {
+    const d = safe(() => JSON.parse(localStorage.getItem(lastKey(tableToken)) || 'null'));
+    if (d && d.at && Date.now() - d.at > FRESH_MS) { safe(() => localStorage.removeItem(lastKey(tableToken))); return null; }
+    return d;
+  });
 
   useEffect(() => {
     api(isEvent ? base : `${base}?d=${deviceId()}`).then((raw) => {
@@ -108,7 +114,7 @@ export default function CustomerOrder({ kind = 'table' }) {
         order_token: adding ? done?.token : undefined,
         items: cart.map((l) => ({ item_id: l.item_id, qty: l.qty, modifier_ids: l.mods.map((m) => m.id), notes: l.notes })),
       } });
-      safe(() => { localStorage.setItem('ph-co-name', name); localStorage.setItem('ph-co-phone', phone); localStorage.setItem(lastKey(tableToken), JSON.stringify({ code: r.code, token: r.token })); });
+      safe(() => { localStorage.setItem('ph-co-name', name); localStorage.setItem('ph-co-phone', phone); localStorage.setItem(lastKey(tableToken), JSON.stringify({ code: r.code, token: r.token, at: Date.now() })); });
       setCart([]); setSheet(false); setAdding(false); setDone({ code: r.code, token: r.token });
       if (!isEvent) api(base).then(setCfg).catch(() => {});
     } catch (e) { setFormErr(e.message); } finally { setBusy(false); }
@@ -267,6 +273,7 @@ function Tracker({ order, cur, phone, billAllowed, institution, onAdd, onClosed 
   const [live, setLive] = useState(true);
   const [flash, setFlash] = useState('');
   const prev = useRef(-1);
+  const seen = useRef(false);   // أول تحميل لطلب منتهٍ (زيارة قديمة) يبدأ صفحة جديدة مباشرة
   const [, tick] = useState(0);
   const [billOpen, setBillOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -277,8 +284,8 @@ function Tracker({ order, cur, phone, billAllowed, institution, onAdd, onClosed 
     let busy = false;
     const load = async () => {
       if (busy) return; busy = true;
-      try { const d = await api(`/public/orders/${order.code}?t=${order.token}`); if (alive) { setData(d); setErr(''); setLive(true); } }
-      catch (e) { if (alive) { setErr(e.message); setLive(false); } } finally { busy = false; }
+      try { const d = await api(`/public/orders/${order.code}?t=${order.token}`); if (alive) { if (!seen.current && ['paid', 'cancelled', 'rejected'].includes(d.status)) { onClosed(); return; } seen.current = true; setData(d); setErr(''); setLive(true); } }
+      catch (e) { if (alive) { if (!seen.current && e.status === 404) { onClosed(); return; } setErr(e.message); setLive(false); } } finally { busy = false; }
     };
     load();
     const off = watchOrder(order.code, order.token, load);      // تحديث لحظي
