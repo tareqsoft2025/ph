@@ -406,6 +406,9 @@ CREATE TABLE IF NOT EXISTS events (
   needs_approval INTEGER NOT NULL DEFAULT 0,       -- يحتاج تأكيد الموظف قبل المطبخ
   places         TEXT,                             -- JSON: قائمة أماكن/طاولات يختار منها الموظف (اختياري)
   notes          TEXT,
+  welcome_message TEXT,                            -- رسالة ترحيب تظهر عند مسح QR المؤسسة
+  support_phone  TEXT,                             -- رقم خدمة العملاء (الافتراضي: رقم المطعم)
+  support_chat   INTEGER NOT NULL DEFAULT 1,       -- السماح بمراسلة المطعم من الصفحة
   token          TEXT UNIQUE,
   active         INTEGER NOT NULL DEFAULT 1,
   created_by     INTEGER,
@@ -458,3 +461,17 @@ CREATE TABLE IF NOT EXISTS recurring_expenses (
   active       INTEGER NOT NULL DEFAULT 1,
   created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
+
+-- محادثة خدمة العملاء: رسائل زبائن المؤسسات (برمز الجهاز) وردود الموظفين
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id   INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  device_id  TEXT NOT NULL,
+  sender     TEXT NOT NULL CHECK (sender IN ('customer','staff')),
+  staff_id   INTEGER,
+  name       TEXT,
+  body       TEXT NOT NULL,
+  read_at    TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_chat_thread ON chat_messages(event_id, device_id, id);

@@ -85,8 +85,8 @@ function EventForm({ initial, onClose, onSaved }) {
   const now = new Date();
   const [f, setF] = useState(() => ({
     name: '', contact_name: '', contact_phone: '', starts_at: local(now), ends_at: local(new Date(now.getTime() + 4 * 36e5)),
-    menu_mode: 'selected', price_cap: '', order_cap: '', billing: 'institution', needs_approval: false, places: '', notes: '', item_ids: [], active: true, ...initial,
-    ...(initial.id ? { starts_at: String(initial.starts_at).slice(0, 16).replace(' ', 'T'), ends_at: String(initial.ends_at).slice(0, 16).replace(' ', 'T'), places: (initial.places || []).join('\n'), needs_approval: !!initial.needs_approval, price_cap: initial.price_cap || '', order_cap: initial.order_cap || '' } : {}),
+    menu_mode: 'selected', price_cap: '', order_cap: '', billing: 'institution', needs_approval: false, places: '', notes: '', welcome_message: '', support_phone: '', support_chat: true, item_ids: [], active: true, ...initial,
+    ...(initial.id ? { starts_at: String(initial.starts_at).slice(0, 16).replace(' ', 'T'), ends_at: String(initial.ends_at).slice(0, 16).replace(' ', 'T'), places: (initial.places || []).join('\n'), needs_approval: !!initial.needs_approval, support_chat: initial.support_chat !== 0 && initial.support_chat !== false, welcome_message: initial.welcome_message || '', support_phone: initial.support_phone || '', price_cap: initial.price_cap || '', order_cap: initial.order_cap || '' } : {}),
   }));
   useEffect(() => { if (initial.id && full.data) setF((x) => ({ ...x, item_ids: full.data.item_ids })); }, [full.data]); // eslint-disable-line
   const [q, setQ] = useState('');
@@ -159,6 +159,13 @@ function EventForm({ initial, onClose, onSaved }) {
         </div>
         <label className="switch"><input type="checkbox" checked={f.needs_approval} onChange={set('needs_approval')} /> يحتاج كل طلب اعتماد الموظف قبل وصوله للمطبخ</label>
         <Field label="ملاحظات"><input value={f.notes} onChange={set('notes')} /></Field>
+
+        <h4>ترحيب وخدمة العملاء</h4>
+        <Field label="رسالة الترحيب" hint="تظهر للموظف عند مسح QR. اتركها فارغة لتظهر الرسالة الافتراضية: «نتمنى لكم قضاء أجمل الأوقات»"><textarea rows={2} maxLength={400} value={f.welcome_message} onChange={set('welcome_message')} placeholder={`أهلاً بكم في ${f.name || 'المؤسسة'}، نتمنى لكم قضاء أجمل الأوقات`} /></Field>
+        <div className="grid-2">
+          <Field label="رقم خدمة العملاء" hint="يُترك فارغاً لاستخدام رقم المطعم"><input dir="ltr" inputMode="tel" value={f.support_phone} onChange={set('support_phone')} /></Field>
+          <label className="switch" style={{ alignSelf: 'end' }}><input type="checkbox" checked={f.support_chat} onChange={set('support_chat')} /> السماح بمراسلة المطعم من الصفحة</label>
+        </div>
       </div>
     </Modal>
   );

@@ -4,6 +4,7 @@ import {
   UtensilsCrossed, Search, Plus, Minus, Armchair, QrCode, X, Send, Banknote, Wallet, Landmark, Smartphone, Copy, Check, Building2, MapPin as PinIcon, Info, CircleCheckBig, ChefHat, BellRing, HandPlatter, Clock, SlidersHorizontal, Ban, Phone, UserRound, MapPin, Receipt,
 } from 'lucide-react';
 import { api, watchOrder } from '../api.js';
+import SupportHub from '../components/SupportHub.jsx';
 import { pushSupported, pushKey, enableOrderPush, isIOS, isStandalone } from '../webpush.js';
 
 const safe = (f, d = null) => { try { return f(); } catch { return d; } };
@@ -215,11 +216,13 @@ export default function CustomerOrder({ kind = 'table' }) {
 }
 
 function Shell({ cfg, children }) {
+  const { token } = useParams();
   return (
     <div className="co">
       <header className="co-head">
         <span className="brand-mark" aria-hidden><UtensilsCrossed size={20} strokeWidth={2.2} /></span>
         <div><strong>{cfg?.name || 'المطعم'}</strong><small>{cfg?.event ? `${cfg.event.name} · قائمة المؤسسة` : cfg?.table ? `${cfg.table.name} · اطلب من هاتفك` : 'اطلب من هاتفك'}</small></div>
+        {cfg?.event && cfg.enabled !== undefined && <SupportHub cfg={cfg} token={token} />}
       </header>
       {children}
     </div>
