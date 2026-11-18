@@ -481,6 +481,9 @@ test('corporate events: QR per institution, selected menu / full menu / price ca
   assert.ok(kt && kt.event_name === 'شركة الأفق' && kt.place === 'قاعة 1', 'kitchen sees the institution and place');
   const ok2 = await post(tok, { customer_name: 'خالد', customer_phone: '0507654321', place: 'قاعة 2', device_id: 'ev-b', items: [line(sel[0])] });
   assert.equal(ok2.status, 201, 'several employees order independently, phone optional');
+  const addOn = await post(tok, { order_token: ok2.data.token, device_id: 'ev-b', items: [line(sel[0])] });
+  assert.equal(addOn.status, 201, 'adding to an existing order keeps its place without asking again: ' + JSON.stringify(addOn.data));
+  assert.equal(addOn.data.code, ok2.data.code);
   const tr = (await api(`/public/orders/${ok.data.code}?t=${ok.data.token}`)).data;
   assert.equal(tr.event.name, 'شركة الأفق');
   assert.equal(tr.place, 'قاعة 1');
