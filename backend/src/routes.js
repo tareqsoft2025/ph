@@ -258,7 +258,8 @@ export function buildRouter(emit) {
     }
     const place = clip(b.place, 40);
     const places = ev.places ? JSON.parse(ev.places) : [];
-    const open = b.order_token ? get("SELECT * FROM orders WHERE track_token = ? AND event_id = ? AND status = 'open'", String(b.order_token), ev.id) : null;
+    // الإضافة على طلب قائم مسموحة خلال 12 ساعة فقط؛ بعدها تُعدّ زيارة جديدة
+    const open = b.order_token ? get("SELECT * FROM orders WHERE track_token = ? AND event_id = ? AND status = 'open' AND created_at > datetime('now','localtime','-12 hours')", String(b.order_token), ev.id) : null;
     // الإضافة على طلب قائم تستخدم مكانه الأصلي فلا يُطلب المكان مجدداً
     if (!open && places.length && !places.includes(place)) throw bad('اختر مكانك من القائمة');
     const before = open ? open.subtotal : 0;
@@ -343,7 +344,8 @@ export function buildRouter(emit) {
 
   // ───────────── خدمة العملاء: محادثة زبون المؤسسة مع المطعم ─────────────
   const devOf = (v) => { const d = clip(v, 40); if (d.length < 8) throw bad('جهاز غير معروف'); return d; };
-  const chatRows = (eventId, dev) => all('SELECT id, sender, name, body, created_at FROM chat_messages WHERE event_id = ? AND device_id = ? ORDER BY id DESC LIMIT 200', eventId, dev).reverse();
+  // الزبون يرى محادثة زيارته الحالية فقط (آخر 12 ساعة)؛ سجل الموظفين يحتفظ بكل الرسائل
+  const chatRows = (eventId, dev) => all("SELECT id, sender, name, body, created_at FROM chat_messages WHERE event_id = ? AND device_id = ? AND created_at > datetime('now','localtime','-12 hours') ORDER BY id DESC LIMIT 200", eventId, dev).reverse();
   r.get('/public/event/:token/chat', (req, res) => {
     const ev = eventByToken(req);
     const dev = devOf(req.query.device_id);
