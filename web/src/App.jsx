@@ -49,7 +49,7 @@ import Permissions from './pages/Permissions.jsx';
 const NAV = [
   { group: 'العمليات اليومية', items: [
     { to: '/dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, perms: ['reports.view'] },
-    { to: '/live', label: 'المركز المباشر', icon: Radio, perms: ['reports.view'] },
+    { to: '/live', label: 'المتابعة المباشرة', icon: Radio, perms: ['reports.view'] },
     { to: '/cashier', label: 'الكاشير', icon: Banknote, perms: ['payments.collect'] },
     { to: '/tables', label: 'الطاولات', icon: Armchair, perms: ['tables.view', 'pos.create'] },
     { to: '/orders', label: 'الطلبات', icon: ClipboardList, perms: ['orders.view', 'pos.create', 'payments.collect'] },

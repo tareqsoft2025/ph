@@ -44,7 +44,7 @@ export default function CustomerOrder({ kind = 'table' }) {
   const [form, setForm] = useState(() => ({ name: safe(() => localStorage.getItem('ph-co-name'), '') || '', phone: safe(() => localStorage.getItem('ph-co-phone'), '') || '', guests: 2, notes: '', place: '' }));
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState('');
-  // آخر طلب لهذا الجهاز: يُنسى بعد 8 ساعات حتى لا تبقى بيانات زيارة قديمة عند عودة الزبون في زيارة جديدة
+  // آخر طلب لهذا الجهاز: يُنسى بعد مدة النسيان (تضبطها الإدارة من الإعدادات) حتى لا تبقى بيانات زيارة قديمة
   const [done, setDone] = useState(() => {
     const d = safe(() => JSON.parse(localStorage.getItem(lastKey(tableToken)) || 'null'));
     if (d && d.at && Date.now() - d.at > FRESH_MS) { safe(() => localStorage.removeItem(lastKey(tableToken))); return null; }
@@ -56,6 +56,7 @@ export default function CustomerOrder({ kind = 'table' }) {
       // طلب مؤسسة: نحوّل الرد إلى نفس شكل إعدادات الطاولة
       const c = isEvent ? { enabled: raw.enabled, name: raw.restaurant, currency: raw.currency, phone: raw.phone, event: raw.event, table: null, bill_allowed: raw.event.billing === 'individual' } : raw;
       setCfg(c);
+      if (c.forget_hours) setDone((d) => { if (d?.at && Date.now() - d.at > c.forget_hours * 3600e3) { safe(() => localStorage.removeItem(lastKey(tableToken))); return null; } return d; });
       if (!c.enabled || (isEvent && c.event.state !== 'open')) return;
       api(`${base}/menu`).then((m) => { setMenu(m); setCat(m.categories[0]?.id ?? 0); }).catch((e) => setError(e.message));
     }).catch((e) => setError(e.message));

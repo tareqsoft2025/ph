@@ -188,6 +188,9 @@ function OnlineOrderingSettings() {
             </Field>
           )}
         </div>
+        <Field label="مدة نسيان بيانات الزيارة (بالساعات)" hint="بعدها يعدّ الجهاز عودة الزبون زيارة جديدة: يُنسى آخر طلبه وتبدأ محادثة جديدة ولا يُضاف على طلبه القديم. من 1 إلى 168 ساعة.">
+          <input type="number" min="1" max="168" defaultValue={settings.customer_forget_hours || 8} onBlur={(e) => { const v = String(Math.min(168, Math.max(1, Math.round(Number(e.target.value)) || 8))); e.target.value = v; if (v !== String(settings.customer_forget_hours || 8)) put('customer_forget_hours', v); }} />
+        </Field>
         <p className="muted small">طلب مفتوح واحد لكل جوال وجهاز، وتُسجَّل كل المحاولات وتصلك تنبيهات عند أي نمط مشبوه.</p>
       </div>
       <div className="btn-row">

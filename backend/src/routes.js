@@ -44,6 +44,8 @@ export function buildRouter(emit) {
     if (hits.size > 5000) for (const [kk, v] of hits) if (!v.some((t) => now - t < windowMs)) hits.delete(kk);
     return arr.length > max;
   };
+  // مدة نسيان زيارة الزبون (ساعات): بين ساعة وأسبوع، والافتراضي 8
+  const forgetHours = () => { const h = Math.round(Number(getSettings().customer_forget_hours)); return h >= 1 && h <= 168 ? h : 8; };
   const onlineOn = () => getSettings().online_ordering === '1';
   const clip = (v, n) => String(v ?? '').trim().slice(0, n);
   const PUBLIC_USER = { id: null, name: 'الزبون (رمز الطاولة)', role: 'public' };
@@ -89,7 +91,7 @@ export function buildRouter(emit) {
     const s = getSettings();
     const open = get("SELECT id, code, source, track_token FROM orders WHERE table_id = ? AND status = 'open'", t.id);
     res.json({
-      enabled: s.online_ordering === '1',
+      enabled: s.online_ordering === '1', forget_hours: forgetHours(),
       name: s.restaurant_name, currency: s.currency, phone: s.phone,
       table: { name: t.name, seats: t.seats, area: t.area, busy: !!open, open: tableOpen(t) },
       // الطلب المفتوح من هذا الرمز (لإتاحة الإضافة عليه لمن يملك رمز متابعته فقط)
@@ -226,7 +228,7 @@ export function buildRouter(emit) {
   r.get('/public/event/:token', (req, res) => {
     const ev = eventByToken(req);
     const s = getSettings();
-    res.json({ enabled: s.online_ordering === '1', restaurant: s.restaurant_name, currency: s.currency, phone: s.phone, event: evPublic(ev) });
+    res.json({ enabled: s.online_ordering === '1', forget_hours: forgetHours(), restaurant: s.restaurant_name, currency: s.currency, phone: s.phone, event: evPublic(ev) });
   });
   r.get('/public/event/:token/menu', (req, res) => {
     const ev = eventByToken(req);
@@ -258,8 +260,8 @@ export function buildRouter(emit) {
     }
     const place = clip(b.place, 40);
     const places = ev.places ? JSON.parse(ev.places) : [];
-    // الإضافة على طلب قائم مسموحة خلال 12 ساعة فقط؛ بعدها تُعدّ زيارة جديدة
-    const open = b.order_token ? get("SELECT * FROM orders WHERE track_token = ? AND event_id = ? AND status = 'open' AND created_at > datetime('now','localtime','-12 hours')", String(b.order_token), ev.id) : null;
+    // الإضافة على طلب قائم مسموحة خلال مدة النسيان فقط؛ بعدها تُعدّ زيارة جديدة
+    const open = b.order_token ? get("SELECT * FROM orders WHERE track_token = ? AND event_id = ? AND status = 'open' AND created_at > datetime('now','localtime','-" + forgetHours() + " hours')", String(b.order_token), ev.id) : null;
     // الإضافة على طلب قائم تستخدم مكانه الأصلي فلا يُطلب المكان مجدداً
     if (!open && places.length && !places.includes(place)) throw bad('اختر مكانك من القائمة');
     const before = open ? open.subtotal : 0;
@@ -344,8 +346,8 @@ export function buildRouter(emit) {
 
   // ───────────── خدمة العملاء: محادثة زبون المؤسسة مع المطعم ─────────────
   const devOf = (v) => { const d = clip(v, 40); if (d.length < 8) throw bad('جهاز غير معروف'); return d; };
-  // الزبون يرى محادثة زيارته الحالية فقط (آخر 12 ساعة)؛ سجل الموظفين يحتفظ بكل الرسائل
-  const chatRows = (eventId, dev) => all("SELECT id, sender, name, body, created_at FROM chat_messages WHERE event_id = ? AND device_id = ? AND created_at > datetime('now','localtime','-12 hours') ORDER BY id DESC LIMIT 200", eventId, dev).reverse();
+  // الزبون يرى محادثة زيارته الحالية فقط (خلال مدة النسيان)؛ سجل الموظفين يحتفظ بكل الرسائل
+  const chatRows = (eventId, dev) => all("SELECT id, sender, name, body, created_at FROM chat_messages WHERE event_id = ? AND device_id = ? AND created_at > datetime('now','localtime','-" + forgetHours() + " hours') ORDER BY id DESC LIMIT 200", eventId, dev).reverse();
   r.get('/public/event/:token/chat', (req, res) => {
     const ev = eventByToken(req);
     const dev = devOf(req.query.device_id);
@@ -1036,7 +1038,7 @@ export function buildRouter(emit) {
     res.json({ ok: true, enabled: pushEnabled() });
   });
 
-  // ───────────── المركز المباشر للإدارة: لقطة كاملة لحظية (طاولات + مراحل الطلبات + مؤشرات) ─────────────
+  // ───────────── المتابعة المباشرة للإدارة: لقطة كاملة لحظية (طاولات + مراحل الطلبات + مؤشرات) ─────────────
   r.get('/live', need('reports.view'), (req, res) => {
     const tables = all(`SELECT t.id, t.name, t.seats, t.area,
         CASE WHEN t.qr_open_until > datetime('now','localtime') THEN 1 ELSE 0 END AS qr_open,

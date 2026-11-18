@@ -1900,7 +1900,7 @@ body { background: var(--bg) radial-gradient(900px 420px at 100% -10%, color-mix
 .co-billwait > div { flex: 1; display: flex; flex-direction: column; line-height: 1.4; }
 .co-billwait small { font-size: var(--text-xs); }
 
-/* ═════════ المركز المباشر (إنفوجرافيك تفاعلي) ═════════ */
+/* ═════════ المتابعة المباشرة (إنفوجرافيك تفاعلي) ═════════ */
 .lv { --c-confirm: #f59e0b; --c-draft: #94a3b8; --c-new: #3b82f6; --c-preparing: #f97316; --c-ready: #22c55e; --c-served: #64748b; --c-bill: #8b5cf6;
   display: flex; flex-direction: column; gap: var(--s-4); }
 .lv-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--s-4); flex-wrap: wrap; }

@@ -28,7 +28,7 @@ function Num({ value, digits = 0 }) {
   return <>{digits ? v.toFixed(digits) : Math.round(v)}</>;
 }
 
-/** المركز المباشر: لوحة إنفوجرافيك تفاعلية تُحدَّث لحظة بلحظة */
+/** المتابعة المباشرة: لوحة إنفوجرافيك تفاعلية تُحدَّث لحظة بلحظة */
 export default function Live() {
   const navigate = useNavigate();
   const money = useMoney();
@@ -52,7 +52,7 @@ export default function Live() {
   }, [feed.data]);
 
   if (loading && !data) return <Loading />;
-  if (!data) return <Empty text="تعذّر تحميل المركز المباشر" />;
+  if (!data) return <Empty text="تعذّر تحميل المتابعة المباشرة" />;
 
   const { floor, orders, stages, kpis, hourly } = data;
   const tableName = Object.fromEntries(floor.map((t) => [t.id, t.name]));
@@ -70,7 +70,7 @@ export default function Live() {
       <header className="lv-head">
         <div className="lv-title">
           <span className="lv-live"><i aria-hidden /> مباشر</span>
-          <h1>المركز المباشر</h1>
+          <h1>المتابعة المباشرة</h1>
           <small>كل ما يحدث في المطعم الآن · آخر تحديث منذ {ago} ث</small>
         </div>
         <div className="lv-alerts">
