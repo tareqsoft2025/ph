@@ -31,6 +31,7 @@ export const PERMISSIONS = [
   { key: 'users.manage', group: 'الإدارة', label: 'إدارة المستخدمين' },
   { key: 'expenses.record', group: 'الكاشير', label: 'تسجيل المصاريف (يرى مصاريفه فقط)' },
   { key: 'expenses.manage', group: 'الإدارة', label: 'دفتر المصاريف الكامل: التقارير وتعديل المصاريف وحذفها وإدارة الأنواع والمصاريف الثابتة' },
+  { key: 'chat.reply', group: 'الكاشير', label: 'الرد على رسائل زبائن المؤسسات (خدمة العملاء)' },
   { key: 'events.manage', group: 'الإدارة', label: 'فعاليات المؤسسات: إنشاء QR للمؤسسة وتحديد قائمتها وكشف حسابها' },
 
   { key: 'hr.employees', group: 'الموارد البشرية', label: 'ملفات الموظفين ومستنداتهم' },
@@ -44,8 +45,8 @@ export const ROLES_EDITABLE = ['manager', 'cashier', 'waiter', 'kitchen', 'staff
 /** الصلاحيات الافتراضية لكل دور */
 export const DEFAULTS = {
   manager: ALL_KEYS.filter((k) => !['users.manage', 'kitchen.update'].includes(k)),
-  cashier: ['expenses.record', 'orders.view', 'tables.view', 'payments.collect', 'shifts.manage', 'customers.view', 'orders.discount', 'orders.cancel', 'orders.cancel_item', 'reservations.manage', 'kitchen.view'],
-  waiter: ['pos.create', 'tables.view', 'orders.move', 'reservations.manage', 'kitchen.view'],
+  cashier: ['chat.reply', 'expenses.record', 'orders.view', 'tables.view', 'payments.collect', 'shifts.manage', 'customers.view', 'orders.discount', 'orders.cancel', 'orders.cancel_item', 'reservations.manage', 'kitchen.view'],
+  waiter: ['chat.reply', 'pos.create', 'tables.view', 'orders.move', 'reservations.manage', 'kitchen.view'],
   kitchen: ['kitchen.view', 'kitchen.update', 'menu.availability', 'inventory.view', 'inventory.receive'],
   staff: [], // الحضور والإجازات متاحة للجميع
 };

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Radio, Building2, Calculator, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
+  LayoutDashboard, Radio, Building2, MessageCircle, Calculator, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
   UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, IdCard, Fingerprint, CalendarOff, Banknote, HandCoins, History, KeyRound, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff, Smartphone, Sun, Moon, SunMoon, Ellipsis, PanelRightClose, PanelRightOpen,
 } from 'lucide-react';
 import {
@@ -20,6 +20,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import Live from './pages/Live.jsx';
 import Home from './pages/Home.jsx';
 import Events from './pages/Events.jsx';
+import Chat from './pages/Chat.jsx';
 import Expenses from './pages/Expenses.jsx';
 import AppShell from './components/AppShell.jsx';
 import { isAppUi, setAppUi } from './appui.js';
@@ -54,6 +55,7 @@ const NAV = [
     { to: '/orders', label: 'الطلبات', icon: ClipboardList, perms: ['orders.view', 'pos.create', 'payments.collect'] },
     { to: '/kitchen', label: 'شاشة المطبخ', icon: ChefHat, perms: ['kitchen.view', 'kitchen.update'] },
     { to: '/events', label: 'فعاليات المؤسسات', icon: Building2, perms: ['events.manage'] },
+    { to: '/chat', label: 'محادثات الزبائن', icon: MessageCircle, perms: ['chat.reply'] },
     { to: '/reservations', label: 'الحجوزات', icon: CalendarDays, perms: ['reservations.manage'] },
     { to: '/shifts', label: 'الورديات', icon: Wallet, perms: ['shifts.manage', 'reports.view'] },
   ] },
@@ -156,6 +158,7 @@ export default function App() {
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/live" element={<Live />} />
       <Route path="/events" element={<Events />} />
+      <Route path="/chat" element={<Chat />} />
       <Route path="/expenses" element={<Expenses />} />
       <Route path="/pos/:orderId?" element={<Pos />} />
       <Route path="/tables" element={<Tables />} />

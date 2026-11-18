@@ -16,6 +16,7 @@ function migrate() {
   if (!cols('orders').includes('bill_method')) { db.exec('ALTER TABLE orders ADD COLUMN bill_method TEXT'); db.exec('ALTER TABLE orders ADD COLUMN bill_name TEXT'); db.exec('ALTER TABLE orders ADD COLUMN bill_phone TEXT'); }
   if (!cols('customers').includes('pay_method')) { db.exec('ALTER TABLE customers ADD COLUMN pay_method TEXT'); db.exec('ALTER TABLE customers ADD COLUMN pay_phone TEXT'); db.exec('ALTER TABLE customers ADD COLUMN pay_name TEXT'); }
   if (!cols('orders').includes('event_id')) { db.exec('ALTER TABLE orders ADD COLUMN event_id INTEGER'); db.exec('ALTER TABLE orders ADD COLUMN place TEXT'); }
+  if (!cols('events').includes('welcome_message')) { db.exec('ALTER TABLE events ADD COLUMN welcome_message TEXT'); db.exec('ALTER TABLE events ADD COLUMN support_phone TEXT'); db.exec('ALTER TABLE events ADD COLUMN support_chat INTEGER NOT NULL DEFAULT 1'); }
   if (!cols('orders').includes('source')) db.exec("ALTER TABLE orders ADD COLUMN source TEXT NOT NULL DEFAULT 'staff'");
   if (!cols('orders').includes('track_token')) db.exec('ALTER TABLE orders ADD COLUMN track_token TEXT');
   if (!cols('orders').includes('bill_requested_at')) db.exec('ALTER TABLE orders ADD COLUMN bill_requested_at TEXT');

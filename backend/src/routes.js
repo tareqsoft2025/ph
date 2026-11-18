@@ -7,7 +7,7 @@ import { bad, notFound, pick, updateSql, normalize, round2, today } from './util
 import * as Orders from './orders.js';
 import { hrRoutes } from './hr.js';
 import { attendanceRoutes, attendanceGate } from './attendance.js';
-import { setNotifyEmitter, notify, pushEnabled, webPushKey } from './notify.js';
+import { setNotifyEmitter, notify, pushEnabled, webPushKey, customerNotify } from './notify.js';
 
 /**
  * @param {(event: string, payload?: any) => void} emit إرسال حدث لحظي لكل الأجهزة
@@ -211,6 +211,7 @@ export function buildRouter(emit) {
     name: ev.name, state: eventState(ev), starts_at: ev.starts_at, ends_at: ev.ends_at, menu_mode: ev.menu_mode,
     price_cap: ev.menu_mode === 'cap' ? ev.price_cap : null, order_cap: ev.order_cap, billing: ev.billing, needs_approval: !!ev.needs_approval,
     places: ev.places ? JSON.parse(ev.places) : [],
+    welcome_message: ev.welcome_message || null, support_phone: ev.support_phone || null, support_chat: !!ev.support_chat,
   });
   const eventMenu = (ev) => {
     const mods = all('SELECT id, item_id, name, price FROM modifiers ORDER BY id');
@@ -338,6 +339,30 @@ export function buildRouter(emit) {
       items: full.items.filter((i) => i.status !== 'cancelled').map((i) => ({ name: i.name, qty: i.qty, status: i.status })),
     });
   });
+
+  // ───────────── خدمة العملاء: محادثة زبون المؤسسة مع المطعم ─────────────
+  const devOf = (v) => { const d = clip(v, 40); if (d.length < 8) throw bad('جهاز غير معروف'); return d; };
+  const chatRows = (eventId, dev) => all('SELECT id, sender, name, body, created_at FROM chat_messages WHERE event_id = ? AND device_id = ? ORDER BY id DESC LIMIT 200', eventId, dev).reverse();
+  r.get('/public/event/:token/chat', (req, res) => {
+    const ev = eventByToken(req);
+    const dev = devOf(req.query.device_id);
+    res.json({ enabled: !!ev.support_chat, messages: chatRows(ev.id, dev) });
+  });
+  r.post('/public/event/:token/chat', (req, res) => {
+    const ev = eventByToken(req);
+    if (!ev.support_chat) throw bad('المحادثة غير متاحة لهذه المؤسسة');
+    if (limited(req, 'chat', Number(globalThis.process?.env?.QR_RATE_LIMIT) || 30, 10 * 60 * 1000)) return res.status(429).json({ error: 'رسائل كثيرة، حاول بعد قليل' });
+    const dev = devOf(req.body?.device_id);
+    const body = clip(req.body?.body, 500);
+    if (!body) throw bad('اكتب رسالتك');
+    const name = clip(req.body?.name, 60) || null;
+    const id = Number(run('INSERT INTO chat_messages(event_id, device_id, sender, name, body) VALUES(?,?,?,?,?)', ev.id, dev, 'customer', name, body).lastInsertRowid);
+    notify({ perms: ['chat.reply'], type: 'chat', title: `رسالة من ${name || 'زبون'} · ${ev.name}`, body: body.slice(0, 120), link: `/chat?e=${ev.id}&d=${encodeURIComponent(dev)}`, level: 'info' });
+    emit('chat', { event_id: ev.id });
+    emit('public-chat', `${ev.id}:${dev}`);
+    res.status(201).json({ id, messages: chatRows(ev.id, dev) });
+  });
+
 
   r.use(authenticate);
   r.use(attendanceGate);
@@ -1082,6 +1107,32 @@ export function buildRouter(emit) {
     });
   });
 
+  r.get('/chat/threads', need('chat.reply'), (req, res) => {
+    res.json(all(`SELECT g.event_id, g.device_id, e.name AS event_name, g.unread, l.body AS last_body, l.sender AS last_sender, l.created_at AS last_at,
+        (SELECT name FROM chat_messages WHERE event_id = g.event_id AND device_id = g.device_id AND sender = 'customer' AND name IS NOT NULL ORDER BY id DESC LIMIT 1) AS customer_name
+      FROM (SELECT event_id, device_id, MAX(id) AS last_id, SUM(CASE WHEN sender = 'customer' AND read_at IS NULL THEN 1 ELSE 0 END) AS unread FROM chat_messages GROUP BY event_id, device_id) g
+      JOIN chat_messages l ON l.id = g.last_id JOIN events e ON e.id = g.event_id ORDER BY g.last_id DESC LIMIT 200`));
+  });
+  r.get('/chat/thread', need('chat.reply'), (req, res) => {
+    const eid = Number(req.query.event_id); const dev = devOf(req.query.device_id);
+    run("UPDATE chat_messages SET read_at = datetime('now','localtime') WHERE event_id = ? AND device_id = ? AND sender = 'customer' AND read_at IS NULL", eid, dev);
+    res.json({ event: get('SELECT id, name, contact_name, contact_phone FROM events WHERE id = ?', eid), messages: all('SELECT m.id, m.sender, m.name, m.body, m.created_at, u.name AS staff_name FROM chat_messages m LEFT JOIN users u ON u.id = m.staff_id WHERE m.event_id = ? AND m.device_id = ? ORDER BY m.id', eid, dev) });
+  });
+  r.post('/chat/reply', need('chat.reply'), (req, res) => {
+    const eid = Number(req.body?.event_id); const dev = devOf(req.body?.device_id);
+    const ev = get('SELECT id, name FROM events WHERE id = ?', eid);
+    if (!ev) throw notFound('الفعالية غير موجودة');
+    const body = clip(req.body?.body, 500);
+    if (!body) throw bad('اكتب الرد');
+    run("UPDATE chat_messages SET read_at = datetime('now','localtime') WHERE event_id = ? AND device_id = ? AND sender = 'customer' AND read_at IS NULL", eid, dev);
+    const id = Number(run('INSERT INTO chat_messages(event_id, device_id, sender, staff_id, name, body) VALUES(?,?,?,?,?,?)', eid, dev, 'staff', req.user.id, req.user.name, body).lastInsertRowid);
+    emit('chat', { event_id: eid });
+    emit('public-chat', `${eid}:${dev}`);
+    const o = get('SELECT id FROM orders WHERE event_id = ? AND device_id = ? ORDER BY id DESC LIMIT 1', eid, dev);
+    if (o) customerNotify(o.id, { kind: 'chat', title: `رد من ${ev.name}`, body: body.slice(0, 140) });
+    res.status(201).json({ id });
+  });
+
   // ───────────── فعاليات المؤسسات (إدارة) ─────────────
   const evRow = (e) => ({ ...e, places: e.places ? JSON.parse(e.places) : [], state: eventState(e) });
   const toDb = (s) => { const v = String(s || '').trim().replace('T', ' '); return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(v) ? (v.length === 16 ? `${v}:00` : v) : null; };
@@ -1101,6 +1152,7 @@ export function buildRouter(emit) {
     return {
       name, contact_name: clip(b.contact_name, 60) || null, contact_phone: clip(b.contact_phone, 20) || null, starts, ends, menu_mode, price_cap, order_cap, item_ids,
       billing: b.billing === 'individual' ? 'individual' : 'institution', needs_approval: b.needs_approval ? 1 : 0, places: places.length ? JSON.stringify(places) : null, notes: clip(b.notes, 300) || null,
+      welcome_message: clip(b.welcome_message, 400) || null, support_phone: clip(b.support_phone, 20) || null, support_chat: b.support_chat === false || b.support_chat === 0 ? 0 : 1,
       active: b.active === false || b.active === 0 ? 0 : 1,
     };
   };
@@ -1123,8 +1175,8 @@ export function buildRouter(emit) {
   });
   r.post('/events', need('events.manage'), (req, res) => {
     const d = readEvent(req.body || {});
-    const info = run('INSERT INTO events(name, contact_name, contact_phone, starts_at, ends_at, menu_mode, price_cap, order_cap, billing, needs_approval, places, notes, token, active, created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      d.name, d.contact_name, d.contact_phone, d.starts, d.ends, d.menu_mode, d.price_cap, d.order_cap, d.billing, d.needs_approval, d.places, d.notes, randomToken(), d.active, req.user.id);
+    const info = run('INSERT INTO events(name, contact_name, contact_phone, starts_at, ends_at, menu_mode, price_cap, order_cap, billing, needs_approval, places, notes, token, active, created_by, welcome_message, support_phone, support_chat) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      d.name, d.contact_name, d.contact_phone, d.starts, d.ends, d.menu_mode, d.price_cap, d.order_cap, d.billing, d.needs_approval, d.places, d.notes, randomToken(), d.active, req.user.id, d.welcome_message, d.support_phone, d.support_chat);
     const id = Number(info.lastInsertRowid);
     saveItems(id, d.menu_mode === 'selected' ? d.item_ids : []);
     audit(req.user.id, 'event.create', 'event', id, { name: d.name, mode: d.menu_mode });
@@ -1134,8 +1186,8 @@ export function buildRouter(emit) {
     const id = Number(req.params.id);
     if (!get('SELECT 1 AS x FROM events WHERE id = ?', id)) throw notFound('الفعالية غير موجودة');
     const d = readEvent(req.body || {});
-    run('UPDATE events SET name=?, contact_name=?, contact_phone=?, starts_at=?, ends_at=?, menu_mode=?, price_cap=?, order_cap=?, billing=?, needs_approval=?, places=?, notes=?, active=? WHERE id = ?',
-      d.name, d.contact_name, d.contact_phone, d.starts, d.ends, d.menu_mode, d.price_cap, d.order_cap, d.billing, d.needs_approval, d.places, d.notes, d.active, id);
+    run('UPDATE events SET name=?, contact_name=?, contact_phone=?, starts_at=?, ends_at=?, menu_mode=?, price_cap=?, order_cap=?, billing=?, needs_approval=?, places=?, notes=?, active=?, welcome_message=?, support_phone=?, support_chat=? WHERE id = ?',
+      d.name, d.contact_name, d.contact_phone, d.starts, d.ends, d.menu_mode, d.price_cap, d.order_cap, d.billing, d.needs_approval, d.places, d.notes, d.active, d.welcome_message, d.support_phone, d.support_chat, id);
     saveItems(id, d.menu_mode === 'selected' ? d.item_ids : []);
     audit(req.user.id, 'event.update', 'event', id, { name: d.name, mode: d.menu_mode, active: d.active });
     res.json({ id });

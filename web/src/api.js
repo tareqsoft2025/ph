@@ -121,3 +121,12 @@ export function watchOrder(code, token, cb) {
   sock.on('update', cb);
   return () => sock.disconnect();
 }
+
+/** محادثة خدمة العملاء لزبون المؤسسة: تنبيه فوري عند وصول رد (مع استطلاع احتياطي من الصفحة) */
+export function watchChat(token, deviceId, cb) {
+  if (isDemo) { demoSocket.on('chat', cb); return () => demoSocket.off('chat', cb); }
+  const sock = io(getServerUrl() ? `${getServerUrl()}/public` : '/public', { transports: ['websocket', 'polling'] });
+  sock.on('connect', () => { sock.emit('watch-chat', { token, device_id: deviceId }); cb(); });
+  sock.on('chat', cb);
+  return () => sock.disconnect();
+}

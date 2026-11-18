@@ -55,10 +55,19 @@ pub.on('connection', (socket) => {
     if (ok) socket.join(`o:${o.id}`);
     if (typeof ack === 'function') ack(ok);
   });
+  // محادثة زبون المؤسسة: يتابع رسائل جهازه فقط
+  socket.on('watch-chat', (msg, ack) => {
+    const ev = get('SELECT id FROM events WHERE token = ?', String(msg?.token || ''));
+    const dev = String(msg?.device_id || '').slice(0, 40);
+    const ok = !!(ev && dev.length >= 8);
+    if (ok) socket.join(`c:${ev.id}:${dev}`);
+    if (typeof ack === 'function') ack(ok);
+  });
 });
 
 const emit = (event, payload) => {
   if (event === 'public-order') { pub.to(`o:${payload}`).emit('update'); return; }
+  if (event === 'public-chat') { pub.to(`c:${payload}`).emit('chat'); return; }
   io.emit(event, payload ?? {});
 };
 

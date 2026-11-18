@@ -635,3 +635,44 @@ test('expenses ledger: categories, cashier records own, manager sees all + summa
   for (const a of ['expense.create', 'expense.update', 'expense.delete', 'expense.category_create', 'expense.category_hide', 'expense.recurring_run']) assert.ok(acts.includes(a), a);
   await api('/shifts/close', { method: 'POST', token: cashier, body: { closing_cash: 470 } });
 });
+
+test('corporate QR: welcome message, support phone and customer chat with staff replies and notifications', async () => {
+  const admin = await login('admin', 'admin123');
+  const waiter = await login('waiter', '1234');
+  const kitchen = await login('kitchen', '1234');
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const now = Date.now();
+  const mk = async (extra) => (await api('/events', { method: 'POST', token: admin, body: { name: 'مؤسسة الندى', starts_at: fmt(new Date(now - 36e5)), ends_at: fmt(new Date(now + 36e5)), menu_mode: 'full', ...extra } })).data.id;
+  const id = await mk({ welcome_message: 'مرحباً بكم، نتمنى لكم قضاء أجمل الأوقات', support_phone: '+970599000111' });
+  const tok = (await api(`/events/${id}`, { token: admin })).data.token;
+  const pub = (await api(`/public/event/${tok}`)).data.event;
+  assert.equal(pub.welcome_message, 'مرحباً بكم، نتمنى لكم قضاء أجمل الأوقات');
+  assert.equal(pub.support_phone, '+970599000111');
+  assert.equal(pub.support_chat, true);
+
+  const dev = 'device-abc-12345';
+  assert.equal((await api(`/public/event/${tok}/chat?device_id=short`)).status, 400, 'device id required');
+  assert.equal((await api(`/public/event/${tok}/chat`, { method: 'POST', body: { device_id: dev, body: '   ' } })).status, 400, 'empty message refused');
+  const sent = await api(`/public/event/${tok}/chat`, { method: 'POST', body: { device_id: dev, name: 'ليلى', body: 'نريد طاولة إضافية' } });
+  assert.equal(sent.status, 201);
+  // الموظف المخوَّل يتلقى إشعاراً بالرسالة
+  const notes = (await api('/notifications', { token: waiter })).data;
+  assert.ok((notes.rows || notes).some((n) => n.type === 'chat' && /ليلى/.test(n.title)), 'waiter notified');
+  assert.equal((await api('/chat/threads', { token: kitchen })).status, 403, 'kitchen cannot read chats');
+  const thr = await api('/chat/threads', { token: waiter }); assert.equal(thr.status, 200, JSON.stringify(thr.data));
+  const th = thr.data;
+  assert.equal(th.find((t) => t.event_id === id).unread, 1);
+  const open = (await api(`/chat/thread?event_id=${id}&device_id=${dev}`, { token: waiter })).data;
+  assert.equal(open.messages.length, 1);
+  assert.equal((await api('/chat/threads', { token: waiter })).data.find((t) => t.event_id === id).unread, 0, 'opening marks read');
+  assert.equal((await api('/chat/reply', { method: 'POST', token: waiter, body: { event_id: id, device_id: dev, body: 'تم، سنجهزها خلال دقائق' } })).status, 201);
+  const mine = (await api(`/public/event/${tok}/chat?device_id=${dev}`)).data;
+  assert.deepEqual(mine.messages.map((m) => m.sender), ['customer', 'staff']);
+  // جهاز آخر لا يرى المحادثة
+  assert.equal((await api(`/public/event/${tok}/chat?device_id=another-device-1`)).data.messages.length, 0);
+  // إيقاف المحادثة
+  const id2 = await mk({ support_chat: false });
+  const tok2 = (await api(`/events/${id2}`, { token: admin })).data.token;
+  assert.equal((await api(`/public/event/${tok2}/chat`, { method: 'POST', body: { device_id: dev, body: 'مرحبا' } })).status, 400);
+});
