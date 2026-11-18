@@ -258,8 +258,9 @@ export function buildRouter(emit) {
     }
     const place = clip(b.place, 40);
     const places = ev.places ? JSON.parse(ev.places) : [];
-    if (places.length && !places.includes(place)) throw bad('اختر مكانك من القائمة');
     const open = b.order_token ? get("SELECT * FROM orders WHERE track_token = ? AND event_id = ? AND status = 'open'", String(b.order_token), ev.id) : null;
+    // الإضافة على طلب قائم تستخدم مكانه الأصلي فلا يُطلب المكان مجدداً
+    if (!open && places.length && !places.includes(place)) throw bad('اختر مكانك من القائمة');
     const before = open ? open.subtotal : 0;
     if (ev.order_cap && before + est > ev.order_cap + 0.001) throw bad(`تجاوز سقف الطلب الواحد (${ev.order_cap})`);
     let id; let added = false;
