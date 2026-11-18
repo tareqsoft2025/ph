@@ -674,6 +674,13 @@ test('corporate QR: welcome message, support phone and customer chat with staff 
   assert.deepEqual(mine.messages.map((m) => m.sender), ['customer', 'staff']);
   // جهاز آخر لا يرى المحادثة
   assert.equal((await api(`/public/event/${tok}/chat?device_id=another-device-1`)).data.messages.length, 0);
+  // مدة نسيان الزيارة قابلة للضبط وتصل لصفحة الزبون
+  assert.equal((await api(`/public/event/${tok}`)).data.forget_hours, 8, 'default is 8 hours');
+  await api('/settings', { method: 'PUT', token: admin, body: { customer_forget_hours: '3' } });
+  assert.equal((await api(`/public/event/${tok}`)).data.forget_hours, 3);
+  await api('/settings', { method: 'PUT', token: admin, body: { customer_forget_hours: '9999' } });
+  assert.equal((await api(`/public/event/${tok}`)).data.forget_hours, 8, 'out of range falls back to default');
+  await api('/settings', { method: 'PUT', token: admin, body: { customer_forget_hours: '8' } });
   // إيقاف المحادثة
   const id2 = await mk({ support_chat: false });
   const tok2 = (await api(`/events/${id2}`, { token: admin })).data.token;
