@@ -67,7 +67,7 @@ export default function Tables() {
   return (
     <div className="floor">
       <PageHead title="الطاولات">
-        {canCreate && <button className="btn" onClick={() => navigate('/pos?type=takeaway')}><ShoppingBag size={17} /> طلب سفري</button>}
+        {canCreate && <button className="btn" onClick={() => navigate('/pos?type=takeaway')}><ShoppingBag size={17} /> طلب تيك وي</button>}
         {canCreate && <button className="btn" onClick={() => navigate('/pos?type=delivery')}><Bike size={17} /> طلب توصيل</button>}
       </PageHead>
 
@@ -123,16 +123,18 @@ export default function Tables() {
           <h2 className="area-title">{a} <small>{shown.filter((t) => t.area === a).length}</small></h2>
           <div className="tables-grid">
             {shown.filter((t) => t.area === a).map((t, i) => (
-              <div key={t.id} id={`tbl-${t.id}`} className={`t-cell ${focusId === t.id ? 't-focus' : ''}`}>
+              <div key={t.id} id={`tbl-${t.id}`} className={`t-cell ${focusId === t.id ? 't-focus' : ''} ${t.locked ? 'locked' : ''}`}>
               <button className={`table-card t-${t.status} ${t.ready_items > 0 ? 't-ready' : ''}`} style={{ animationDelay: `${Math.min(i, 12) * 30}ms` }}
-                onClick={() => navigate(t.order_id ? `/pos/${t.order_id}` : `/pos?type=dine_in&table=${t.id}`)}
+                onClick={() => !t.locked && navigate(t.order_id ? `/pos/${t.order_id}` : `/pos?type=dine_in&table=${t.id}`)} aria-disabled={t.locked || undefined}
                 aria-label={`${t.name}، ${STATUS_LABEL[t.status]}`}>
                 <span className={`t-state s-${t.status}`}><i className="dot" /> {STATUS_LABEL[t.status]}</span>
                 {t.pending_confirm ? <span className="t-confirm"><QrCode size={12} aria-hidden /> بانتظار تأكيدك</span> : null}
                 {t.ready_items > 0 && <span className="t-readybadge"><BellRing size={12} aria-hidden /> جاهز {t.ready_items}</span>}
                 <div className="t-art"><TableArt seats={t.seats} guests={t.order_id ? (t.guests || 0) : 0} occupied={!!t.order_id} /></div>
                 <div className="t-name">{t.name}</div>
-                {t.order_id ? (
+                {t.locked ? (
+                  <div className="t-owner"><UserRound size={13} aria-hidden /> مع {t.waiter_name || 'نادل آخر'}</div>
+                ) : t.order_id ? (
                   <>
                     <div className="t-total">{money(t.order_total)}</div>
                     <div className="t-time"><Clock size={13} aria-hidden /> {minutesSince(t.opened_at)} د · <bdi dir="ltr">{t.order_code}</bdi></div>
@@ -143,7 +145,7 @@ export default function Tables() {
                   <div className="t-avail"><Sparkles size={13} aria-hidden /> {t.seats} مقاعد · متاحة</div>
                 )}
               </button>
-              {canQr && !t.order_id && !t.reservation && (
+              {canQr && !t.order_id && !t.locked && !t.reservation && (
                 <button className={`t-qr ${t.qr_open ? 'on' : ''} ${t.qr_requested ? 'req' : ''}`} onClick={() => toggleQr(t)} aria-pressed={!!t.qr_open} title={t.qr_open ? 'إغلاق الطلب بالـ QR' : 'فتح الطاولة لطلب الزبون بالـ QR'}>
                   <QrCode size={14} aria-hidden /> {t.qr_open ? `QR مفتوح${t.qr_opened_by_name ? ` · ${t.qr_opened_by_name}` : ''}` : t.qr_requested ? 'الزبون يطلب الفتح — افتح' : 'فتح للـ QR'}
                 </button>

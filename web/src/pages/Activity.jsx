@@ -67,6 +67,7 @@ export function describe(a, money) {
     'settings.table_delete': [Settings, 'حذف طاولة'],
     'user.create': [ShieldCheck, `إنشاء مستخدم ${name}`],
     'user.update': [ShieldCheck, `تعديل المستخدم ${name}${d.role ? ` (الدور: ${ROLE_LABELS[d.role]})` : ''}${d.password_changed ? ' · تغيير كلمة المرور' : ''}${d.active === 0 || d.active === false ? ' · تعطيل' : ''}`],
+    'user.permissions': [KeyRound, `تخصيص صلاحيات ${d.name || name}${d.after?.grants?.length ? ` · +${d.after.grants.length}` : ''}${d.after?.denies?.length ? ` · −${d.after.denies.length}` : ''}`],
     'permissions.update': [KeyRound, d.reset ? `إعادة صلاحيات ${ROLE_LABELS[d.role]} للافتراضي` : `تعديل صلاحيات ${ROLE_LABELS[d.role]}${d.added?.length ? ` · +${d.added.length}` : ''}${d.removed?.length ? ` · −${d.removed.length}` : ''}`],
     'employee.create': [IdCard, `إضافة الموظف ${name}`],
     'employee.update': [IdCard, `تعديل ملف ${name}`],

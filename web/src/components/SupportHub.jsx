@@ -1,7 +1,8 @@
 import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Headset, Phone, MessageCircle, Send, X, PartyPopper, Sparkles, ArrowLeft } from 'lucide-react';
+import { BellRing, Headset, Phone, MessageCircle, Send, X, PartyPopper, Sparkles, ArrowLeft } from 'lucide-react';
 import { api, watchChat } from '../api.js';
+import { pushSupported, pushKey, enableChatPush, isIOS, isStandalone } from '../webpush.js';
 
 const safe = (f, d = null) => { try { return f(); } catch { return d; } };
 const deviceId = () => { let d = safe(() => localStorage.getItem('ph-co-device')); if (!d) { d = Math.random().toString(36).slice(2, 12) + Date.now().toString(36); safe(() => localStorage.setItem('ph-co-device', d)); } return d; };
@@ -25,6 +26,8 @@ export default function SupportHub({ cfg, token }) {
   const [err, setErr] = useState('');
   const [seen, setSeen] = useState(() => Number(safe(() => localStorage.getItem(seenKey), 0)) || 0);
   const end = useRef(null);
+  const pushKeyName = `ph-cp-${String(token).slice(0, 10)}`;
+  const [pp, setPp] = useState('hidden');   // hidden | ask | on | denied | busy | ios | fail
   const dev = deviceId();
   const name = safe(() => localStorage.getItem('ph-co-name'), '') || '';
 
@@ -45,6 +48,40 @@ export default function SupportHub({ cfg, token }) {
     if (panel === 'help' && lastStaff > seen) { setSeen(lastStaff); safe(() => localStorage.setItem(seenKey, String(lastStaff))); }
     if (panel === 'help') end.current?.scrollIntoView({ block: 'end' });
   }, [panel, lastStaff, msgs.length]); // eslint-disable-line
+
+  // إشعارات الردود خارج الصفحة (Web Push): تظهر البطاقة إن كان الخادم والمتصفح يدعمانها
+  useEffect(() => {
+    if (!chatOn || panel !== 'help') return undefined;
+    let alive = true;
+    (async () => {
+      if (!pushSupported()) { if (isIOS() && !isStandalone() && alive) setPp('ios'); return; }
+      if (!(await pushKey())) return;
+      if (Notification.permission === 'denied') { alive && setPp('denied'); return; }
+      alive && setPp(Notification.permission === 'granted' && safe(() => localStorage.getItem(pushKeyName)) ? 'on' : 'ask');
+    })();
+    return () => { alive = false; };
+  }, [panel, chatOn]); // eslint-disable-line
+  const askPush = async () => {
+    setPp('busy');
+    try { const r = await enableChatPush(token, dev); if (r === 'granted') { safe(() => localStorage.setItem(pushKeyName, '1')); setPp('on'); } else setPp(r === 'denied' ? 'denied' : 'ask'); }
+    catch { setPp('fail'); }
+  };
+
+  // رد جديد والمحادثة مغلقة: شريط تنبيه في الصفحة (واهتزاز) — مع إشعار الويب عند إغلاق الصفحة
+  const [toast, setToast] = useState(null);
+  const lastSeenToast = useRef(seen);
+  useEffect(() => {
+    if (lastStaff > lastSeenToast.current && panel !== 'help' && !welcome) {
+      lastSeenToast.current = lastStaff;
+      const m = msgs.find((x) => x.id === lastStaff);
+      setToast(m?.body || 'لديك رد جديد');
+      safe(() => navigator.vibrate?.(120));
+      const t = setTimeout(() => setToast(null), 8000);
+      return () => clearTimeout(t);
+    }
+    if (panel === 'help') setToast(null);
+    return undefined;
+  }, [lastStaff, panel]); // eslint-disable-line
 
   const closeWelcome = () => { safe(() => sessionStorage.setItem(welKey, '1')); setWelcome(false); };
   const openHelp = () => { closeWelcome(); setPanel('help'); };
@@ -77,6 +114,9 @@ export default function SupportHub({ cfg, token }) {
         </button>
       )}
 
+      {toast && panel !== 'help' && createPortal(
+        <button className="sh-toast" onClick={() => setPanel('help')}><Headset size={18} aria-hidden /><span><strong>رد جديد من {cfg.name || 'المطعم'}</strong><small>{toast}</small></span></button>, document.body)}
+
       {welcome && createPortal(
         <div className="sh-welcome" role="dialog" aria-modal="true" aria-label="ترحيب">
           <div className="sh-confetti" aria-hidden>{Array.from({ length: 14 }, (_, i) => <i key={i} style={{ '--i': i }} />)}</div>
@@ -98,6 +138,10 @@ export default function SupportHub({ cfg, token }) {
             {(phone || wa) && <div className="sh-top">{phone && <a className="btn btn-sm" href={`tel:${phone.replace(/\s/g, '')}`}><Phone size={15} aria-hidden /> <bdi dir="ltr">{phone}</bdi></a>}{wa && <a className="btn btn-sm" href={wa} target="_blank" rel="noreferrer"><MessageCircle size={15} aria-hidden /> واتساب</a>}</div>}
             {chatOn ? (
               <>
+                {pp === 'ask' || pp === 'busy' || pp === 'fail' ? <div className="sh-push"><BellRing size={18} aria-hidden /><span>فعّل الإشعارات لتصلك ردودنا حتى لو أغلقت الصفحة{pp === 'fail' ? ' (تعذّر التفعيل، حاول مجدداً)' : ''}</span><button className="btn btn-sm btn-primary" onClick={askPush} disabled={pp === 'busy'}>تفعيل</button></div>
+                  : pp === 'on' ? <div className="sh-push ok"><BellRing size={16} aria-hidden /><span>ستصلك الردود كإشعار حتى لو أغلقت الصفحة</span></div>
+                  : pp === 'denied' ? <div className="sh-push"><BellRing size={16} aria-hidden /><span>الإشعارات محجوبة؛ فعّلها من إعدادات المتصفح للموقع لتصلك الردود.</span></div>
+                  : pp === 'ios' ? <div className="sh-push"><BellRing size={16} aria-hidden /><span>على الآيفون: أضف الصفحة إلى الشاشة الرئيسية ثم افتحها لتفعيل الإشعارات.</span></div> : null}
                 <div className="sh-msgs" aria-live="polite">
                   {!msgs.length && <div className="sh-empty"><Headset size={30} aria-hidden /><strong>كيف نخدمك؟</strong><small>اكتب استفسارك أو طلبك وسيرد عليك فريقنا هنا مباشرة.</small></div>}
                   {msgs.map((m) => <div key={m.id} className={`bub ${m.sender}`}><p>{m.body}</p><small>{m.sender === 'staff' ? `${cfg.name || 'المطعم'} · ` : ''}{hm(m.created_at)}</small></div>)}

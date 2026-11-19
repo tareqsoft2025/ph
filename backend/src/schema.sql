@@ -406,6 +406,7 @@ CREATE TABLE IF NOT EXISTS events (
   needs_approval INTEGER NOT NULL DEFAULT 0,       -- يحتاج تأكيد الموظف قبل المطبخ
   places         TEXT,                             -- JSON: قائمة أماكن/طاولات يختار منها الموظف (اختياري)
   notes          TEXT,
+  cat_times      TEXT,                             -- JSON: {معرّف القسم: {from, to}} موعد بدء/انتهاء طلب كل قسم (مشروبات، وجبات...)
   welcome_message TEXT,                            -- رسالة ترحيب تظهر عند مسح QR المؤسسة
   support_phone  TEXT,                             -- رقم خدمة العملاء (الافتراضي: رقم المطعم)
   support_chat   INTEGER NOT NULL DEFAULT 1,       -- السماح بمراسلة المطعم من الصفحة
@@ -475,3 +476,24 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 CREATE INDEX IF NOT EXISTS idx_chat_thread ON chat_messages(event_id, device_id, id);
+
+-- تخصيص صلاحيات مستخدم بعينه فوق صلاحيات دوره (allow=1 منح، allow=0 سحب)
+CREATE TABLE IF NOT EXISTS user_permissions (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  perm    TEXT NOT NULL,
+  allow   INTEGER NOT NULL,
+  PRIMARY KEY (user_id, perm)
+);
+
+-- إشعارات Web Push لمحادثة الزبون (برمز جهازه)، حتى لو لم يكن لديه طلب
+CREATE TABLE IF NOT EXISTS chat_push_subs (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id   INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  device_id  TEXT NOT NULL,
+  endpoint   TEXT NOT NULL UNIQUE,
+  p256dh     TEXT NOT NULL,
+  auth       TEXT NOT NULL,
+  url        TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_cps_dev ON chat_push_subs(event_id, device_id);

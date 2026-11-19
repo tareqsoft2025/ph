@@ -4,7 +4,7 @@ import { get, all, run } from './db.js';
 /** كل الصلاحيات مع وصفها وتجميعها */
 export const PERMISSIONS = [
   { key: 'pos.create', group: 'الطلبات', label: 'إنشاء الطلبات وإضافة الأصناف وإرسالها للمطبخ' },
-  { key: 'orders.view', group: 'الطلبات', label: 'عرض كل الطلبات' },
+  { key: 'orders.view', group: 'الطلبات', label: 'عرض كل الطلبات (بدونها يرى النادل طلباته والطلبات غير المستلمة فقط)' },
   { key: 'orders.cancel_item', group: 'الطلبات', label: 'إلغاء صنف بعد إرساله للمطبخ' },
   { key: 'orders.cancel', group: 'الطلبات', label: 'إلغاء طلب كامل' },
   { key: 'orders.discount', group: 'الطلبات', label: 'تطبيق الخصومات' },
@@ -71,6 +71,30 @@ export function resetRolePerms(role) {
   run('DELETE FROM role_permissions WHERE role = ?', role);
 }
 
+/** صلاحيات مستخدم: صلاحيات دوره + ما مُنح له − ما سُحب منه */
+export function userPerms(user) {
+  if (!user) return [];
+  if (user.role === 'admin') return ALL_KEYS;
+  const set = new Set(rolePerms(user.role));
+  for (const o of all('SELECT perm, allow FROM user_permissions WHERE user_id = ?', user.id)) {
+    if (!ALL_KEYS.includes(o.perm)) continue;
+    if (o.allow) set.add(o.perm); else set.delete(o.perm);
+  }
+  return [...set];
+}
+export const userOverrides = (id) => {
+  const rows = all('SELECT perm, allow FROM user_permissions WHERE user_id = ?', id);
+  return { grants: rows.filter((r) => r.allow).map((r) => r.perm), denies: rows.filter((r) => !r.allow).map((r) => r.perm) };
+};
+export function setUserOverrides(id, grants = [], denies = []) {
+  const g = [...new Set(grants)].filter((k) => ALL_KEYS.includes(k));
+  const d = [...new Set(denies)].filter((k) => ALL_KEYS.includes(k) && !g.includes(k));
+  run('DELETE FROM user_permissions WHERE user_id = ?', id);
+  for (const k of g) run('INSERT INTO user_permissions(user_id, perm, allow) VALUES(?,?,1)', id, k);
+  for (const k of d) run('INSERT INTO user_permissions(user_id, perm, allow) VALUES(?,?,0)', id, k);
+  return { grants: g, denies: d };
+}
+
 export const hasPerm = (user, key) => !!user && (user.role === 'admin' || (user.perms || rolePerms(user.role)).includes(key));
 
 /** يسمح بالمرور إذا امتلك المستخدم أياً من الصلاحيات */
@@ -84,6 +108,6 @@ export function need(...keys) {
 /** المستخدمون الذين يملكون صلاحية (لاستهداف الإشعارات) */
 export function usersWithPerm(key, { includeAdmin = false } = {}) {
   return all('SELECT id, role FROM users WHERE active = 1')
-    .filter((u) => (u.role === 'admin' ? includeAdmin : rolePerms(u.role).includes(key)))
+    .filter((u) => (u.role === 'admin' ? includeAdmin : userPerms(u).includes(key)))
     .map((u) => u.id);
 }

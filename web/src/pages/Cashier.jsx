@@ -15,7 +15,7 @@ import CollectionsHistory from '../components/CollectionsHistory.jsx';
 import ConfirmBanner from '../components/ConfirmBanner.jsx';
 
 const TYPE_ICON = { dine_in: Armchair, takeaway: ShoppingBag, delivery: Bike };
-const FILTERS = [['all', 'الكل'], ['bill', 'طلبوا الحساب'], ['dine_in', 'الصالة'], ['takeaway', 'سفري'], ['delivery', 'توصيل']];
+const FILTERS = [['all', 'الكل'], ['bill', 'طلبوا الحساب'], ['dine_in', 'الصالة'], ['takeaway', 'تيك وي'], ['delivery', 'توصيل']];
 
 export default function Cashier() {
   const { user } = useApp();

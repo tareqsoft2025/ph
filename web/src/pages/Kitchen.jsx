@@ -12,7 +12,7 @@ const LANES = [
   { k: 'ready', label: 'جاهزة للتقديم', action: 'تم التسليم', next: 'served', icon: HandPlatter },
 ];
 const TYPE_ICON = { dine_in: Armchair, takeaway: ShoppingBag, delivery: Bike };
-const TYPE_LABEL = { dine_in: 'صالة', takeaway: 'سفري', delivery: 'توصيل' };
+const TYPE_LABEL = { dine_in: 'صالة', takeaway: 'تيك وي', delivery: 'توصيل' };
 const NEXT_ITEM = { new: 'preparing', preparing: 'ready', ready: 'served' };
 
 function elapsed(ts) {

@@ -21,6 +21,15 @@ export function customerNotify(orderId, payload) {
   Promise.resolve().then(() => webPush.sendToOrder(orderId, payload)).catch((e) => console.error('webpush:', e.message));
 }
 
+/** إشعار رد المحادثة للزبون: على اشتراك المحادثة، وإن لم يوجد فعلى اشتراك طلبه (إن وُجد) */
+export function customerChatNotify(eventId, device, orderId, payload) {
+  if (!webPush) return;
+  Promise.resolve().then(async () => {
+    const sent = await webPush.sendToChat(eventId, device, payload);
+    if (!sent && orderId) await webPush.sendToOrder(orderId, payload);
+  }).catch((e) => console.error('webpush:', e.message));
+}
+
 /**
  * @param {{ userIds?: number[], roles?: string[], type: string, title: string, body?: string, link?: string, level?: string, exclude?: number }} n
  */

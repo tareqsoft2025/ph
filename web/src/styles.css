@@ -2482,3 +2482,31 @@ html[dir="rtl"] .sh-badge { transform: translateX(50%); }
   .chat-back { display: inline-flex; }
 }
 @media (prefers-reduced-motion: reduce) { .sh-confetti i, .co-help-dot { animation: none; } }
+
+/* ═════════ صلاحيات مستخدم بعينه ═════════ */
+.up-group { border: 1px solid var(--border); border-radius: var(--radius-md); margin: 0 0 var(--s-3); padding: var(--s-2) var(--s-3) var(--s-3); }
+.up-group legend { padding-inline: 6px; font-family: var(--font-display); font-weight: 600; color: var(--primary); font-size: var(--text-sm); }
+.up-row { display: flex; align-items: center; gap: var(--s-2); padding: 6px 0; border-bottom: 1px dashed var(--border); }
+.up-row:last-child { border-bottom: 0; }
+.up-row span { flex: 1; }
+.up-row em { font-style: normal; font-size: 11px; }
+/* طاولة عليها طلب نادل آخر */
+.t-cell.locked { opacity: .62; }
+.t-cell.locked .table-card { cursor: not-allowed; }
+.t-owner { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--muted); }
+/* قسم لم يحن وقته في طلب المؤسسة */
+.co-cat-lock { display: block; font-size: 10.5px; opacity: .8; }
+.co-soon { margin: var(--s-3) 0; padding: var(--s-4); border-radius: var(--radius-md); background: color-mix(in srgb, var(--primary) 8%, var(--surface)); border: 1px dashed var(--border); text-align: center; display: flex; flex-direction: column; gap: 4px; }
+.co-soon strong { font-family: var(--font-display); }
+.claim-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); padding: 8px var(--s-4); flex-shrink: 0; font-size: var(--text-sm); background: color-mix(in srgb, #d98a3d 14%, var(--paper, var(--surface))); border-bottom: 1px dashed var(--perf, var(--border)); color: var(--ink, inherit); }
+.claim-bar span { display: inline-flex; align-items: center; gap: 6px; }
+.ev-cat-times { display: grid; gap: var(--s-2); }
+.ev-cat-time { display: grid; grid-template-columns: 110px 1fr 1fr; gap: var(--s-2); align-items: center; padding: var(--s-2) var(--s-3); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.ev-cat-time label { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--muted); }
+@media (max-width: 640px) { .ev-cat-time { grid-template-columns: 1fr 1fr; } .ev-cat-time strong { grid-column: 1 / -1; } }
+.sh-push { display: flex; align-items: center; gap: var(--s-2); padding: 8px var(--s-4); font-size: var(--text-sm); background: color-mix(in srgb, #d98a3d 13%, var(--surface)); border-bottom: 1px solid var(--border); }
+.sh-push span { flex: 1; }
+.sh-push.ok { background: color-mix(in srgb, var(--primary) 9%, var(--surface)); color: var(--primary); }
+.sh-toast { position: fixed; z-index: 70; inset-inline: 12px; top: max(12px, env(safe-area-inset-top)); display: flex; gap: var(--s-3); align-items: center; text-align: start; padding: 12px 14px; border: 0; border-radius: 16px; cursor: pointer; background: #14382a; color: #fff; font: inherit; box-shadow: 0 14px 34px rgba(0,0,0,.35); animation: sheetup 300ms var(--ease); }
+.sh-toast span { display: flex; flex-direction: column; min-width: 0; }
+.sh-toast small { opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

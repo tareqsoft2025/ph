@@ -4,7 +4,7 @@ import { bad, notFound, round2 } from './util.js';
 import { notify, customerNotify } from './notify.js';
 import { hasPerm } from './perms.js';
 
-const TYPE_LABEL = { dine_in: 'صالة', takeaway: 'سفري', delivery: 'توصيل' };
+const TYPE_LABEL = { dine_in: 'صالة', takeaway: 'تيك وي', delivery: 'توصيل' };
 
 /** يسجّل خطوة في تسلسل عمليات الطلب */
 const CUSTOMER_MSG = {

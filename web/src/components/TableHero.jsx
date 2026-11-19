@@ -159,7 +159,7 @@ export default function TableHero({ type, table, order, guests, onGuests, guests
 
       <div className="thero-info">
         <span className="thero-kicker">{isTable ? (order ? 'الطلبات الخاصة بـ' : 'طلب جديد على') : order ? 'طلب' : 'طلب جديد'}</span>
-        <h1 className="thero-title">{order?.event_name ? order.event_name : isTable ? table?.name || order?.table_name || 'طاولة' : type === 'delivery' ? 'توصيل' : 'سفري'}</h1>
+        <h1 className="thero-title">{order?.event_name ? order.event_name : isTable ? table?.name || order?.table_name || 'طاولة' : type === 'delivery' ? 'توصيل' : 'تيك وي'}</h1>
         <div className="thero-chips">
           {isTable && table?.area && <span className="tchip">{table.area}</span>}
           {isTable && <span className="tchip"><Armchair size={12} aria-hidden /> {table?.seats || '—'} مقاعد</span>}

@@ -65,7 +65,7 @@ export default function Pos() {
   const err = (k) => (tried ? metaErrors[k] : null);
 
   useEffect(() => { setDraft([]); }, [orderId]);
-  // سياق جديد (طاولة أخرى أو سفري/توصيل): نبدأ ببيانات نظيفة
+  // سياق جديد (طاولة أخرى أو تيك وي/توصيل): نبدأ ببيانات نظيفة
   const ctxKey = params.toString();
   useEffect(() => {
     if (orderId) return;
@@ -218,7 +218,7 @@ export default function Pos() {
   if (!orderId && !canEdit) return <Navigate to={canPay ? '/cashier' : '/tables'} replace />;
   if (orderId && orderQ.error) return <Empty icon={TriangleAlert} text={orderQ.error} />;
 
-  // لا توجد شاشة طلب عامة: يجب الدخول من طاولة (أو طلب سفري/توصيل من صفحة الطاولات)
+  // لا توجد شاشة طلب عامة: يجب الدخول من طاولة (أو طلب تيك وي/توصيل من صفحة الطاولات)
   if (!orderId && (!meta.type || (meta.type === 'dine_in' && !meta.table_id))) return <Navigate to="/tables" replace />;
   const ctxTable = (tables.data || []).find((t) => t.id === (order?.table_id || meta.table_id));
   // الطاولة مشغولة بطلب مفتوح: افتح ذلك الطلب مباشرة
@@ -357,6 +357,12 @@ export default function Pos() {
           </div>
         )}
 
+        {order && isOpen && has(user, 'pos.create') && order.waiter_id !== user.id && (!order.waiter_id || has(user, 'orders.view')) && (
+          <div className="claim-bar">
+            <span><UserRound size={15} aria-hidden /> {order.waiter_name ? `الطلب على حساب ${order.waiter_name}` : 'هذا الطلب غير مستلم'}</span>
+            <button className="btn btn-sm btn-primary" disabled={busy} onClick={async () => { const r = await run(() => api(`/orders/${order.id}/claim`, { method: 'POST' }), 'أصبح الطلب على حسابك'); if (r) orderQ.setData(r); }}>{order.waiter_name ? 'نقله إلي' : 'استلام الطلب على حسابي'}</button>
+          </div>
+        )}
         {order && <ConfirmBanner order={order} onChanged={(r) => (r.status === 'cancelled' ? navigate('/tables') : orderQ.setData(r))} />}
         <div className="cart-lines" ref={linesRef}>
           {draft.length > 0 && (
