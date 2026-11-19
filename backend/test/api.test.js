@@ -767,3 +767,32 @@ test('corporate event: category order windows (drinks first, meals later) and cu
   const push = await api(`/public/event/${ev.token}/chat/push`, { method: 'POST', body: { device_id: 'cat-dev-12345', subscription: { endpoint: 'https://x.example/p', keys: { p256dh: 'a', auth: 'b' } } } });
   assert.ok([200, 503].includes(push.status), 'push endpoint exists: ' + push.status);
 });
+
+test('meal details and components: saved by the admin, shown in the staff menu and to QR customers', async () => {
+  const admin = await login('admin', 'admin123');
+  const waiter = await login('waiter', '1234');
+  const menu = (await api('/menu', { token: admin })).data;
+  const cat = menu.categories[0];
+  const made = await api('/items', { method: 'POST', token: admin, body: { category_id: cat.id, name: 'وجبة اختبار', price: 20, details: 'وصف طويل للوجبة', components: ['جبن', ' خس ', 'جبن', '', 'طماطم'] } });
+  assert.equal(made.status, 201, JSON.stringify(made.data));
+  const one = (await api(`/items/${made.data.id}`, { token: admin })).data;
+  assert.equal(one.details, 'وصف طويل للوجبة');
+  assert.deepEqual(one.components, ['جبن', 'خس', 'طماطم'], 'trimmed and de-duplicated');
+  // تعديل: نص بفواصل يُقبل أيضاً، وحذف المكونات
+  assert.equal((await api(`/items/${made.data.id}`, { method: 'PUT', token: admin, body: { components: 'لحم، بصل, ثوم', details: 'x'.repeat(900) } })).status, 200);
+  const two = (await api(`/items/${made.data.id}`, { token: admin })).data;
+  assert.deepEqual(two.components, ['لحم', 'بصل', 'ثوم']); assert.equal(two.details.length, 600, 'details are clipped');
+  // قائمة الموظفين وقائمة الزبون العامة (طاولة QR) تُظهر التفصيل
+  assert.deepEqual((await api('/menu', { token: waiter })).data.items.find((i) => i.id === made.data.id).components, ['لحم', 'بصل', 'ثوم']);
+  const tk = (await api('/tables/qr', { token: admin })).data[0].token;
+  await api('/settings', { method: 'PUT', token: admin, body: { online_ordering: '1' } });
+  const pub = await api(`/public/table/${tk}/menu`);
+  assert.equal(pub.status, 200);
+  assert.deepEqual(pub.data.items.find((i) => i.id === made.data.id).components, ['لحم', 'بصل', 'ثوم']);
+  assert.ok(pub.data.items.find((i) => i.id === made.data.id).details);
+  assert.equal((await api(`/items/${made.data.id}`, { method: 'PUT', token: admin, body: { components: [] } })).status, 200);
+  assert.deepEqual((await api(`/items/${made.data.id}`, { token: admin })).data.components, []);
+  // البيانات التجريبية فيها تفصيل ومكونات للوجبات الرئيسية
+  const burger = menu.items.find((i) => i.name === 'برجر لحم');
+  assert.ok(burger.details && burger.components.length >= 4);
+});

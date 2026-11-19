@@ -101,7 +101,7 @@ function ItemForm({ item, categories, onClose, onSaved }) {
   const [run, busy] = useAction();
   const ingredients = useData('/ingredients');
   const [f, setF] = useState({
-    category_id: item.category_id, name: item.name || '', description: item.description || '', price: item.price ?? '',
+    category_id: item.category_id, name: item.name || '', description: item.description || '', details: item.details || '', components: Array.isArray(item.components) ? item.components : [], price: item.price ?? '',
     station: item.station || 'kitchen', available: item.available ?? 1, image: item.image || '',
     modifiers: item.modifiers?.map((m) => ({ name: m.name, price: m.price })) || [],
     recipe: item.recipe?.map((r) => ({ ingredient_id: r.ingredient_id, qty: r.qty })) || [],
@@ -143,7 +143,11 @@ function ItemForm({ item, categories, onClose, onSaved }) {
           </select>
         </Field>
       </div>
-      <Field label="الوصف"><input value={f.description} onChange={(e) => set('description', e.target.value)} /></Field>
+      <Field label="الوصف المختصر" hint="سطر واحد يظهر تحت اسم الوجبة في القائمة"><input value={f.description} onChange={(e) => set('description', e.target.value)} /></Field>
+      <Field label="تفصيل الوجبة" hint="وصف أطول يراه الزبون والموظف عند فتح تفاصيل الوجبة: طريقة التحضير، الحجم، ما يميّزها…"><textarea rows={3} maxLength={600} value={f.details} onChange={(e) => set('details', e.target.value)} placeholder="مثال: قطعة لحم بقري 150 غ مشوية على الجمر مع جبن شيدر وصوص خاص" /></Field>
+      <Field label="مكونات الوجبة" hint="تظهر للزبون كقائمة مكونات (للعلم بالحساسية والمحتوى). اكتب المكوّن واضغط Enter.">
+        <Components value={f.components} onChange={(v) => set('components', v)} recipeNames={f.recipe.map((r) => ingMap[r.ingredient_id]?.name).filter(Boolean)} />
+      </Field>
       <Field label="الصورة" hint="رابط صورة (https://…) أو إيموجي مثل 🍔. تظهر في قائمة الطعام بنقطة البيع.">
         <div className="inline-row inline-row-img">
           <input dir="auto" value={f.image} onChange={(e) => set('image', e.target.value)} placeholder="🍔 أو https://…" />
@@ -182,5 +186,32 @@ function ItemForm({ item, categories, onClose, onSaved }) {
         </div>
       )}
     </Modal>
+  );
+}
+
+/** محرر مكونات الوجبة: شرائح تُضاف بـ Enter أو الفاصلة، مع استيراد أسماء مواد الوصفة */
+function Components({ value, onChange, recipeNames }) {
+  const [text, setText] = useState('');
+  const add = (raw) => {
+    const parts = String(raw).split(/[,،\n]+/).map((x) => x.trim()).filter(Boolean);
+    if (!parts.length) return;
+    onChange([...new Set([...value, ...parts])].slice(0, 30));
+    setText('');
+  };
+  const missing = recipeNames.filter((n) => !value.includes(n));
+  return (
+    <div className="comp-edit">
+      {value.length > 0 && (
+        <ul className="comp-chips">
+          {value.map((c) => <li key={c}>{c}<button type="button" onClick={() => onChange(value.filter((x) => x !== c))} aria-label={`حذف ${c}`}>×</button></li>)}
+        </ul>
+      )}
+      <div className="comp-add">
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="مثال: جبن شيدر" maxLength={40}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',' || e.key === '،') { e.preventDefault(); add(text); } }} onBlur={() => add(text)} />
+        <button type="button" className="btn btn-sm" onClick={() => add(text)} disabled={!text.trim()}>إضافة</button>
+        {missing.length > 0 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => onChange([...new Set([...value, ...missing])].slice(0, 30))}>استيراد من الوصفة ({missing.length})</button>}
+      </div>
+    </div>
   );
 }

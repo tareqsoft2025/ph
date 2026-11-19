@@ -17,6 +17,7 @@ function migrate() {
   if (!cols('customers').includes('pay_method')) { db.exec('ALTER TABLE customers ADD COLUMN pay_method TEXT'); db.exec('ALTER TABLE customers ADD COLUMN pay_phone TEXT'); db.exec('ALTER TABLE customers ADD COLUMN pay_name TEXT'); }
   if (!cols('orders').includes('event_id')) { db.exec('ALTER TABLE orders ADD COLUMN event_id INTEGER'); db.exec('ALTER TABLE orders ADD COLUMN place TEXT'); }
   if (!cols('events').includes('welcome_message')) { db.exec('ALTER TABLE events ADD COLUMN welcome_message TEXT'); db.exec('ALTER TABLE events ADD COLUMN support_phone TEXT'); db.exec('ALTER TABLE events ADD COLUMN support_chat INTEGER NOT NULL DEFAULT 1'); }
+  if (!cols('menu_items').includes('details')) { db.exec('ALTER TABLE menu_items ADD COLUMN details TEXT'); db.exec('ALTER TABLE menu_items ADD COLUMN components TEXT'); }
   if (!cols('events').includes('cat_times')) db.exec('ALTER TABLE events ADD COLUMN cat_times TEXT');
   if (!cols('orders').includes('source')) db.exec("ALTER TABLE orders ADD COLUMN source TEXT NOT NULL DEFAULT 'staff'");
   if (!cols('orders').includes('track_token')) db.exec('ALTER TABLE orders ADD COLUMN track_token TEXT');

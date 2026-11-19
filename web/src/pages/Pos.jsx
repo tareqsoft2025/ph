@@ -8,9 +8,10 @@ import {
 import Receipt from '../components/Receipt.jsx';
 import OrderTimeline from '../components/OrderTimeline.jsx';
 import ConfirmBanner from '../components/ConfirmBanner.jsx';
+import DishDetail, { hasDetail } from '../components/DishDetail.jsx';
 import TableHero, { AnimatedMoney } from '../components/TableHero.jsx';
 import { PayModal, DiscountModal } from '../components/PaymentModals.jsx';
-import { Search, Utensils, SlidersHorizontal, ChefHat, Plus, StickyNote, ShoppingBag, Flame, CheckCheck, Printer, CreditCard, TriangleAlert, X, History, Minus, UserRound, Phone, MapPin, ReceiptText, ChevronUp, Percent, ArrowLeftRight, Ban } from 'lucide-react';
+import { Search, Utensils, SlidersHorizontal, ChefHat, Plus, StickyNote, ShoppingBag, Flame, CheckCheck, Printer, CreditCard, TriangleAlert, X, History, Minus, UserRound, Phone, MapPin, ReceiptText, ChevronUp, Info, Percent, ArrowLeftRight, Ban } from 'lucide-react';
 
 let draftSeq = 1;
 
@@ -48,6 +49,7 @@ export default function Pos() {
   const [totalsOpen, setTotalsOpen] = useState(false);
   const [bump, setBump] = useState(0);
   const [metaEdit, setMetaEdit] = useState(false);
+  const [infoItem, setInfoItem] = useState(null);
   const linesRef = useRef(null);
   const lastAdded = useRef(null);
 
@@ -288,6 +290,7 @@ export default function Pos() {
                     {!it.available && <span className="dish-flag">نفد اليوم</span>}
                     {inCart > 0 && <span key={inCart} className="dish-qty">{inCart}</span>}
                   </button>
+                  {hasDetail(it) && <button className="dish-info" onClick={() => setInfoItem(it)} aria-label={`تفاصيل ${it.name}`}><Info size={14} strokeWidth={2.4} /></button>}
                   {inCart > 0 && isOpen && <button className="dish-minus" onClick={() => decItem(it.id)} aria-label={`إنقاص ${it.name}`}><Minus size={14} strokeWidth={2.6} /></button>}
                 </div>
               );
@@ -489,6 +492,12 @@ export default function Pos() {
         {order && <span>· {money(order.total)}</span>}
       </button>
 
+      {infoItem && (
+        <Modal title="تفاصيل الوجبة" onClose={() => setInfoItem(null)}
+          footer={isOpen && canEdit && infoItem.available ? <button className="btn btn-primary btn-lg" onClick={() => { const it = infoItem; setInfoItem(null); onItemClick(it); }}><Plus size={18} /> إضافة للطلب</button> : null}>
+          <DishDetail item={infoItem} price={money(infoItem.price)} art={infoItem.image || catIcon[infoItem.category_id] || ''} />
+        </Modal>
+      )}
       {picking && <ModifierPicker item={picking} money={money} onClose={() => setPicking(null)} onAdd={(opts) => { addToDraft(picking, opts); setPicking(null); }} />}
       {paying && order && (
         <PayModal key={order.id} order={order} money={money} onClose={() => setPaying(false)}
