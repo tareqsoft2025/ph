@@ -341,19 +341,19 @@ export default function Pos() {
             <div className="grid-2">
               <label className={`cfield ${err('customer_name') ? 'invalid' : ''}`}>
                 <span className="cfield-label"><UserRound size={14} aria-hidden /> اسم العميل *</span>
-                <input value={meta.customer_name} onChange={(e) => setMeta({ ...meta, customer_name: e.target.value })} autoComplete="off" aria-invalid={!!err('customer_name')} />
+                <input placeholder="اسم العميل *" value={meta.customer_name} onChange={(e) => setMeta({ ...meta, customer_name: e.target.value })} autoComplete="off" aria-invalid={!!err('customer_name')} />
                 {err('customer_name') && <span className="cfield-err">{err('customer_name')}</span>}
               </label>
               <label className={`cfield ${err('customer_phone') ? 'invalid' : ''}`}>
                 <span className="cfield-label"><Phone size={14} aria-hidden /> رقم الجوال *</span>
-                <input inputMode="tel" dir="ltr" placeholder="05xxxxxxxx" value={meta.customer_phone} onChange={(e) => setMeta({ ...meta, customer_phone: e.target.value })} autoComplete="off" aria-invalid={!!err('customer_phone')} />
+                <input inputMode="tel" dir="ltr" placeholder="رقم الجوال *" value={meta.customer_phone} onChange={(e) => setMeta({ ...meta, customer_phone: e.target.value })} autoComplete="off" aria-invalid={!!err('customer_phone')} />
                 {err('customer_phone') && <span className="cfield-err">{err('customer_phone')}</span>}
               </label>
             </div>
             {meta.type === 'delivery' && (
               <label className={`cfield ${err('address') ? 'invalid' : ''}`}>
                 <span className="cfield-label"><MapPin size={14} aria-hidden /> عنوان التوصيل *</span>
-                <input value={meta.address} onChange={(e) => setMeta({ ...meta, address: e.target.value })} aria-invalid={!!err('address')} />
+                <input placeholder="عنوان التوصيل *" value={meta.address} onChange={(e) => setMeta({ ...meta, address: e.target.value })} aria-invalid={!!err('address')} />
                 {err('address') && <span className="cfield-err">{err('address')}</span>}
               </label>
             )}
