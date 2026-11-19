@@ -3,7 +3,7 @@ const listeners = new Map();
 
 export const ALL_EVENTS = ['orders', 'kitchen', 'tables', 'menu', 'inventory', 'shift', 'reservations', 'settings', 'hr', 'attendance', 'notifications', 'chat'];
 
-// نقل الإشعارات بين تبويبات نفس المتصفح (مثلاً من شاشة المطبخ إلى النادل)
+// نقل الإشعارات بين تبويبات نفس المتصفح (مثلاً من شاشة المطبخ إلى الموظف)
 const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('ph-demo-notify') : null;
 channel?.addEventListener('message', (e) => setTimeout(() => fire('notify', e.data), 0));
 

@@ -13,8 +13,8 @@ const CUSTOMER_MSG = {
   preparing: ['👨‍🍳 بدأ تحضير طلبك', 'الشيف يجهّز طلبك الآن.'],
   ready: ['🔔 طلبك جاهز!', 'سيصلك إلى طاولتك خلال لحظات.'],
   served: ['🍽️ بالهناء والعافية', 'تم تقديم طلبك.'],
-  rejected: ['⚠️ تعذّر قبول طلبك', 'نادِ النادل للمساعدة.'],
-  cancelled: ['⚠️ أُلغي طلبك', 'نادِ النادل للمساعدة.'],
+  rejected: ['⚠️ تعذّر قبول طلبك', 'نادِ الموظف للمساعدة.'],
+  cancelled: ['⚠️ أُلغي طلبك', 'نادِ الموظف للمساعدة.'],
   paid: ['💚 شكراً لزيارتكم', 'نتمنى أن نراكم قريباً.'],
   bill: ['🧾 تم إرسال طلب الحساب', 'يرجى التوجه إلى الكاشير وذكر كود العملية.'],
 };
@@ -365,7 +365,7 @@ export function moveTable(orderId, tableId, user) {
 }
 
 /**
- * بعد تغيير حالة أصناف في المطبخ: يسجّل الخطوة، وإذا أصبح الطلب كله جاهزاً يُشعر النادل/الكاشير
+ * بعد تغيير حالة أصناف في المطبخ: يسجّل الخطوة، وإذا أصبح الطلب كله جاهزاً يُشعر الموظف/الكاشير
  * @param {'preparing'|'ready'|'served'} status
  */
 export function kitchenProgress(orderId, status, user, changed) {
@@ -392,7 +392,7 @@ export function kitchenProgress(orderId, status, user, changed) {
   }
 }
 
-/** النادل يطلب الحساب: يُشعر الكاشير */
+/** الموظف يطلب الحساب: يُشعر الكاشير */
 export function requestBill(orderId, user) {
   const order = get('SELECT * FROM orders WHERE id = ?', orderId);
   assertOpen(order);
@@ -434,7 +434,7 @@ export const BILL_METHODS = { cash: 'نقداً', wallet: 'محفظة', bank: '�
 export function customerBill(orderId, { method, name, phone }) {
   const order = get('SELECT * FROM orders WHERE id = ?', orderId);
   assertOpen(order);
-  if (order.pending_confirm) throw bad('طلبك بانتظار تأكيد النادل، انتظر قليلاً');
+  if (order.pending_confirm) throw bad('طلبك بانتظار تأكيد الموظف، انتظر قليلاً');
   if (!get("SELECT 1 AS x FROM order_items WHERE order_id = ? AND status != 'cancelled'", orderId)) throw bad('لا توجد أصناف في الطلب');
   // لا يُطلب الحساب إلا بعد أن يجهّز المطبخ كل الأصناف
   if (get("SELECT 1 AS x FROM order_items WHERE order_id = ? AND status NOT IN ('ready', 'served', 'cancelled')", orderId)) throw bad('يتاح طلب الحساب بعد تجهيز طلبك في المطبخ');

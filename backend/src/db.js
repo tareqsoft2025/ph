@@ -106,8 +106,8 @@ const DEFAULT_SETTINGS = {
   receipt_footer: 'شكراً لزيارتكم',
   loyalty_points_per_unit: '1', // نقطة لكل وحدة عملة
   online_ordering: '1',          // السماح للزبائن بالطلب من رمز QR الطاولة (يمكن إيقافه في أي وقت)
-  qr_require_open: '1',          // لا يُقبل طلب QR إلا بعد أن يفتح النادل الطاولة
-  qr_confirm_mode: 'smart',      // تأكيد النادل قبل المطبخ: always / smart (حسب المبلغ وأول طلب للجوال) / never
+  qr_require_open: '1',          // لا يُقبل طلب QR إلا بعد أن يفتح الموظف الطاولة
+  qr_confirm_mode: 'smart',      // تأكيد الموظف قبل المطبخ: always / smart (حسب المبلغ وأول طلب للجوال) / never
   qr_allow_bill: '1',            // السماح للزبون بطلب الحساب من هاتفه واختيار طريقة الدفع
   customer_forget_hours: '8',    // مدة احتفاظ جهاز الزبون بآخر طلبه ومحادثته قبل اعتبار الزيارة جديدة (بالساعات)
   qr_confirm_over: '100',        // المبلغ الذي يحتاج ما فوقه تأكيداً (في الوضع smart)

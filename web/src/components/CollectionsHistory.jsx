@@ -134,7 +134,7 @@ function CollectionDetail({ row, all, onClose }) {
             <span><UserRound size={14} aria-hidden /> {o.customer_name || '—'}</span>
             {o.customer_phone && <span><bdi dir="ltr">{o.customer_phone}</bdi></span>}
             <span>{o.type === 'dine_in' ? o.table_name : ORDER_TYPES[o.type]}</span>
-            {o.waiter_name && <span>النادل: {o.waiter_name}</span>}
+            {o.waiter_name && <span>الموظف: {o.waiter_name}</span>}
           </div>
           <ul className="cpanel-items">
             {items.map((i) => (

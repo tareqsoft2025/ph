@@ -83,8 +83,8 @@ CREATE TABLE IF NOT EXISTS dining_tables (
   area   TEXT NOT NULL DEFAULT 'الصالة',
   active INTEGER NOT NULL DEFAULT 1,
   qr_token TEXT,                -- رمز QR العشوائي الخاص بالطاولة (يُستخدم في رابط الزبون)
-  qr_open_until TEXT,           -- الطاولة مفتوحة لطلب QR حتى هذا الوقت (يفتحها النادل)
-  qr_request_at TEXT,           -- آخر وقت طلب فيه الزبون من النادل فتح الطاولة
+  qr_open_until TEXT,           -- الطاولة مفتوحة لطلب QR حتى هذا الوقت (يفتحها الموظف)
+  qr_request_at TEXT,           -- آخر وقت طلب فيه الزبون من الموظف فتح الطاولة
   qr_opened_by  INTEGER,        -- الموظف الذي فتح الطاولة لطلب QR (واستلم طلب الفتح)
   qr_opened_at  TEXT
 );
@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS orders (
   cancel_reason   TEXT,
   source          TEXT NOT NULL DEFAULT 'staff',   -- staff / online (طلب من رابط الزبون)
   track_token     TEXT,                            -- رمز متابعة الزبون للطلب
-  pending_confirm INTEGER NOT NULL DEFAULT 0,      -- طلب QR بانتظار تأكيد النادل قبل المطبخ
+  pending_confirm INTEGER NOT NULL DEFAULT 0,      -- طلب QR بانتظار تأكيد الموظف قبل المطبخ
   device_id       TEXT,                            -- معرّف جهاز الزبون (طلب QR)
   bill_method     TEXT,                            -- طريقة الدفع التي اختارها الزبون عند طلب الحساب: cash/wallet/bank/jawwalpay
   bill_name       TEXT,                            -- اسم الدافع

@@ -182,7 +182,7 @@ export default function Pos() {
     setDraft([]);
     setCartOpen(false);
     setTried(false);
-    // النادل يعود للطاولات بعد الإرسال
+    // الموظف يعود للطاولات بعد الإرسال
     if (send && !canPay && !thenPay) { navigate('/tables'); return; }
     if (!order) navigate(`/pos/${r.id}`, { replace: true });
     else orderQ.setData(r);

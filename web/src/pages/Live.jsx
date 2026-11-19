@@ -170,7 +170,7 @@ export default function Live() {
                       <div><dt>المبلغ</dt><dd>{money(selOrder.total)}</dd></div>
                       <div><dt>المدة</dt><dd>{mmss(Date.now() - ts(selOrder.created_at))}</dd></div>
                       {selOrder.guests ? <div><dt>الأشخاص</dt><dd>{selOrder.guests}</dd></div> : null}
-                      <div><dt>النادل</dt><dd>{selOrder.waiter_name || '—'}</dd></div>
+                      <div><dt>الموظف</dt><dd>{selOrder.waiter_name || '—'}</dd></div>
                       {selOrder.customer_name && <div><dt>العميل</dt><dd>{selOrder.customer_name}</dd></div>}
                       {selOrder.bill_method && <div><dt>الدفع</dt><dd>{({ cash: 'نقداً', wallet: 'محفظة', bank: 'بنك', jawwalpay: 'جوال بي' })[selOrder.bill_method]}</dd></div>}
                     </dl>

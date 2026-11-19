@@ -4,7 +4,7 @@ import { get, all, run } from './db.js';
 /** كل الصلاحيات مع وصفها وتجميعها */
 export const PERMISSIONS = [
   { key: 'pos.create', group: 'الطلبات', label: 'إنشاء الطلبات وإضافة الأصناف وإرسالها للمطبخ' },
-  { key: 'orders.view', group: 'الطلبات', label: 'عرض كل الطلبات (بدونها يرى النادل طلباته والطلبات غير المستلمة فقط)' },
+  { key: 'orders.view', group: 'الطلبات', label: 'عرض كل الطلبات (بدونها يرى الموظف طلباته والطلبات غير المستلمة فقط)' },
   { key: 'orders.cancel_item', group: 'الطلبات', label: 'إلغاء صنف بعد إرساله للمطبخ' },
   { key: 'orders.cancel', group: 'الطلبات', label: 'إلغاء طلب كامل' },
   { key: 'orders.discount', group: 'الطلبات', label: 'تطبيق الخصومات' },

@@ -168,7 +168,7 @@ function OrderPanel({ id, onDone, onBack }) {
 
       <BillCard order={o} money={money} />
       <ConfirmBanner order={o} onChanged={(r) => (r.status === 'cancelled' ? onDone() : setData(r))} />
-      {o.bill_requested_at && <div className="alert alert-warn"><BellRing size={16} /> طلب {o.waiter_name || 'النادل'} الحساب الساعة {timeOf(o.bill_requested_at)}</div>}
+      {o.bill_requested_at && <div className="alert alert-warn"><BellRing size={16} /> طلب {o.waiter_name || 'الموظف'} الحساب الساعة {timeOf(o.bill_requested_at)}</div>}
 
       <div className="cpanel-meta">
         <span><UserRound size={14} aria-hidden /> {o.customer_name || '—'}</span>

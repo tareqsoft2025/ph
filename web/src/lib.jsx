@@ -6,7 +6,7 @@ export const AppContext = createContext(null);
 export const useApp = () => useContext(AppContext);
 
 export const ROLE_LABELS = {
-  admin: 'المدير العام', manager: 'مدير الفرع', cashier: 'كاشير', waiter: 'نادل', kitchen: 'المطبخ', staff: 'موظف',
+  admin: 'المدير العام', manager: 'مدير الفرع', cashier: 'كاشير', waiter: 'موظف', kitchen: 'المطبخ', staff: 'موظف حضور',
 };
 export const ORDER_TYPES = { dine_in: 'صالة', takeaway: 'تيك وي', delivery: 'توصيل' };
 /** عنوان الطلب: الطاولة، أو المؤسسة والمكان (طلب فعالية)، أو نوع الطلب */
