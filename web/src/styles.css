@@ -2533,3 +2533,39 @@ html[dir="rtl"] .sh-badge { transform: translateX(50%); }
 .co-dish { flex-direction: column; }
 .co-row { position: relative; display: flex; width: 100%; min-width: 0; }
 .co-detail { width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px; border: 0; border-top: 1px dashed var(--border); background: color-mix(in srgb, var(--primary) 5%, var(--surface)); color: var(--primary); font: inherit; font-size: var(--text-xs); font-weight: 700; cursor: pointer; }
+
+/* ═════════ شاشات اللابتوب القصيرة: سلة مضغوطة تُبقي أسطر الطلب ظاهرة والأزرار في صف واحد ═════════ */
+@media (min-width: 961px) and (max-height: 860px) {
+  .pos-page { gap: var(--s-2); }
+  .pos-page .thero { padding-block: 4px; gap: var(--s-4); }
+  .pos-page .thero-art { height: 78px; }
+  .pos-page .table-art { width: 104px; height: 78px; }
+  .pos-page .thero-title { font-size: clamp(1.3rem, 2vw, 1.7rem); }
+  .pos-page .thero-kicker { font-size: 11px; }
+  .pos-page .thero-meta { display: none; }
+  .pos-page .thero-side .thero-label { font-size: 11px; }
+
+  .pos-cart.ticket .cart-head { padding: 8px 14px 12px; }
+  .pos-cart.ticket .tk-title { font-size: var(--text-xl); }
+  .pos-cart.ticket .tk-sub { display: none; }
+  .pos-cart.ticket .cart-head .btn, .pos-cart.ticket .cart-head .icon-btn { min-height: 30px; padding-block: 2px; }
+  .pos-cart.ticket .cart-meta { padding: 6px 12px; gap: 4px; }
+  .pos-cart.ticket .cart-meta .cfield-label { display: none; }
+  .pos-cart.ticket .cart-meta .cfield input { min-height: 34px; }
+  .cart-meta-sum { padding: 5px 12px; }
+  .pos-cart.ticket .cart-lines { min-height: 110px; }
+  .pos-cart.ticket .line { padding-block: 6px; }
+  .pos-cart.ticket .tk-empty { padding: var(--s-3); margin: var(--s-2) 0; }
+  .pos-cart.ticket .tk-empty small { display: none; }
+
+  .pos-cart.ticket .cart-totals { padding: 6px 12px 4px; }
+  .pos-cart.ticket .tk-count { display: none; }
+  .pos-cart.ticket .cart-totals .tot-toggle, .pos-cart.ticket .cart-totals .row-big { min-height: 40px; font-size: var(--text-base); }
+  /* الإرسال والحفظ والدفع في صف واحد */
+  .pos-cart.ticket .cart-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; padding: 6px 12px 10px; }
+  .pos-cart.ticket .cart-actions .act-main { display: contents; }
+  .pos-cart.ticket .cart-actions .btn-lg { min-height: 38px; font-size: var(--text-sm); padding-inline: 6px; white-space: nowrap; }
+  .pos-cart.ticket .cart-actions .act-tools { grid-column: 1 / -1; grid-row: 2; }
+  .pos-cart.ticket .cart-actions > .btn-ok.btn-block:not(.btn-lg) { min-height: 36px; }
+}
+@media (min-width: 961px) and (max-height: 860px) { .pos-cart.ticket .line-foot { margin-top: 0; } }
