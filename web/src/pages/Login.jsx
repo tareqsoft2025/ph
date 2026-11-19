@@ -54,7 +54,7 @@ export default function Login({ onLogin, onChangeServer }) {
             <strong>نسخة تجريبية</strong>
             <span className="muted">تعمل داخل المتصفح، والبيانات محفوظة على هذا الجهاز فقط. اختر دوراً لتعبئة بيانات الدخول:</span>
             <div className="demo-users">
-              {[['admin', 'admin123', 'المدير', ShieldCheck], ['cashier', '1234', 'الكاشير', Banknote], ['waiter', '1234', 'النادل', Armchair], ['kitchen', '1234', 'المطبخ', ChefHat]].map(([u, p, l, I]) => (
+              {[['admin', 'admin123', 'المدير', ShieldCheck], ['cashier', '1234', 'الكاشير', Banknote], ['waiter', '1234', 'الموظف', Armchair], ['kitchen', '1234', 'المطبخ', ChefHat]].map(([u, p, l, I]) => (
                 <button type="button" key={u} className={`chip role-chip ${username === u ? 'on' : ''}`} onClick={() => { setUsername(u); setPassword(p); }}><I size={15} aria-hidden /> {l}</button>
               ))}
             </div>

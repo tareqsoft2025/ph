@@ -133,7 +133,7 @@ export default function Tables() {
                 <div className="t-art"><TableArt seats={t.seats} guests={t.order_id ? (t.guests || 0) : 0} occupied={!!t.order_id} /></div>
                 <div className="t-name">{t.name}</div>
                 {t.locked ? (
-                  <div className="t-owner"><UserRound size={13} aria-hidden /> مع {t.waiter_name || 'نادل آخر'}</div>
+                  <div className="t-owner"><UserRound size={13} aria-hidden /> مع {t.waiter_name || 'موظف آخر'}</div>
                 ) : t.order_id ? (
                   <>
                     <div className="t-total">{money(t.order_total)}</div>

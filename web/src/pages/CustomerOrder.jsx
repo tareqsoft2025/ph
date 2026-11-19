@@ -72,7 +72,7 @@ export default function CustomerOrder({ kind = 'table' }) {
     return () => clearInterval(t);
   }, [isEvent, !!menu, base]); // eslint-disable-line
 
-  // الطاولة لم تُفتح بعد: نعيد الفحص تلقائياً حتى يفتحها النادل
+  // الطاولة لم تُفتح بعد: نعيد الفحص تلقائياً حتى يفتحها الموظف
   const waitingOpen = !isEvent && !!cfg && cfg.enabled && !cfg.table.open && !cfg.table.busy;
   useEffect(() => {
     if (!waitingOpen) return undefined;
@@ -131,17 +131,17 @@ export default function CustomerOrder({ kind = 'table' }) {
     } catch (e) { setFormErr(e.message); } finally { setBusy(false); }
   }
 
-  if (error && !cfg) return <Shell cfg={cfg}><div className="co-state"><QrCode size={44} aria-hidden /><h2>رمز الطاولة غير صالح</h2><p>امسح رمز QR الموجود على طاولتك، أو اطلب المساعدة من النادل.</p></div></Shell>;
+  if (error && !cfg) return <Shell cfg={cfg}><div className="co-state"><QrCode size={44} aria-hidden /><h2>رمز الطاولة غير صالح</h2><p>امسح رمز QR الموجود على طاولتك، أو اطلب المساعدة من الموظف.</p></div></Shell>;
   if (!cfg) return <Shell cfg={cfg}><div className="co-state"><p className="muted">جارِ التحميل…</p></div></Shell>;
-  if (!cfg.enabled) return <Shell cfg={cfg}><div className="co-state"><Ban size={44} aria-hidden /><h2>الطلب عبر QR متوقف حالياً</h2><p>نادِ النادل لتقديم طلبك.</p></div></Shell>;
+  if (!cfg.enabled) return <Shell cfg={cfg}><div className="co-state"><Ban size={44} aria-hidden /><h2>الطلب عبر QR متوقف حالياً</h2><p>نادِ الموظف لتقديم طلبك.</p></div></Shell>;
   if (isEvent && cfg.event.state !== 'open' && !done) {
     const st = cfg.event.state;
     return <Shell cfg={cfg}><div className="co-state"><Ban size={44} aria-hidden /><h2>{st === 'not_started' ? 'لم تبدأ الفعالية بعد' : st === 'ended' ? 'انتهت فترة الطلب' : 'الطلب متوقف مؤقتاً'}</h2><p>{st === 'not_started' ? `يبدأ الطلب ${when(cfg.event.starts_at)}` : st === 'ended' ? `انتهى الطلب ${when(cfg.event.ends_at)}` : 'تواصل مع المنظّم أو المطعم.'}</p></div></Shell>;
   }
   const mine = isEvent ? !!done : done && cfg.table.busy && done.code === cfg.open_code;
   if (done && !adding && (isEvent || mine || !cfg.table.busy)) return <Shell cfg={cfg}><Tracker order={done} cur={cur} phone={cfg.phone} billAllowed={!!cfg.bill_allowed} institution={isEvent && cfg.event.billing === 'institution'} onAdd={() => setAdding(true)} onClosed={() => { safe(() => localStorage.removeItem(lastKey(tableToken))); setDone(null); if (!isEvent) setCfg({ ...cfg, table: { ...cfg.table, busy: false } }); }} /></Shell>;
-  if (waitingOpen) return <Shell cfg={cfg}><div className="co-state"><HandPlatter size={44} aria-hidden /><h2>أهلاً بك! {cfg.table.name}</h2><p>الطلب من هاتفك يبدأ عندما يفتح النادل الطاولة. ستظهر القائمة تلقائياً بمجرد فتحها.</p>{askedAt && Date.now() - askedAt < 60000 ? <div className="co-sent"><CircleCheckBig size={18} aria-hidden /> تم إبلاغ النادل، ستفتح القائمة خلال لحظات</div> : <button className="btn btn-primary btn-lg" onClick={askOpen}><BellRing size={18} /> {askedAt ? 'تنبيه النادل مرة أخرى' : 'اطلب من النادل فتح الطاولة'}</button>}{askErr && <div className="alert alert-err">{askErr}</div>}</div></Shell>;
-  if (!isEvent && cfg.table.busy && !mine) return <Shell cfg={cfg}><div className="co-state"><Armchair size={44} aria-hidden /><h2>{cfg.table.name} عليها طلب مفتوح</h2><p>لإضافة أصناف نادِ النادل.</p></div></Shell>;
+  if (waitingOpen) return <Shell cfg={cfg}><div className="co-state"><HandPlatter size={44} aria-hidden /><h2>أهلاً بك! {cfg.table.name}</h2><p>الطلب من هاتفك يبدأ عندما يفتح الموظف الطاولة. ستظهر القائمة تلقائياً بمجرد فتحها.</p>{askedAt && Date.now() - askedAt < 60000 ? <div className="co-sent"><CircleCheckBig size={18} aria-hidden /> تم إبلاغ الموظف، ستفتح القائمة خلال لحظات</div> : <button className="btn btn-primary btn-lg" onClick={askOpen}><BellRing size={18} /> {askedAt ? 'تنبيه الموظف مرة أخرى' : 'اطلب من الموظف فتح الطاولة'}</button>}{askErr && <div className="alert alert-err">{askErr}</div>}</div></Shell>;
+  if (!isEvent && cfg.table.busy && !mine) return <Shell cfg={cfg}><div className="co-state"><Armchair size={44} aria-hidden /><h2>{cfg.table.name} عليها طلب مفتوح</h2><p>لإضافة أصناف نادِ الموظف.</p></div></Shell>;
 
   return (
     <Shell cfg={cfg}>
@@ -364,7 +364,7 @@ function Tracker({ order, cur, phone, billAllowed, institution, onAdd, onClosed 
   return (
     <div className="co-track">
       <span className="co-check" aria-hidden><CircleCheckBig size={42} /></span>
-      <h2>{pend ? (data?.event ? 'طلبك بانتظار الاعتماد' : 'طلبك بانتظار تأكيد النادل') : closed && data.status === 'cancelled' ? 'لم يُقبل الطلب' : st >= 2 && !closed ? 'طلبك جاهز! 🎉' : 'تم إرسال طلبك للمطبخ'}</h2>
+      <h2>{pend ? (data?.event ? 'طلبك بانتظار الاعتماد' : 'طلبك بانتظار تأكيد الموظف') : closed && data.status === 'cancelled' ? 'لم يُقبل الطلب' : st >= 2 && !closed ? 'طلبك جاهز! 🎉' : 'تم إرسال طلبك للمطبخ'}</h2>
       <p className="muted">رقم الطلب{data?.table_name ? ` · ${data.table_name}` : ''}{data?.event ? ` · ${data.event.name}${data.place ? ` · ${data.place}` : ''}` : ''}</p>
       <p className="co-code" dir="ltr">{order.code}</p>
       <p className={`co-live ${live ? 'on' : ''}`}><i aria-hidden /> {live ? 'تحديث مباشر' : 'انقطع الاتصال، نحاول مجدداً…'}{data && !closed ? ` · منذ ${mins} د` : ''}</p>
@@ -383,8 +383,8 @@ function Tracker({ order, cur, phone, billAllowed, institution, onAdd, onClosed 
       {!closed && pp.state === 'ios' && <div className="co-pushcard warn"><span className="co-pushicon" aria-hidden><BellRing size={22} /></span><div><strong>لتصلك الإشعارات على آيفون</strong><small>اضغط زر المشاركة ثم «إضافة إلى الشاشة الرئيسية» وافتح الطلب منها.</small></div></div>}
       {data && (
         <>
-          {pend && <div className="alert alert-warn"><Clock size={16} aria-hidden /> سيصل طلبك للمطبخ فور تأكيد النادل له.</div>}
-          {closed ? <div className="alert alert-warn">{data.status === 'paid' ? 'تم إغلاق الطلب. شكراً لزيارتكم!' : `أُلغي هذا الطلب${data.cancel_reason ? `: ${data.cancel_reason}` : ''}. نادِ النادل للمساعدة.`}</div> : !pend && (
+          {pend && <div className="alert alert-warn"><Clock size={16} aria-hidden /> سيصل طلبك للمطبخ فور تأكيد الموظف له.</div>}
+          {closed ? <div className="alert alert-warn">{data.status === 'paid' ? 'تم إغلاق الطلب. شكراً لزيارتكم!' : `أُلغي هذا الطلب${data.cancel_reason ? `: ${data.cancel_reason}` : ''}. نادِ الموظف للمساعدة.`}</div> : !pend && (
             <ol className="co-steps" aria-label="حالة الطلب" style={{ '--p': st }}>
               {STEPS.map(([k, label, I], i) => <li key={k} className={i < st ? 'done' : i === st ? 'cur' : ''}><span><I size={18} aria-hidden /></span><small>{label}</small></li>)}
             </ol>

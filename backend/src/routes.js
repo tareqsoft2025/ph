@@ -46,7 +46,7 @@ export function buildRouter(emit) {
   };
   // مدة نسيان زيارة الزبون (ساعات): بين ساعة وأسبوع، والافتراضي 8
   const restrictedWaiter = (u) => u.role !== 'admin' && hasPerm(u, 'pos.create') && !hasPerm(u, 'orders.view') && !hasPerm(u, 'payments.collect');
-  // من يُشعَر بطلب QR: صاحب الطلب (النادل الذي فتح الطاولة) مع الإدارة والكاشير، وإن لم يُستلم بعد فكل النوادل
+  // من يُشعَر بطلب QR: صاحب الطلب (الموظف الذي فتح الطاولة) مع الإدارة والكاشير، وإن لم يُستلم بعد فكل الموظفين
   const ownerTargets = (orderId) => {
     const w = get('SELECT waiter_id FROM orders WHERE id = ?', orderId)?.waiter_id;
     return w ? { userIds: [w], roles: ['admin', 'manager'], perms: ['payments.collect'] } : { perms: ['pos.create', 'payments.collect'], roles: ['admin', 'manager'] };
@@ -123,12 +123,12 @@ export function buildRouter(emit) {
     res.json({ categories, items });
   });
 
-  // الزبون يطلب من النادل فتح الطاولة للطلب بالـ QR: إشعار للنادل والمدير + علامة على بطاقة الطاولة
+  // الزبون يطلب من الموظف فتح الطاولة للطلب بالـ QR: إشعار للموظف والمدير + علامة على بطاقة الطاولة
   r.post('/public/table/:token/request-open', (req, res) => {
     const dev = clip(req.body?.device_id, 40);
     const t = tableByToken(req);
     if (!onlineOn()) return res.status(403).json({ error: 'الطلب عبر QR متوقف حالياً', reason: 'disabled' });
-    if (limited(req, 'ro', 6, 10 * 60 * 1000)) return res.status(429).json({ error: 'تم إرسال الطلب، انتظر النادل قليلاً' });
+    if (limited(req, 'ro', 6, 10 * 60 * 1000)) return res.status(429).json({ error: 'تم إرسال الطلب، انتظر الموظف قليلاً' });
     if (tableOpen(t) || get("SELECT 1 AS x FROM orders WHERE table_id = ? AND status = 'open'", t.id)) return res.json({ ok: true, open: true });
     const recent = get("SELECT 1 AS x FROM dining_tables WHERE id = ? AND qr_request_at > datetime('now','localtime','-60 seconds')", t.id);
     if (recent) return res.json({ ok: true, already: true });
@@ -149,24 +149,24 @@ export function buildRouter(emit) {
     const s = getSettings();
     const items = Array.isArray(b.items) ? b.items : [];
     if (!items.length) throw bad('أضف أصنافاً للطلب');
-    if (items.length > 40 || items.reduce((a, i) => a + Math.min(Number(i.qty) || 1, 99), 0) > 80) throw bad('عدد الأصناف كبير جداً، نادِ النادل');
+    if (items.length > 40 || items.reduce((a, i) => a + Math.min(Number(i.qty) || 1, 99), 0) > 80) throw bad('عدد الأصناف كبير جداً، نادِ الموظف');
     const lines = items.map((i) => ({ item_id: Number(i.item_id), qty: Math.min(Math.max(parseInt(i.qty, 10) || 1, 1), 20), modifier_ids: Array.isArray(i.modifier_ids) ? i.modifier_ids.slice(0, 10).map(Number) : [], notes: clip(i.notes, 100) || null }));
     const open = get("SELECT * FROM orders WHERE table_id = ? AND status = 'open'", t.id);
     const phone = clip(b.customer_phone, 20);
     let id; let added = false; let before = 0;
     if (open) {
       // إضافة على طلب الطاولة المفتوح: لا تُقبل إلا بشرط أن يكون طلباً من الرمز ومع رمز متابعته
-      if (open.source !== 'online' || !open.track_token || open.track_token !== String(b.order_token || '')) throw bad('الطاولة عليها طلب مفتوح، نادِ النادل لإضافة أصناف');
-      if (open.bill_requested_at) throw bad('تم طلب الحساب لهذه الطاولة، نادِ النادل لإضافة أصناف');
+      if (open.source !== 'online' || !open.track_token || open.track_token !== String(b.order_token || '')) throw bad('الطاولة عليها طلب مفتوح، نادِ الموظف لإضافة أصناف');
+      if (open.bill_requested_at) throw bad('تم طلب الحساب لهذه الطاولة، نادِ الموظف لإضافة أصناف');
       id = open.id; added = true; before = open.subtotal;
       Orders.addItems(id, lines, PUBLIC_USER);
     } else {
-      // 1) الطاولة يجب أن يفتحها النادل أولاً
+      // 1) الطاولة يجب أن يفتحها الموظف أولاً
       if (!tableOpen(t)) {
         qrLog(req, t.id, 'closed_attempt', null, dev);
         const n = get(`SELECT COUNT(*) AS c FROM qr_log WHERE event = 'closed_attempt' AND (device_id = ? OR ip = ?) AND at > datetime('now','localtime','-${recent}')`, dev || '-', ipOf(req)).c;
         if (n >= 3) qrAlert(`closed:${dev || ipOf(req)}`, 'محاولات طلب على طاولة غير مفتوحة', `${n} محاولة طلب على طاولات لم تُفتح لـ QR خلال 10 دقائق (آخرها ${t.name}). قد يكون طلباً من خارج المطعم.`);
-        return res.status(403).json({ error: 'هذه الطاولة لم تُفتح للطلب بعد، نادِ النادل ليفعّلها', reason: 'table_closed' });
+        return res.status(403).json({ error: 'هذه الطاولة لم تُفتح للطلب بعد، نادِ الموظف ليفعّلها', reason: 'table_closed' });
       }
       // 2) طلب مفتوح واحد لكل جوال / جهاز
       const dg = digitsOf(phone);
@@ -174,7 +174,7 @@ export function buildRouter(emit) {
         WHERE o.status = 'open' AND ((? != '' AND o.device_id = ?) OR (? != '' AND REPLACE(REPLACE(REPLACE(o.customer_phone,' ',''),'-',''),'+','') = ?)) LIMIT 1`, dev, dev, dg, dg);
       if (dup) {
         qrLog(req, t.id, 'dup_open', dup.tname, dev);
-        throw bad(`لديك طلب مفتوح${dup.tname ? ` على ${dup.tname}` : ''}، أضف عليه أو نادِ النادل`);
+        throw bad(`لديك طلب مفتوح${dup.tname ? ` على ${dup.tname}` : ''}، أضف عليه أو نادِ الموظف`);
       }
       const token = randomToken();
       id = Orders.createOrder({
@@ -183,12 +183,12 @@ export function buildRouter(emit) {
       }, PUBLIC_USER);
       run("UPDATE orders SET source = 'online', track_token = ?, device_id = ? WHERE id = ?", token, dev || null, id);
       const opener = get("SELECT u.id, u.name FROM dining_tables d JOIN users u ON u.id = d.qr_opened_by WHERE d.id = ? AND d.qr_open_until > datetime('now','localtime')", t.id);
-      if (opener) run('UPDATE orders SET waiter_id = ? WHERE id = ?', opener.id, id);   // النادل الذي فتح الطاولة هو مسؤول الطلب
+      if (opener) run('UPDATE orders SET waiter_id = ? WHERE id = ?', opener.id, id);   // الموظف الذي فتح الطاولة هو مسؤول الطلب
       Orders.logEvent(id, 'online', null, opener ? `طلب من رمز QR الطاولة (فتحها ${opener.name})` : 'طلب من رمز QR الطاولة', { opened_by: opener?.name || null });
     }
     const o0 = Orders.getOrder(id);
     const newValue = o0.subtotal - before;
-    // 3) تأكيد النادل: دائماً، أو (ذكي) إذا زاد المبلغ عن الحد أو كان أول طلب لهذا الجوال
+    // 3) تأكيد الموظف: دائماً، أو (ذكي) إذا زاد المبلغ عن الحد أو كان أول طلب لهذا الجوال
     const mode = s.qr_confirm_mode;
     const firstTime = !added && !get("SELECT 1 AS x FROM orders WHERE status = 'paid' AND customer_phone = ?", phone);
     const needsConfirm = mode === 'always' || (mode !== 'never' && (newValue > (Number(s.qr_confirm_over) || 0) || firstTime));
@@ -339,7 +339,7 @@ export function buildRouter(emit) {
   // طلب الحساب من الزبون: طريقة الدفع (محفظة / بنك / جوال بي / نقداً) + الاسم ورقم الجوال → للكاشير
   const billOrder = (req) => {
     if (limited(req, 'bl', 20, 10 * 60 * 1000)) throw Object.assign(bad('طلبات كثيرة، حاول بعد قليل'), { status: 429 });
-    if (!onlineOn() || getSettings().qr_allow_bill !== '1') throw bad('طلب الحساب من الهاتف غير متاح، نادِ النادل');
+    if (!onlineOn() || getSettings().qr_allow_bill !== '1') throw bad('طلب الحساب من الهاتف غير متاح، نادِ الموظف');
     const o = get("SELECT id, track_token FROM orders WHERE code = ? AND source = 'online'", String(req.params.code));
     if (!o || !o.track_token || o.track_token !== String(req.query.t || '')) throw notFound('الطلب غير موجود');
     return o;
@@ -619,7 +619,7 @@ export function buildRouter(emit) {
       LEFT JOIN orders o ON o.table_id = t.id AND o.status = 'open'
       LEFT JOIN users w ON w.id = o.waiter_id
       WHERE t.active = 1 ORDER BY t.area, t.id`);
-    // النادل المقيَّد لا يدخل طاولة عليها طلب نادل آخر: تظهر مشغولة باسم صاحبها فقط
+    // الموظف المقيَّد لا يدخل طاولة عليها طلب موظف آخر: تظهر مشغولة باسم صاحبها فقط
     const mine = restrictedWaiter(req.user);
     res.json(tables.map((t) => {
       const locked = mine && t.order_id && t.waiter_id && t.waiter_id !== req.user.id;
@@ -640,7 +640,7 @@ export function buildRouter(emit) {
     audit(req.user.id, 'settings.table_qr_rotate', 'table', t.id, { name: t.name });
     res.json({ id: t.id, name: t.name, token });
   });
-  // فتح الطاولة لطلب QR (النادل/الكاشير): تُغلق تلقائياً بعد المدة أو بالدفع/الإلغاء
+  // فتح الطاولة لطلب QR (الموظف/الكاشير): تُغلق تلقائياً بعد المدة أو بالدفع/الإلغاء
   r.post('/tables/:id/qr/open', need('pos.create', 'payments.collect', 'tables.view'), (req, res) => {
     const t = get("SELECT id, name, qr_request_at, qr_open_until, qr_opened_by, CASE WHEN qr_request_at > datetime('now','localtime','-15 minutes') THEN 1 ELSE 0 END AS requested FROM dining_tables WHERE id = ? AND active = 1", Number(req.params.id));
     if (!t) throw notFound('الطاولة غير موجودة');
@@ -689,12 +689,12 @@ export function buildRouter(emit) {
   });
 
   // ───────────── الطلبات ─────────────
-  // ملكية الطلبات: النادل (بلا orders.view ولا payments.collect) يرى ويعدّل طلباته والطلبات غير المستلمة فقط
+  // ملكية الطلبات: الموظف (بلا orders.view ولا payments.collect) يرى ويعدّل طلباته والطلبات غير المستلمة فقط
   r.use('/orders/:id', (req, res, next) => {
     const id = Number(req.params.id);
     if (!id || !restrictedWaiter(req.user)) return next();
     const o = get('SELECT waiter_id FROM orders WHERE id = ?', id);
-    if (o?.waiter_id && o.waiter_id !== req.user.id) return res.status(403).json({ error: 'هذا الطلب على حساب نادل آخر' });
+    if (o?.waiter_id && o.waiter_id !== req.user.id) return res.status(403).json({ error: 'هذا الطلب على حساب موظف آخر' });
     next();
   });
   r.post('/orders/:id/claim', need('pos.create'), (req, res) => {
@@ -703,7 +703,7 @@ export function buildRouter(emit) {
     if (!o) throw notFound('الطلب غير موجود');
     if (o.status !== 'open') throw bad('الطلب مغلق');
     if (o.waiter_id === req.user.id) return res.json(orderChanged(id));
-    if (o.waiter_id && !hasPerm(req.user, 'orders.view')) throw bad('الطلب على حساب نادل آخر');
+    if (o.waiter_id && !hasPerm(req.user, 'orders.view')) throw bad('الطلب على حساب موظف آخر');
     run('UPDATE orders SET waiter_id = ? WHERE id = ?', req.user.id, id);
     Orders.logEvent(id, 'claimed', req.user.id, o.waiter_id ? `نقل الطلب إلى ${req.user.name}` : `استلم ${req.user.name} الطلب على حسابه`);
     if (o.waiter_id) notify({ userIds: [o.waiter_id], type: 'order_moved', level: 'info', link: '/tables', title: `نُقل الطلب ${o.code} إلى ${req.user.name}`, exclude: req.user.id });
@@ -834,7 +834,7 @@ export function buildRouter(emit) {
   r.post('/orders/:id/confirm', need('pos.create', 'payments.collect'), (req, res) => {
     const id = Number(req.params.id);
     Orders.confirmOrder(id, req.user);
-    // النادل الذي يعتمد الطلب يصبح الطلب على حسابه ويكمل معه المعاملة
+    // الموظف الذي يعتمد الطلب يصبح الطلب على حسابه ويكمل معه المعاملة
     const cur = get('SELECT waiter_id FROM orders WHERE id = ?', id);
     if (!cur.waiter_id && hasPerm(req.user, 'pos.create')) { run('UPDATE orders SET waiter_id = ? WHERE id = ?', req.user.id, id); Orders.logEvent(id, 'claimed', req.user.id, `استلم ${req.user.name} الطلب على حسابه`); }
     changed('kitchen', 'orders', 'tables');

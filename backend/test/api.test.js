@@ -69,7 +69,7 @@ test('full dine-in flow: order → kitchen → pay → stock deducted', async ()
   const k = (await api('/kitchen', { token: kitchen })).data;
   assert.equal(k.length, 1);
   assert.equal(k[0].code, order.code);
-  assert.equal(k[0].sent_by_name, 'النادل أحمد');
+  assert.equal(k[0].sent_by_name, 'الموظف أحمد');
   assert.equal(k[0].stage, 'new');
   const kn = (await api('/notifications', { token: kitchen })).data;
   assert.ok(kn.rows.some((n) => n.type === 'order_new' && n.title.includes(order.code)), 'kitchen notified of new order');
@@ -225,7 +225,7 @@ test('table QR ordering: per-table secret token, table opening, waiter confirmat
   const post = (tok, body) => api(`/public/table/${tok}/orders`, { method: 'POST', body });
   const good = (extra = {}) => ({ guests: 2, customer_name: 'زبون QR', customer_phone: '0551230001', device_id: 'dev-A', items: [{ item_id: item.id, qty: 1 }], ...extra });
 
-  // طلب الزبون من النادل فتح الطاولة: إشعار + علامة على الطاولة، مع تهدئة
+  // طلب الزبون من الموظف فتح الطاولة: إشعار + علامة على الطاولة، مع تهدئة
   const req1 = await api(`/public/table/${t1.token}/request-open`, { method: 'POST', body: { device_id: 'dev-A' } });
   assert.equal(req1.status, 200);
   assert.ok(!req1.data.already);
@@ -237,7 +237,7 @@ test('table QR ordering: per-table secret token, table opening, waiter confirmat
   assert.equal((await api('/tables', { token: waiter })).data.find((t) => t.id === t1.id).qr_requested, 1, 'table card is flagged');
   assert.equal((await api(`/public/table/${'b'.repeat(24)}/request-open`, { method: 'POST', body: {} })).status, 404);
 
-  // 1) الطاولة مغلقة حتى يفتحها النادل
+  // 1) الطاولة مغلقة حتى يفتحها الموظف
   const closed = await post(t1.token, good());
   assert.equal(closed.status, 403);
   assert.equal(closed.data.reason, 'table_closed');
@@ -245,8 +245,8 @@ test('table QR ordering: per-table secret token, table opening, waiter confirmat
   assert.equal((await api(`/tables/${t1.id}/qr/open`, { method: 'POST', token: waiter })).status, 200);
   assert.equal((await api('/public/table/' + t1.token)).data.table.open, true);
   assert.equal((await api('/tables', { token: waiter })).data.find((t) => t.id === t1.id).qr_requested, 0, 'opening clears the request');
-  assert.equal((await api('/tables', { token: waiter })).data.find((t) => t.id === t1.id).qr_opened_by_name, 'النادل أحمد', 'who opened the table is recorded');
-  assert.ok((await api('/notifications', { token: cashier })).data.rows.some((n) => n.type === 'qr_request_taken' && n.title.includes('النادل أحمد')), 'colleagues learn who took the request');
+  assert.equal((await api('/tables', { token: waiter })).data.find((t) => t.id === t1.id).qr_opened_by_name, 'الموظف أحمد', 'who opened the table is recorded');
+  assert.ok((await api('/notifications', { token: cashier })).data.rows.some((n) => n.type === 'qr_request_taken' && n.title.includes('الموظف أحمد')), 'colleagues learn who took the request');
 
   // 2) أول طلب لجوال جديد يحتاج تأكيداً: لا يصل المطبخ قبل القبول
   assert.equal((await post(t1.token, good({ customer_name: '', customer_phone: '' }))).status, 400);
@@ -268,14 +268,14 @@ test('table QR ordering: per-table secret token, table opening, waiter confirmat
   assert.equal(conf.data.pending_confirm, 0);
   assert.ok((await api('/kitchen', { token: kitchen })).data.some((o) => o.code === code && o.table_name === t1.name), 'reaches kitchen after confirmation');
   const det = (await api(`/orders/${staffOrder.id}`, { token: cashier })).data;
-  assert.equal(det.waiter_name, 'النادل أحمد', 'the waiter who opened the table owns the order');
-  assert.ok(det.events.some((e) => e.type === 'online' && /فتحها النادل أحمد/.test(e.message)), 'timeline records who opened the table');
-  assert.ok(det.events.some((e) => e.type === 'confirmed' && e.user_name === 'النادل أحمد'), 'timeline records who confirmed');
+  assert.equal(det.waiter_name, 'الموظف أحمد', 'the waiter who opened the table owns the order');
+  assert.ok(det.events.some((e) => e.type === 'online' && /فتحها الموظف أحمد/.test(e.message)), 'timeline records who opened the table');
+  assert.ok(det.events.some((e) => e.type === 'confirmed' && e.user_name === 'الموظف أحمد'), 'timeline records who confirmed');
   const acts = (await api('/audit?category=qr', { token: admin })).data.rows;
   assert.ok(acts.some((a) => a.action === 'qr.request_open' && a.entity_name === t1.name), 'audit: customer request');
-  assert.ok(acts.some((a) => a.action === 'qr.table_open' && a.user_name === 'النادل أحمد' && a.details.answered_request), 'audit: who opened and that it answered a request');
+  assert.ok(acts.some((a) => a.action === 'qr.table_open' && a.user_name === 'الموظف أحمد' && a.details.answered_request), 'audit: who opened and that it answered a request');
   assert.ok(acts.some((a) => a.action === 'qr.order' && a.details.table === t1.name && a.details.needs_confirm === true), 'audit: the QR order details');
-  assert.ok((await api('/audit?category=order', { token: admin })).data.rows.some((a) => a.action === 'order.confirm' && a.user_name === 'النادل أحمد'), 'audit: who confirmed');
+  assert.ok((await api('/audit?category=order', { token: admin })).data.rows.some((a) => a.action === 'order.confirm' && a.user_name === 'الموظف أحمد'), 'audit: who confirmed');
   assert.equal((await api(`/orders/${staffOrder.id}/confirm`, { method: 'POST', token: waiter })).status, 400, 'cannot confirm twice');
   assert.equal((await api(`/public/orders/${code}?t=wrong`)).status, 404, 'tracking needs the token');
 
@@ -691,7 +691,7 @@ test('several waiters: each waiter owns the orders they take, manager sees all, 
   const admin = await login('admin', 'admin123');
   const waiter = await login('waiter', '1234');
   const cashier = await login('cashier', '1234');
-  const mk = await api('/users', { method: 'POST', token: admin, body: { name: 'النادل سعيد', username: 'waiter2', password: '1234', role: 'waiter' } });
+  const mk = await api('/users', { method: 'POST', token: admin, body: { name: 'الموظف سعيد', username: 'waiter2', password: '1234', role: 'waiter' } });
   assert.equal(mk.status, 201, JSON.stringify(mk.data));
   const w2 = await login('waiter2', '1234');
   const menu = (await api('/menu', { token: admin })).data;
@@ -702,7 +702,7 @@ test('several waiters: each waiter owns the orders they take, manager sees all, 
   const a = await mkOrder(waiter, free[0]);
   assert.equal(a.status, 201, JSON.stringify(a.data));
   assert.ok(a.data.waiter_id, 'order belongs to the waiter who created it');
-  // النادل الآخر لا يرى ولا يعدّل طلب زميله
+  // الموظف الآخر لا يرى ولا يعدّل طلب زميله
   assert.equal((await api(`/orders/${a.data.id}`, { token: w2 })).status, 403, 'other waiter cannot open it');
   assert.equal((await api(`/orders/${a.data.id}/items`, { method: 'POST', token: w2, body: { items: [{ item_id: item.id, qty: 1 }] } })).status, 403);
   const t2 = (await api('/tables', { token: w2 })).data.find((t) => t.id === free[0].id);
@@ -711,10 +711,10 @@ test('several waiters: each waiter owns the orders they take, manager sees all, 
   // المدير والكاشير يريان الكل
   assert.equal((await api(`/orders/${a.data.id}`, { token: admin })).status, 200);
   assert.ok((await api('/orders', { token: cashier })).data.some((o) => o.id === a.data.id));
-  // طلب غير مستلم: أي نادل يستلمه فيصبح على حسابه وحده
+  // طلب غير مستلم: أي موظف يستلمه فيصبح على حسابه وحده
   const b = await mkOrder(waiter, free[1]);
   assert.equal((await api(`/orders/${b.data.id}/claim`, { method: 'POST', token: w2 })).status, 403, 'cannot take an order owned by another waiter');
-  // المدير ينقل الطلب إلى نادل آخر
+  // المدير ينقل الطلب إلى موظف آخر
   const mv = await api(`/orders/${b.data.id}/claim`, { method: 'POST', token: admin });
   assert.equal(mv.status, 200);
   const info = (await api(`/orders/${b.data.id}`, { token: admin })).data;
@@ -733,7 +733,7 @@ test('several waiters: each waiter owns the orders they take, manager sees all, 
   assert.ok(after.effective.includes('orders.view') && !after.effective.includes('pos.create'));
   assert.equal((await api('/orders', { method: 'POST', token: w2, body: { type: 'takeaway', customer_name: 'x', customer_phone: '0501112223' } })).status, 403, 'revoked permission is enforced');
   assert.equal((await api(`/orders/${a.data.id}`, { token: w2 })).status, 200, 'granted orders.view sees all');
-  // لا أثر على بقية النوادل
+  // لا أثر على بقية الموظفين
   assert.ok((await api('/auth/me', { token: waiter })).status === 200);
   assert.equal((await api(`/users/${users.find((u) => u.username === 'admin').id}/permissions`, { method: 'PUT', token: admin, body: { grants: [] } })).status, 400, 'admin is untouchable');
   await api(`/users/${u2.id}/permissions`, { method: 'PUT', token: admin, body: { reset: true } });
