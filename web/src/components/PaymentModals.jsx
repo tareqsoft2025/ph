@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import { useAction, Modal, Field, PAY_METHODS } from '../lib.jsx';
+import { useAction, Modal, Field, PAY_METHODS, TRANSFER_METHODS } from '../lib.jsx';
 
 // طريقة الدفع المقترحة من اختيار الزبون عند طلب الحساب
 export const BILL_LABEL = { cash: 'نقداً', wallet: 'محفظة', bank: 'بنك', jawwalpay: 'جوال بي' };
-const SUGGEST = { cash: 'cash', wallet: 'wallet', jawwalpay: 'wallet', bank: 'card' };
+const SUGGEST = { cash: 'cash', wallet: 'wallet', jawwalpay: 'jawwalpay', bank: 'bank' };
 
 export function PayModal({ order, money, onClose, onPaid }) {
   const [run, busy] = useAction();
@@ -12,7 +12,10 @@ export function PayModal({ order, money, onClose, onPaid }) {
   const [lines, setLines] = useState([]);
   const [method, setMethod] = useState(SUGGEST[order.bill_method] || 'cash');
   const [amount, setAmount] = useState(String(remaining));
+  const [reference, setReference] = useState('');
+  const [payer, setPayer] = useState(order.bill_name || order.customer_name || '');
   useEffect(() => { setLines([]); setAmount(String(remaining)); }, [remaining]);
+  const isTransfer = TRANSFER_METHODS.includes(method);
   const entered = lines.reduce((a, l) => a + l.amount, 0);
   const left = Math.round((remaining - entered) * 100) / 100;
   const pendingAmt = Number(amount) || 0;
@@ -21,14 +24,15 @@ export function PayModal({ order, money, onClose, onPaid }) {
 
   function addLine() {
     if (!(pendingAmt > 0)) return;
-    setLines([...lines, { method, amount: pendingAmt }]);
+    setLines([...lines, { method, amount: pendingAmt, ...(isTransfer ? { reference, payer_name: payer } : {}) }]);
+    setReference('');
     const newLeft = Math.max(0, Math.round((left - pendingAmt) * 100) / 100);
     setAmount(String(newLeft));
   }
 
   async function confirm() {
     const payments = [...lines];
-    if (pendingAmt > 0) payments.push({ method, amount: pendingAmt });
+    if (pendingAmt > 0) payments.push({ method, amount: pendingAmt, ...(isTransfer ? { reference, payer_name: payer } : {}) });
     if (!payments.length) return;
     const r = await run(() => api(`/orders/${order.id}/pay`, { method: 'POST', body: { payments } }));
     if (r) onPaid(r);
@@ -55,6 +59,15 @@ export function PayModal({ order, money, onClose, onPaid }) {
       <Field label="المبلغ">
         <input type="number" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="input-lg" />
       </Field>
+      {isTransfer && (
+        <div className="pay-transfer">
+          <p className="muted small">التحويل يُسجَّل بانتظار تدقيق وصوله للحساب من صفحة «تدقيق التحويلات».</p>
+          <div className="grid-2">
+            <Field label="رقم العملية / المرجع"><input dir="ltr" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="مثال: TRX-123456" maxLength={60} /></Field>
+            <Field label="اسم المحوِّل"><input value={payer} onChange={(e) => setPayer(e.target.value)} maxLength={60} /></Field>
+          </div>
+        </div>
+      )}
       {method === 'cash' && (
         <div className="quick-amounts">
           {quick.map((v) => <button key={v} className="btn" onClick={() => setAmount(String(v))}>{v}</button>)}
@@ -64,7 +77,7 @@ export function PayModal({ order, money, onClose, onPaid }) {
       {lines.length > 0 && (
         <ul className="pay-lines">
           {lines.map((l, i) => (
-            <li key={i}><span>{PAY_METHODS[l.method]}</span><span>{money(l.amount)}</span>
+            <li key={i}><span>{PAY_METHODS[l.method]}{l.reference ? ` · ${l.reference}` : ''}</span><span>{money(l.amount)}</span>
               <button className="btn btn-xs btn-danger-ghost" onClick={() => setLines(lines.filter((_, j) => j !== i))}>حذف</button></li>
           ))}
           <li className="muted"><span>المتبقي</span><span>{money(Math.max(0, left))}</span><span /></li>

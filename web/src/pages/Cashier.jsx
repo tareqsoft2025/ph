@@ -63,7 +63,7 @@ export default function Cashier() {
         </div>
         <div className="cstat"><Banknote size={18} aria-hidden /><div><span>نقدي</span><strong>{money(byMethod.cash)}</strong></div></div>
         <div className="cstat"><CreditCard size={18} aria-hidden /><div><span>بطاقة</span><strong>{money(byMethod.card)}</strong></div></div>
-        <div className="cstat"><Smartphone size={18} aria-hidden /><div><span>محفظة</span><strong>{money(byMethod.wallet)}</strong></div></div>
+        <div className="cstat"><Smartphone size={18} aria-hidden /><div><span>تحويلات</span><strong>{money((byMethod.wallet || 0) + (byMethod.bank || 0) + (byMethod.jawwalpay || 0))}</strong></div></div>
         <div className="cstat"><CircleCheckBig size={18} aria-hidden /><div><span>طلبات مدفوعة اليوم</span><strong>{today.data?.length ?? '…'}</strong></div></div>
       </header>
 

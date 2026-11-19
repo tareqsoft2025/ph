@@ -1,19 +1,19 @@
 import { useNavigate } from 'react-router-dom';
-import { Calculator, Building2, Armchair, Banknote, ChefHat, ClipboardList, Radio, LayoutDashboard, Fingerprint, CalendarOff, IdCard, HandCoins, UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, History, ShieldCheck, KeyRound, Settings as SettingsIcon, CalendarDays, Wallet, ArrowLeft, Bell, Sparkles } from 'lucide-react';
+import { ArrowLeftRight, MessageCircle, Calculator, Building2, Armchair, Banknote, ChefHat, ClipboardList, Radio, LayoutDashboard, Fingerprint, CalendarOff, IdCard, HandCoins, UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, History, ShieldCheck, KeyRound, Settings as SettingsIcon, CalendarDays, Wallet, ArrowLeft, Bell, Sparkles } from 'lucide-react';
 import { useApp, useData, useMoney, has, ROLE_LABELS } from '../lib.jsx';
 import { useNotifications } from '../notifications.jsx';
 import { AnimatedMoney } from '../components/TableHero.jsx';
 
 // لون وتدرج لكل وحدة
 const TILE = {
-  '/live': ['#ef4444', '#f97316'], '/events': ['#0369a1', '#38bdf8'], '/expenses': ['#be123c', '#fb7185'], '/dashboard': ['#0b6b3a', '#34c27a'], '/cashier': ['#b87333', '#e0a46a'], '/tables': ['#0b6b3a', '#2fa36a'],
+  '/live': ['#ef4444', '#f97316'], '/transfers': ['#0f766e', '#5eead4'], '/chat': ['#0369a1', '#7dd3fc'], '/events': ['#0369a1', '#38bdf8'], '/expenses': ['#be123c', '#fb7185'], '/dashboard': ['#0b6b3a', '#34c27a'], '/cashier': ['#b87333', '#e0a46a'], '/tables': ['#0b6b3a', '#2fa36a'],
   '/orders': ['#2563eb', '#60a5fa'], '/kitchen': ['#ea580c', '#fbbf24'], '/reservations': ['#7c3aed', '#a78bfa'], '/shifts': ['#0f766e', '#2dd4bf'],
   '/attendance': ['#7c3aed', '#c084fc'], '/leaves': ['#db2777', '#f472b6'], '/employees': ['#0369a1', '#38bdf8'], '/payroll': ['#a16207', '#facc15'],
   '/menu': ['#c2410c', '#fb923c'], '/inventory': ['#475569', '#94a3b8'], '/customers': ['#0e7490', '#22d3ee'], '/reports': ['#4338ca', '#818cf8'],
   '/activity': ['#334155', '#64748b'], '/users': ['#15803d', '#4ade80'], '/permissions': ['#9d174d', '#f472b6'], '/settings': ['#374151', '#9ca3af'],
 };
 export const NAV_ICON = {
-  '/events': Building2, '/expenses': Calculator, '/live': Radio, '/dashboard': LayoutDashboard, '/cashier': Banknote, '/tables': Armchair, '/orders': ClipboardList, '/kitchen': ChefHat, '/reservations': CalendarDays,
+  '/transfers': ArrowLeftRight, '/chat': MessageCircle, '/events': Building2, '/expenses': Calculator, '/live': Radio, '/dashboard': LayoutDashboard, '/cashier': Banknote, '/tables': Armchair, '/orders': ClipboardList, '/kitchen': ChefHat, '/reservations': CalendarDays,
   '/shifts': Wallet, '/attendance': Fingerprint, '/leaves': CalendarOff, '/employees': IdCard, '/payroll': HandCoins, '/menu': UtensilsCrossed, '/inventory': Package,
   '/customers': UsersIcon, '/reports': ChartColumn, '/activity': History, '/users': ShieldCheck, '/permissions': KeyRound, '/settings': SettingsIcon,
 };

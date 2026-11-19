@@ -11,7 +11,8 @@ export const ROLE_LABELS = {
 export const ORDER_TYPES = { dine_in: 'صالة', takeaway: 'تيك وي', delivery: 'توصيل' };
 /** عنوان الطلب: الطاولة، أو المؤسسة والمكان (طلب فعالية)، أو نوع الطلب */
 export const orderWhere = (o) => o.table_name || (o.event_name ? `${o.event_name}${o.place ? ` · ${o.place}` : ''}` : ORDER_TYPES[o.type]);
-export const PAY_METHODS = { cash: 'نقدي', card: 'بطاقة', wallet: 'محفظة' };
+export const PAY_METHODS = { cash: 'نقدي', card: 'بطاقة', wallet: 'محفظة', bank: 'تحويل بنكي', jawwalpay: 'جوال بي' };
+export const TRANSFER_METHODS = ['wallet', 'bank', 'jawwalpay'];
 export const STATIONS = { kitchen: 'المطبخ', grill: 'المشويات', drinks: 'المشروبات', dessert: 'الحلويات' };
 export const LEAVE_TYPES = { annual: 'سنوية', sick: 'مرضية', unpaid: 'بدون راتب', emergency: 'اضطرارية' };
 export const LEAVE_STATUS = { pending: 'قيد المراجعة', approved: 'معتمدة', rejected: 'مرفوضة' };

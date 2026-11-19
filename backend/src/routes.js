@@ -735,6 +735,114 @@ export function buildRouter(emit) {
     res.json(rows);
   });
 
+  // ───────────── تدقيق التحويلات: التأكد من وصول مبالغ المحافظ والبنك وجوال بي إلى الحسابات ─────────────
+  const TR = Orders.TRANSFER_METHODS;
+  const trIn = TR.map((m) => `'${m}'`).join(',');
+  const TR_SQL = `SELECT p.id, p.order_id, o.code, o.type, o.customer_name, o.customer_phone, t.name AS table_name, ev.name AS event_name,
+      p.method, p.amount, p.reference, p.payer_name, p.payer_phone, p.created_at, p.user_id, u.name AS cashier_name,
+      p.verify_status AS status, p.received_amount, p.verified_by, vu.name AS verifier_name, p.verified_at, p.verify_note
+    FROM payments p JOIN orders o ON o.id = p.order_id LEFT JOIN dining_tables t ON t.id = o.table_id LEFT JOIN events ev ON ev.id = o.event_id
+    LEFT JOIN users u ON u.id = p.user_id LEFT JOIN users vu ON vu.id = p.verified_by`;
+  r.get('/transfers', need('transfers.audit'), (req, res) => {
+    const { status, method, from, to, q } = req.query;
+    const where = [`p.method IN (${trIn})`];
+    const params = [];
+    if (['pending', 'confirmed', 'mismatch', 'rejected'].includes(status)) { where.push('p.verify_status = ?'); params.push(status); }
+    else if (status === 'open') where.push("p.verify_status IN ('pending','mismatch')");
+    if (TR.includes(method)) { where.push('p.method = ?'); params.push(method); }
+    if (from) { where.push('date(p.created_at) >= ?'); params.push(from); }
+    if (to) { where.push('date(p.created_at) <= ?'); params.push(to); }
+    if (q) { where.push('(o.code LIKE ? OR p.reference LIKE ? OR p.payer_name LIKE ? OR p.payer_phone LIKE ? OR o.customer_name LIKE ?)'); params.push(...Array(5).fill(`%${String(q).trim()}%`)); }
+    const W = 'WHERE ' + where.join(' AND ');
+    const rows = all(`${TR_SQL} ${W} ORDER BY p.id DESC LIMIT 500`, ...params);
+    const sumBy = (col) => all(`SELECT ${col} AS k, COUNT(*) AS n, ROUND(SUM(p.amount), 2) AS total FROM payments p JOIN orders o ON o.id = p.order_id ${W} GROUP BY ${col}`, ...params);
+    res.json({ rows, by_status: sumBy('p.verify_status'), by_method: sumBy('p.method') });
+  });
+  const trGet = (id) => {
+    const p = get(`${TR_SQL} WHERE p.id = ? AND p.method IN (${trIn})`, Number(id));
+    if (!p) throw notFound('التحويل غير موجود');
+    return p;
+  };
+  // لا يدقّق المحصِّل تحويلاً سجّله بنفسه (فصل المهام)؛ والمدير العام مستثنى
+  const trGuard = (req, p) => { if (p.user_id === req.user.id && req.user.role !== 'admin') throw bad('لا يمكنك تدقيق تحويل سجّلته بنفسك، يدقّقه موظف آخر'); };
+  const trConfirm = (req, p, { received, reference, note }) => {
+    trGuard(req, p);
+    const got = received === undefined || received === null || received === '' ? p.amount : round2(received);
+    if (!(got >= 0)) throw bad('المبلغ الواصل غير صحيح');
+    const ok = Math.abs(got - p.amount) < 0.01;
+    run("UPDATE payments SET verify_status = ?, received_amount = ?, verified_by = ?, verified_at = datetime('now','localtime'), verify_note = ?, reference = COALESCE(?, reference) WHERE id = ?",
+      ok ? 'confirmed' : 'mismatch', got, req.user.id, clip(note, 200) || null, clip(reference, 60) || null, p.id);
+    Orders.logEvent(p.order_id, 'transfer_verified', req.user.id, ok ? `تأكيد وصول تحويل ${Orders.PAY_LABEL[p.method]} (${p.amount})` : `فرق في تحويل ${Orders.PAY_LABEL[p.method]}: المطلوب ${p.amount} والواصل ${got}`);
+    audit(req.user.id, ok ? 'transfer.confirm' : 'transfer.mismatch', 'payment', p.id, { order: p.code, method: p.method, amount: p.amount, received: got });
+    if (!ok) notify({ roles: ['admin', 'manager'], exclude: req.user.id, type: 'transfer_alert', level: 'warning', link: '/transfers', title: `فرق في تحويل ${p.code}`, body: `المطلوب ${p.amount} والواصل ${got}` });
+    return ok;
+  };
+  r.post('/transfers/:id/confirm', need('transfers.audit'), (req, res) => {
+    const p = trGet(req.params.id);
+    const ok = trConfirm(req, p, { received: req.body?.received_amount, reference: req.body?.reference, note: req.body?.note });
+    changed('transfers');
+    res.json({ status: ok ? 'confirmed' : 'mismatch' });
+  });
+  r.post('/transfers/:id/reject', need('transfers.audit'), (req, res) => {
+    const p = trGet(req.params.id);
+    trGuard(req, p);
+    const note = clip(req.body?.note, 200);
+    if (!note) throw bad('اكتب سبب عدم وصول التحويل');
+    run("UPDATE payments SET verify_status = 'rejected', received_amount = 0, verified_by = ?, verified_at = datetime('now','localtime'), verify_note = ? WHERE id = ?", req.user.id, note, p.id);
+    Orders.logEvent(p.order_id, 'transfer_rejected', req.user.id, `لم يصل تحويل ${Orders.PAY_LABEL[p.method]} (${p.amount}): ${note}`);
+    audit(req.user.id, 'transfer.reject', 'payment', p.id, { order: p.code, method: p.method, amount: p.amount, note });
+    notify({ userIds: [p.user_id], roles: ['admin', 'manager'], exclude: req.user.id, type: 'transfer_alert', level: 'warning', link: '/transfers', title: `تحويل لم يصل · ${p.code}`, body: `${Orders.PAY_LABEL[p.method]} · ${p.amount} · ${note}` });
+    changed('transfers');
+    res.json({ status: 'rejected' });
+  });
+  r.post('/transfers/:id/reopen', need('transfers.audit'), (req, res) => {
+    const p = trGet(req.params.id);
+    run("UPDATE payments SET verify_status = 'pending', received_amount = NULL, verified_by = NULL, verified_at = NULL, verify_note = NULL WHERE id = ?", p.id);
+    audit(req.user.id, 'transfer.reopen', 'payment', p.id, { order: p.code, from: p.status });
+    changed('transfers');
+    res.json({ status: 'pending' });
+  });
+  r.put('/transfers/:id', need('transfers.audit'), (req, res) => {
+    const p = trGet(req.params.id);
+    run('UPDATE payments SET reference = ? WHERE id = ?', clip(req.body?.reference, 60) || null, p.id);
+    audit(req.user.id, 'transfer.reference', 'payment', p.id, { order: p.code });
+    changed('transfers');
+    res.json({ ok: true });
+  });
+  // تأكيد دفعة: كل التحويلات المنتظرة المطابقة لكشف الحساب (يتخطى ما سجّله المستخدم بنفسه)
+  r.post('/transfers/confirm-batch', need('transfers.audit'), (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter(Boolean))].slice(0, 200);
+    let confirmed = 0; let skipped = 0;
+    tx(() => {
+      for (const id of ids) {
+        const p = get(`${TR_SQL} WHERE p.id = ? AND p.method IN (${trIn})`, id);
+        if (!p || !['pending', 'mismatch'].includes(p.status) || (p.user_id === req.user.id && req.user.role !== 'admin')) { skipped++; continue; }
+        trConfirm(req, p, { note: clip(req.body?.note, 200) || 'مطابقة كشف الحساب' });
+        confirmed++;
+      }
+    });
+    changed('transfers');
+    res.json({ confirmed, skipped });
+  });
+  // مطابقة أسطر كشف الحساب (مرجع + مبلغ) مع التحويلات المنتظرة: بالمرجع أولاً ثم بالمبلغ إن كان فريداً
+  r.post('/transfers/match', need('transfers.audit'), (req, res) => {
+    const lines = (Array.isArray(req.body?.lines) ? req.body.lines : []).slice(0, 300).map((l) => ({ reference: clip(l.reference, 60), amount: l.amount === '' || l.amount == null ? null : round2(l.amount) }));
+    const open = all(`${TR_SQL} WHERE p.method IN (${trIn}) AND p.verify_status IN ('pending','mismatch') ORDER BY p.id`);
+    const taken = new Set();
+    const matches = []; const unmatched = [];
+    lines.forEach((l, i) => {
+      let hit = null; let by = null;
+      if (l.reference) { hit = open.find((p) => !taken.has(p.id) && p.reference && p.reference.toLowerCase() === l.reference.toLowerCase()); if (hit) by = 'reference'; }
+      if (!hit && l.amount != null) {
+        const c = open.filter((p) => !taken.has(p.id) && Math.abs(p.amount - l.amount) < 0.01);
+        if (c.length === 1) { hit = c[0]; by = 'amount'; }
+      }
+      if (hit) { taken.add(hit.id); matches.push({ line: i, by, id: hit.id, code: hit.code, method: hit.method, amount: hit.amount, payer_name: hit.payer_name, reference: hit.reference, statement_amount: l.amount, amount_ok: l.amount == null || Math.abs(hit.amount - l.amount) < 0.01, self: hit.user_id === req.user.id && req.user.role !== 'admin' }); }
+      else unmatched.push({ line: i, ...l });
+    });
+    res.json({ matches, unmatched });
+  });
+
   // سجل التحصيلات: الكاشير يرى تحصيلاته فقط، ومن يملك payments.view_all يرى الجميع
   r.get('/payments/history', need('payments.collect', 'payments.view_all'), (req, res) => {
     const all_ = hasPerm(req.user, 'payments.view_all');
@@ -744,7 +852,7 @@ export function buildRouter(emit) {
     const params = [];
     if (from) { where.push('date(p.created_at) >= ?'); params.push(from); }
     if (to) { where.push('date(p.created_at) <= ?'); params.push(to); }
-    if (method && ['cash', 'card', 'wallet'].includes(method)) { where.push('p.method = ?'); params.push(method); }
+    if (method && ['cash', 'card', 'wallet', 'bank', 'jawwalpay'].includes(method)) { where.push('p.method = ?'); params.push(method); }
     if (uid) { where.push('p.user_id = ?'); params.push(uid); }
     if (q) {
       where.push('(o.code LIKE ? OR o.customer_name LIKE ? OR o.customer_phone LIKE ? OR t.name LIKE ?)');

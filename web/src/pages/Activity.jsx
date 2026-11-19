@@ -10,7 +10,7 @@ import { useData, useMoney, Loading, Empty, PageHead, ROLE_LABELS, PAY_METHODS, 
 const CATEGORIES = [
   ['', 'كل العمليات'], ['order', 'الطلبات'], ['kitchen', 'المطبخ'], ['shift', 'الورديات'], ['item', 'الأصناف'], ['menu', 'القائمة'],
   ['stock', 'المخزون'], ['employee', 'الموظفون'], ['attendance', 'الحضور'], ['leave', 'الإجازات'], ['payroll', 'الرواتب'],
-  ['qr', 'طلبات QR'], ['event', 'فعاليات المؤسسات'], ['reservation', 'الحجوزات'], ['user', 'المستخدمون'], ['permissions', 'الصلاحيات'], ['settings', 'الإعدادات'], ['auth', 'الدخول'],
+  ['qr', 'طلبات QR'], ['event', 'فعاليات المؤسسات'], ['reservation', 'الحجوزات'], ['user', 'المستخدمون'], ['transfer', 'تدقيق التحويلات'], ['permissions', 'الصلاحيات'], ['settings', 'الإعدادات'], ['auth', 'الدخول'],
 ];
 
 
@@ -68,6 +68,11 @@ export function describe(a, money) {
     'user.create': [ShieldCheck, `إنشاء مستخدم ${name}`],
     'user.update': [ShieldCheck, `تعديل المستخدم ${name}${d.role ? ` (الدور: ${ROLE_LABELS[d.role]})` : ''}${d.password_changed ? ' · تغيير كلمة المرور' : ''}${d.active === 0 || d.active === false ? ' · تعطيل' : ''}`],
     'user.permissions': [KeyRound, `تخصيص صلاحيات ${d.name || name}${d.after?.grants?.length ? ` · +${d.after.grants.length}` : ''}${d.after?.denies?.length ? ` · −${d.after.denies.length}` : ''}`],
+    'transfer.confirm': [Banknote, `تأكيد وصول تحويل ${d.order || ''} · ${d.amount ?? ''}`],
+    'transfer.mismatch': [Banknote, `فرق في تحويل ${d.order || ''}: المطلوب ${d.amount ?? ''} والواصل ${d.received ?? ''}`],
+    'transfer.reject': [Banknote, `تحويل لم يصل ${d.order || ''} · ${d.amount ?? ''}`],
+    'transfer.reopen': [Banknote, `إعادة تحويل ${d.order || ''} للتدقيق`],
+    'transfer.reference': [Banknote, `تعديل مرجع تحويل ${d.order || ''}`],
     'permissions.update': [KeyRound, d.reset ? `إعادة صلاحيات ${ROLE_LABELS[d.role]} للافتراضي` : `تعديل صلاحيات ${ROLE_LABELS[d.role]}${d.added?.length ? ` · +${d.added.length}` : ''}${d.removed?.length ? ` · −${d.removed.length}` : ''}`],
     'employee.create': [IdCard, `إضافة الموظف ${name}`],
     'employee.update': [IdCard, `تعديل ملف ${name}`],

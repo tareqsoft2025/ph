@@ -38,6 +38,8 @@ export function orderLabel(orderId) {
   return { code: o.code, where: o.table_name || (o.event_name ? `${o.event_name}${o.place ? ` · ${o.place}` : ''}` : `${TYPE_LABEL[o.type]}${o.customer_name ? ` · ${o.customer_name}` : ''}`) };
 }
 
+export const TRANSFER_METHODS = ['wallet', 'bank', 'jawwalpay'];
+export const PAY_LABEL = { cash: 'نقداً', card: 'بطاقة', wallet: 'محفظة', bank: 'تحويل بنكي', jawwalpay: 'جوال بي' };
 const PHONE_RE = /^\+?[0-9\s-]{7,15}$/;
 
 export function getOrder(id) {
@@ -260,9 +262,13 @@ export function pay(orderId, payments, user) {
     for (const p of payments) {
       const amount = round2(p.amount);
       if (!(amount > 0)) throw bad('المبلغ غير صحيح');
-      if (!['cash', 'card', 'wallet'].includes(p.method)) throw bad('طريقة دفع غير صحيحة');
-      const ins = run('INSERT INTO payments(order_id, method, amount, user_id, shift_id) VALUES(?,?,?,?,?)',
-        orderId, p.method, amount, user.id, shift?.id ?? null);
+      if (!['cash', 'card', ...TRANSFER_METHODS].includes(p.method)) throw bad('طريقة دفع غير صحيحة');
+      // التحويلات تحمل بيانات المحوِّل ورقم العملية وتنتظر تدقيق وصول المبلغ للحساب
+      const tr = TRANSFER_METHODS.includes(p.method);
+      const pick = (v, fb) => String(v ?? fb ?? '').trim().slice(0, 60) || null;
+      const ins = run('INSERT INTO payments(order_id, method, amount, user_id, shift_id, reference, payer_name, payer_phone, verify_status) VALUES(?,?,?,?,?,?,?,?,?)',
+        orderId, p.method, amount, user.id, shift?.id ?? null,
+        tr ? pick(p.reference) : null, tr ? pick(p.payer_name, order.bill_name || order.customer_name) : null, tr ? pick(p.payer_phone, order.bill_phone || order.customer_phone) : null, tr ? 'pending' : null);
       newIds.push(Number(ins.lastInsertRowid));
       paid = round2(paid + amount);
     }
@@ -289,6 +295,11 @@ export function pay(orderId, payments, user) {
       notifyCustomer(orderId, 'paid');
     }
     audit(user.id, 'order.pay', 'order', orderId, { payments, change });
+    const trs = newIds.map((id) => get('SELECT method, amount FROM payments WHERE id = ?', id)).filter((x) => TRANSFER_METHODS.includes(x.method));
+    if (trs.length) {
+      notify({ perms: ['transfers.audit'], roles: ['admin'], exclude: user.id, type: 'transfer_new', level: 'info', link: '/transfers',
+        title: `تحويل بانتظار التدقيق · ${PAY_LABEL[trs[0].method]}`, body: `${order.code} · ${round2(trs.reduce((a, x) => a + x.amount, 0))}` });
+    }
     return { change, closed };
   });
 }
