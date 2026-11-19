@@ -25,6 +25,34 @@ function migrate() {
   db.exec(`UPDATE orders SET code = 'ORD-' || substr(replace(date(created_at), '-', ''), 3) || '-' || printf('%04d', number) WHERE code IS NULL`);
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_code ON orders(code)');
 
+  // تدقيق التحويلات: جدول الدفعات يقبل البنك وجوال بي ويحمل بيانات التدقيق (إعادة بناء لتعديل قيد CHECK)
+  const paySql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'payments'").get()?.sql || '';
+  if (paySql && !paySql.includes("'jawwalpay'")) {
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+      db.exec(`CREATE TABLE payments_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL REFERENCES orders(id),
+        method TEXT NOT NULL CHECK (method IN ('cash','card','wallet','bank','jawwalpay')), amount REAL NOT NULL,
+        user_id INTEGER REFERENCES users(id), shift_id INTEGER REFERENCES shifts(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+        reference TEXT, payer_name TEXT, payer_phone TEXT, verify_status TEXT, received_amount REAL,
+        verified_by INTEGER REFERENCES users(id), verified_at TEXT, verify_note TEXT)`);
+      db.exec("INSERT INTO payments_new(id, order_id, method, amount, user_id, shift_id, created_at, verify_status) SELECT id, order_id, method, amount, user_id, shift_id, created_at, CASE WHEN method = 'wallet' THEN 'pending' END FROM payments");
+      db.exec('DROP TABLE payments');
+      db.exec('ALTER TABLE payments_new RENAME TO payments');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_pay_verify ON payments(verify_status, created_at)');
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON');
+    }
+  }
+
+  db.exec('CREATE INDEX IF NOT EXISTS idx_pay_verify ON payments(verify_status, created_at)');
+
   // دور "موظف" الجديد: إعادة بناء جدول المستخدمين في القواعد القديمة (قيد CHECK لا يُعدّل في SQLite)
   const usersSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()?.sql || '';
   if (!usersSql.includes("'staff'")) {

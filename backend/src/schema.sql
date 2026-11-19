@@ -176,12 +176,22 @@ CREATE INDEX IF NOT EXISTS idx_items_status ON order_items(status);
 CREATE TABLE IF NOT EXISTS payments (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   order_id   INTEGER NOT NULL REFERENCES orders(id),
-  method     TEXT NOT NULL CHECK (method IN ('cash','card','wallet')),
+  method     TEXT NOT NULL CHECK (method IN ('cash','card','wallet','bank','jawwalpay')),
   amount     REAL NOT NULL,
   user_id    INTEGER REFERENCES users(id),
   shift_id   INTEGER REFERENCES shifts(id),
-  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  -- التحويلات (محفظة / بنك / جوال بي): بيانات المحوِّل وتدقيق وصول المبلغ للحساب
+  reference       TEXT,                     -- رقم العملية / مرجع التحويل
+  payer_name      TEXT,
+  payer_phone     TEXT,
+  verify_status   TEXT,                     -- NULL للنقدي والبطاقة؛ للتحويل: pending / confirmed / mismatch / rejected
+  received_amount REAL,                     -- المبلغ الذي وصل فعلاً حسب كشف الحساب
+  verified_by     INTEGER REFERENCES users(id),
+  verified_at     TEXT,
+  verify_note     TEXT
 );
+
 
 CREATE TABLE IF NOT EXISTS reservations (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,

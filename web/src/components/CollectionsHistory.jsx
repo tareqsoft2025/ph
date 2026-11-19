@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Search, Banknote, CreditCard, Smartphone, Receipt as ReceiptIcon, UserRound, Armchair, ShoppingBag, Bike, Printer, History, Users, Clock, Inbox } from 'lucide-react';
+import { Search, Banknote, CreditCard, Smartphone, Receipt as ReceiptIcon, UserRound, Armchair, ShoppingBag, Bike, Printer, History, Users, Clock, Inbox, Landmark } from 'lucide-react';
 import { useApp, useData, useMoney, Modal, Empty, Loading, ORDER_TYPES, PAY_METHODS, ITEM_STATUS, todayStr } from '../lib.jsx';
 import Receipt from './Receipt.jsx';
 import OrderTimeline from './OrderTimeline.jsx';
 
 const TYPE_ICON = { dine_in: Armchair, takeaway: ShoppingBag, delivery: Bike };
-const M_ICON = { cash: Banknote, card: CreditCard, wallet: Smartphone };
+const M_ICON = { cash: Banknote, card: CreditCard, wallet: Smartphone, bank: Landmark, jawwalpay: Smartphone };
 const ymd = (d) => { const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return ymd(d); };
 const RANGES = [['today', 'اليوم'], ['yesterday', 'أمس'], ['7', '7 أيام'], ['30', '30 يوم'], ['custom', 'فترة محددة']];

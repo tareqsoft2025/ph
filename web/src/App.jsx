@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Radio, Building2, MessageCircle, Calculator, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
+  LayoutDashboard, Radio, Building2, MessageCircle, ArrowLeftRight, Calculator, ReceiptText, Armchair, ClipboardList, ChefHat, CalendarDays, Wallet,
   UtensilsCrossed, Package, Users as UsersIcon, ChartColumn, IdCard, Fingerprint, CalendarOff, Banknote, HandCoins, History, KeyRound, ShieldCheck, Settings as SettingsIcon, LogOut, Menu as MenuIcon, Wifi, WifiOff, Smartphone, Sun, Moon, SunMoon, Ellipsis, PanelRightClose, PanelRightOpen,
 } from 'lucide-react';
 import {
@@ -21,6 +21,7 @@ import Live from './pages/Live.jsx';
 import Home from './pages/Home.jsx';
 import Events from './pages/Events.jsx';
 import Chat from './pages/Chat.jsx';
+import Transfers from './pages/Transfers.jsx';
 import Expenses from './pages/Expenses.jsx';
 import AppShell from './components/AppShell.jsx';
 import { isAppUi, setAppUi } from './appui.js';
@@ -51,6 +52,7 @@ const NAV = [
     { to: '/dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, perms: ['reports.view'] },
     { to: '/live', label: 'المتابعة المباشرة', icon: Radio, perms: ['reports.view'] },
     { to: '/cashier', label: 'الكاشير', icon: Banknote, perms: ['payments.collect'] },
+    { to: '/transfers', label: 'تدقيق التحويلات', icon: ArrowLeftRight, perms: ['transfers.audit'] },
     { to: '/tables', label: 'الطاولات', icon: Armchair, perms: ['tables.view', 'pos.create'] },
     { to: '/orders', label: 'الطلبات', icon: ClipboardList, perms: ['orders.view', 'pos.create', 'payments.collect'] },
     { to: '/kitchen', label: 'شاشة المطبخ', icon: ChefHat, perms: ['kitchen.view', 'kitchen.update'] },
@@ -159,6 +161,7 @@ export default function App() {
       <Route path="/live" element={<Live />} />
       <Route path="/events" element={<Events />} />
       <Route path="/chat" element={<Chat />} />
+      <Route path="/transfers" element={<Transfers />} />
       <Route path="/expenses" element={<Expenses />} />
       <Route path="/pos/:orderId?" element={<Pos />} />
       <Route path="/tables" element={<Tables />} />

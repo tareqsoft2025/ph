@@ -13,7 +13,7 @@ export const useNotifications = () => useContext(NotifContext);
 
 const ICONS = { order_new: ChefHat, order_ready: CircleCheckBig, bill_request: ReceiptText, leave_request: CalendarOff, leave_decided: CalendarOff, low_stock: PackageX, test: BellRing, attendance_alert: ShieldAlert, qr_request: QrCode, qr_request_taken: QrCode, online_confirm: QrCode, online_order: QrCode, qr_alert: ShieldAlert };
 const TYPE_LABEL = { order_new: 'طلب جديد', order_ready: 'جاهز للتقديم', bill_request: 'طلب الحساب', leave_request: 'طلب إجازة', leave_decided: 'إجازة', low_stock: 'المخزون', test: 'تجربة', attendance_alert: 'تنبيه حضور', qr_request: 'طلب فتح طاولة', qr_request_taken: 'تم الاستلام', online_confirm: 'بانتظار التأكيد', online_order: 'طلب QR', qr_alert: 'تنبيه أمان' };
-const ACTION = { order_new: 'شاشة المطبخ', order_ready: 'فتح الطلب', bill_request: 'تحصيل', leave_request: 'مراجعة', leave_decided: 'عرض', low_stock: 'المخزون', attendance_alert: 'التقارير', qr_request: 'استلام الطلب', qr_request_taken: 'عرض الطاولة', online_confirm: 'تأكيد الطلب', online_order: 'فتح الطلب', qr_alert: 'عرض', chat: 'الرد' };
+const ACTION = { order_new: 'شاشة المطبخ', order_ready: 'فتح الطلب', bill_request: 'تحصيل', leave_request: 'مراجعة', leave_decided: 'عرض', low_stock: 'المخزون', attendance_alert: 'التقارير', qr_request: 'استلام الطلب', qr_request_taken: 'عرض الطاولة', online_confirm: 'تأكيد الطلب', online_order: 'فتح الطلب', qr_alert: 'عرض', chat: 'الرد', transfer_new: 'تدقيق', transfer_alert: 'مراجعة' };
 const safeGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const safeSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
 

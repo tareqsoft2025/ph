@@ -796,3 +796,77 @@ test('meal details and components: saved by the admin, shown in the staff menu a
   const burger = menu.items.find((i) => i.name === 'برجر لحم');
   assert.ok(burger.details && burger.components.length >= 4);
 });
+
+test('transfer audit: wallet/bank/Jawwal Pay payments wait for verification, confirm/mismatch/reject, statement matching, segregation of duties', async () => {
+  const admin = await login('admin', 'admin123');
+  const waiter = await login('waiter', '1234');
+  const cashier = await login('cashier', '1234');
+  const kitchen = await login('kitchen', '1234');
+  const menu = (await api('/menu', { token: admin })).data;
+  const item = menu.items.find((i) => i.available && !i.modifiers.length);
+  await api('/shifts/open', { method: 'POST', token: cashier, body: { opening_cash: 50 } });
+  const free = (await api('/tables', { token: admin })).data.filter((t) => t.status === 'free');
+  const other = menu.items.find((i) => i.available && !i.modifiers.length && i.price !== item.price);
+  const mkPaid = async (table, method, extra = {}, it = item) => {
+    const o = await api('/orders', { method: 'POST', token: waiter, body: { type: 'dine_in', table_id: table.id, guests: 1, customer_name: 'سامي', customer_phone: '0569998877', items: [{ item_id: it.id, qty: 1 }] } });
+    assert.equal(o.status, 201, JSON.stringify(o.data));
+    const total = o.data.total;
+    const pay = await api(`/orders/${o.data.id}/pay`, { method: 'POST', token: cashier, body: { payments: [{ method, amount: total, ...extra }] } });
+    assert.equal(pay.status, 200, JSON.stringify(pay.data));
+    return { id: o.data.id, total, code: o.data.code };
+  };
+  const a = await mkPaid(free[0], 'bank', { reference: 'TRX-1001', payer_name: 'سامي علي' });
+  const b = await mkPaid(free[1], 'jawwalpay', { reference: 'JP-77' });
+  const c = await mkPaid(free[2], 'wallet');
+  const cash = await mkPaid(free[3], 'cash');
+
+  // الصلاحية: لا الكاشير ولا المطبخ يدقّقان افتراضياً
+  assert.equal((await api('/transfers', { token: cashier })).status, 403);
+  assert.equal((await api('/transfers', { token: kitchen })).status, 403);
+  const list = (await api('/transfers?status=pending', { token: admin })).data;
+  const mine = list.rows.filter((r) => [a.code, b.code, c.code].includes(r.code));
+  assert.equal(mine.length, 3, 'three transfers wait; cash is not a transfer');
+  assert.ok(!list.rows.some((r) => r.code === cash.code));
+  const ra = mine.find((r) => r.code === a.code);
+  assert.equal(ra.method, 'bank'); assert.equal(ra.reference, 'TRX-1001'); assert.equal(ra.payer_name, 'سامي علي'); assert.equal(ra.cashier_name, 'الكاشير');
+  assert.equal(mine.find((r) => r.code === c.code).payer_phone, '0569998877', 'payer defaults to the customer');
+
+  // التأكيد والفرق والرفض
+  assert.equal((await api(`/transfers/${ra.id}/confirm`, { method: 'POST', token: admin, body: {} })).data.status, 'confirmed');
+  const rb = mine.find((r) => r.code === b.code);
+  assert.equal((await api(`/transfers/${rb.id}/confirm`, { method: 'POST', token: admin, body: { received_amount: rb.amount - 5 } })).data.status, 'mismatch', 'a different received amount is flagged');
+  const rc = mine.find((r) => r.code === c.code);
+  assert.equal((await api(`/transfers/${rc.id}/reject`, { method: 'POST', token: admin, body: {} })).status, 400, 'reject needs a reason');
+  assert.equal((await api(`/transfers/${rc.id}/reject`, { method: 'POST', token: admin, body: { note: 'لم يظهر في كشف المحفظة' } })).data.status, 'rejected');
+  const after = (await api('/transfers', { token: admin })).data;
+  const st = (code) => after.rows.find((r) => r.code === code);
+  assert.equal(st(a.code).status, 'confirmed'); assert.equal(st(a.code).verifier_name !== null, true);
+  assert.equal(st(b.code).status, 'mismatch'); assert.equal(st(c.code).status, 'rejected');
+  assert.ok(after.by_status.find((x) => x.k === 'confirmed').n >= 1);
+  assert.equal((await api(`/transfers/${rc.id}/reopen`, { method: 'POST', token: admin })).data.status, 'pending');
+
+  // مطابقة كشف الحساب: بالمرجع ثم بالمبلغ الفريد
+  const d = await mkPaid(free[4], 'bank', { reference: 'TRX-2002' });
+  const e = await mkPaid(free[5], 'wallet', { reference: '' }, other);
+  const rd = (await api('/transfers?status=pending', { token: admin })).data.rows.find((r) => r.code === d.code);
+  const re = (await api('/transfers?status=pending', { token: admin })).data.rows.find((r) => r.code === e.code);
+  const match = (await api('/transfers/match', { method: 'POST', token: admin, body: { lines: [{ reference: 'trx-2002', amount: rd.amount }, { reference: '', amount: re.amount }, { reference: 'UNKNOWN', amount: 99999 }] } })).data;
+  assert.equal(match.matches.find((m) => m.id === rd.id).by, 'reference');
+  assert.ok(match.matches.find((m) => m.id === re.id), 'matched by amount');
+  assert.equal(match.unmatched.length, 1);
+  const batch = await api('/transfers/confirm-batch', { method: 'POST', token: admin, body: { ids: match.matches.map((m) => m.id) } });
+  assert.equal(batch.data.confirmed >= 1, true);
+
+  // فصل المهام: من سجّل التحويل لا يدقّقه (غير المدير العام)
+  const cu = (await api('/users', { token: admin })).data.find((u) => u.username === 'cashier');
+  await api(`/users/${cu.id}/permissions`, { method: 'PUT', token: admin, body: { grants: ['transfers.audit'], denies: [] } });
+  const own = (await api('/transfers?status=pending', { token: cashier })).data;
+  assert.equal(own.rows.length > 0, true);
+  const self = await api(`/transfers/${own.rows[0].id}/confirm`, { method: 'POST', token: cashier, body: {} });
+  assert.equal(self.status, 400); assert.match(self.data.error, /سجّلته بنفسك/);
+  await api(`/users/${cu.id}/permissions`, { method: 'PUT', token: admin, body: { reset: true } });
+  // سجل الحركات
+  const acts = (await api('/audit?category=transfer', { token: admin })).data.rows.map((x) => x.action);
+  for (const k of ['transfer.confirm', 'transfer.mismatch', 'transfer.reject']) assert.ok(acts.includes(k), k);
+  await api('/shifts/close', { method: 'POST', token: cashier, body: { closing_cash: 9999 } });
+});

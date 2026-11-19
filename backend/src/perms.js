@@ -14,6 +14,7 @@ export const PERMISSIONS = [
 
   { key: 'payments.collect', group: 'الكاشير', label: 'تحصيل الدفعات وإغلاق الطلبات' },
   { key: 'payments.view_all', group: 'الكاشير', label: 'عرض تحصيلات كل الكاشير (بدونها يرى الكاشير تحصيلاته فقط)' },
+  { key: 'transfers.audit', group: 'الكاشير', label: 'تدقيق كشف التحويلات المالية (محفظة / بنك / جوال بي) وتأكيد وصولها للحسابات' },
   { key: 'shifts.manage', group: 'الكاشير', label: 'فتح وإغلاق الورديات' },
   { key: 'customers.view', group: 'الكاشير', label: 'عرض العملاء' },
 
