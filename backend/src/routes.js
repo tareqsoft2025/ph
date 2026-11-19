@@ -2,12 +2,12 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { get, all, run, tx, getSettings, setSettings, audit, randomToken, ensureTableTokens } from './db.js';
 import { authenticate, allow, signToken, ROLES } from './auth.js';
-import { need, hasPerm, PERMISSIONS, ROLES_EDITABLE, DEFAULTS, rolePerms, setRolePerms, resetRolePerms, usersWithPerm } from './perms.js';
+import { need, hasPerm, PERMISSIONS, ROLES_EDITABLE, DEFAULTS, rolePerms, setRolePerms, resetRolePerms, usersWithPerm, userPerms, userOverrides, setUserOverrides } from './perms.js';
 import { bad, notFound, pick, updateSql, normalize, round2, today } from './util.js';
 import * as Orders from './orders.js';
 import { hrRoutes } from './hr.js';
 import { attendanceRoutes, attendanceGate } from './attendance.js';
-import { setNotifyEmitter, notify, pushEnabled, webPushKey, customerNotify } from './notify.js';
+import { setNotifyEmitter, notify, pushEnabled, webPushKey, customerChatNotify } from './notify.js';
 
 /**
  * @param {(event: string, payload?: any) => void} emit إرسال حدث لحظي لكل الأجهزة
@@ -45,6 +45,12 @@ export function buildRouter(emit) {
     return arr.length > max;
   };
   // مدة نسيان زيارة الزبون (ساعات): بين ساعة وأسبوع، والافتراضي 8
+  const restrictedWaiter = (u) => u.role !== 'admin' && hasPerm(u, 'pos.create') && !hasPerm(u, 'orders.view') && !hasPerm(u, 'payments.collect');
+  // من يُشعَر بطلب QR: صاحب الطلب (النادل الذي فتح الطاولة) مع الإدارة والكاشير، وإن لم يُستلم بعد فكل النوادل
+  const ownerTargets = (orderId) => {
+    const w = get('SELECT waiter_id FROM orders WHERE id = ?', orderId)?.waiter_id;
+    return w ? { userIds: [w], roles: ['admin', 'manager'], perms: ['payments.collect'] } : { perms: ['pos.create', 'payments.collect'], roles: ['admin', 'manager'] };
+  };
   const forgetHours = () => { const h = Math.round(Number(getSettings().customer_forget_hours)); return h >= 1 && h <= 168 ? h : 8; };
   const onlineOn = () => getSettings().online_ordering === '1';
   const clip = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -184,10 +190,10 @@ export function buildRouter(emit) {
     if (needsConfirm) {
       run('UPDATE orders SET pending_confirm = 1 WHERE id = ?', id);
       qrLog(req, t.id, 'confirm_required', `${o.code} · ${newValue}`, dev);
-      notify({ perms: ['pos.create', 'payments.collect'], type: 'online_confirm', level: 'warning', link: `/pos/${id}`, title: `طلب QR بانتظار التأكيد · ${where}`, body: `${o.code} · ${o.items.length} صنف · ${newValue}${firstTime ? ' · أول طلب لهذا الجوال' : ''}` });
+      notify({ ...ownerTargets(id), type: 'online_confirm', level: 'warning', link: `/pos/${id}`, title: `طلب QR بانتظار التأكيد · ${where}`, body: `${o.code} · ${o.items.length} صنف · ${newValue}${firstTime ? ' · أول طلب لهذا الجوال' : ''}` });
     } else {
       Orders.sendToKitchen(id, PUBLIC_USER);
-      notify({ perms: ['payments.collect', 'pos.create'], type: 'online_order', level: 'info', link: `/pos/${id}`, title: `${added ? 'إضافة على' : 'طلب جديد من'} ${where} (QR) ${o.code}`, body: `${o.items.length} صنف · ${o.total}` });
+      notify({ ...ownerTargets(id), type: 'online_order', level: 'info', link: `/pos/${id}`, title: `${added ? 'إضافة على' : 'طلب جديد من'} ${where} (QR) ${o.code}`, body: `${o.items.length} صنف · ${o.total}` });
     }
     qrLog(req, t.id, 'order', `${o.code}${added ? ' (إضافة)' : ''}${needsConfirm ? ' · بانتظار التأكيد' : ''}`, dev);
     audit(null, 'qr.order', 'order', id, { table: t.name, added, items: lines.reduce((a, l) => a + l.qty, 0), total: o.total, needs_confirm: needsConfirm, waiter: o.waiter_name || null, customer: o.customer_name || null });
@@ -202,6 +208,15 @@ export function buildRouter(emit) {
     const now = get("SELECT datetime('now','localtime') AS n").n;
     return now < ev.starts_at ? 'not_started' : now > ev.ends_at ? 'ended' : 'open';
   };
+  // مواعيد طلب الأقسام داخل الفعالية (مثلاً المشروبات من البداية والوجبات بعد ساعة)
+  const catTimes = (ev) => { try { return ev.cat_times ? JSON.parse(ev.cat_times) : {}; } catch { return {}; } };
+  const catState = (ev, catId, now = get("SELECT datetime('now','localtime') AS n").n) => {
+    const w = catTimes(ev)[catId];
+    if (!w) return { state: 'open', opens_at: null, closes_at: null };
+    const state = w.from && now < w.from ? 'soon' : w.to && now > w.to ? 'closed' : 'open';
+    return { state, opens_at: w.from || null, closes_at: w.to || null };
+  };
+  const hm = (s) => String(s || '').slice(11, 16);
   const eventByToken = (req) => {
     if (limited(req, 'ev', 90, 60 * 1000)) throw Object.assign(bad('طلبات كثيرة، حاول بعد قليل'), { status: 429 });
     const tok = String(req.params.token || '');
@@ -222,7 +237,11 @@ export function buildRouter(emit) {
     else if (ev.menu_mode === 'cap') items = items.filter((i) => i.price <= ev.price_cap);
     for (const it of items) it.modifiers = mods.filter((m) => m.item_id === it.id).map(({ id, name, price }) => ({ id, name, price }));
     const cats = new Set(items.map((i) => i.category_id));
-    return { categories: all('SELECT id, name, icon FROM categories WHERE active = 1 ORDER BY sort, id').filter((c) => cats.has(c.id)), items };
+    const now = get("SELECT datetime('now','localtime') AS n").n;
+    const categories = all('SELECT id, name, icon FROM categories WHERE active = 1 ORDER BY sort, id').filter((c) => cats.has(c.id)).map((c) => ({ ...c, ...catState(ev, c.id, now) }));
+    const locked = new Set(categories.filter((c) => c.state !== 'open').map((c) => c.id));
+    for (const it of items) if (locked.has(it.category_id)) it.locked = true;
+    return { categories, items };
   };
 
   r.get('/public/event/:token', (req, res) => {
@@ -254,6 +273,9 @@ export function buildRouter(emit) {
       const it = get('SELECT id, name, price FROM menu_items WHERE id = ? AND active = 1', l.item_id);
       if (!it) throw bad('الصنف غير موجود');
       if (allowed && !allowed.has(it.id)) throw bad(`«${it.name}» ليس ضمن قائمة المؤسسة`);
+      const cs = catState(ev, get('SELECT category_id FROM menu_items WHERE id = ?', it.id).category_id);
+      if (cs.state === 'soon') throw bad(`طلب «${it.name}» يبدأ الساعة ${hm(cs.opens_at)}`);
+      if (cs.state === 'closed') throw bad(`انتهى وقت طلب «${it.name}» (${hm(cs.closes_at)})`);
       if (ev.menu_mode === 'cap' && it.price > ev.price_cap) throw bad(`«${it.name}» أعلى من السقف المسموح (${ev.price_cap})`);
       const mp = l.modifier_ids.length ? all(`SELECT price FROM modifiers WHERE item_id = ? AND id IN (${l.modifier_ids.map(() => '?').join(',')})`, it.id, ...l.modifier_ids).reduce((a, m) => a + m.price, 0) : 0;
       est += (it.price + mp) * l.qty;
@@ -353,6 +375,20 @@ export function buildRouter(emit) {
     const dev = devOf(req.query.device_id);
     res.json({ enabled: !!ev.support_chat, messages: chatRows(ev.id, dev) });
   });
+  // اشتراك إشعارات الردود (Web Push) لجهاز الزبون
+  r.post('/public/event/:token/chat/push', (req, res) => {
+    const ev = eventByToken(req);
+    if (limited(req, 'cp', 20, 10 * 60 * 1000)) return res.status(429).json({ error: 'طلبات كثيرة، حاول بعد قليل' });
+    if (!webPushKey()) return res.status(503).json({ error: 'الإشعارات غير متاحة على هذا الخادم' });
+    if (!ev.support_chat) throw bad('المحادثة غير متاحة لهذه المؤسسة');
+    const dev = devOf(req.body?.device_id);
+    const sub = req.body?.subscription || {};
+    const endpoint = String(sub.endpoint || ''); const p256dh = String(sub.keys?.p256dh || ''); const auth = String(sub.keys?.auth || '');
+    if (!/^https:\/\//.test(endpoint) || endpoint.length > 600 || !p256dh || !auth || p256dh.length > 200 || auth.length > 100) throw bad('اشتراك غير صالح');
+    const url = /^https?:\/\//.test(String(req.body?.url || '')) ? String(req.body.url).slice(0, 400) : null;
+    run('INSERT INTO chat_push_subs(event_id, device_id, endpoint, p256dh, auth, url) VALUES(?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET event_id = excluded.event_id, device_id = excluded.device_id, p256dh = excluded.p256dh, auth = excluded.auth, url = excluded.url', ev.id, dev, endpoint, p256dh, auth, url);
+    res.json({ ok: true });
+  });
   r.post('/public/event/:token/chat', (req, res) => {
     const ev = eventByToken(req);
     if (!ev.support_chat) throw bad('المحادثة غير متاحة لهذه المؤسسة');
@@ -419,6 +455,23 @@ export function buildRouter(emit) {
       name, username.trim(), bcrypt.hashSync(password, 10), role);
     audit(req.user.id, 'user.create', 'user', Number(info.lastInsertRowid));
     res.status(201).json({ id: Number(info.lastInsertRowid) });
+  });
+  // تخصيص صلاحيات مستخدم بعينه (فوق صلاحيات دوره)
+  r.get('/users/:id/permissions', need('users.manage'), (req, res) => {
+    const u = get('SELECT id, name, username, role FROM users WHERE id = ?', Number(req.params.id));
+    if (!u) throw notFound('المستخدم غير موجود');
+    res.json({ user: u, role_perms: rolePerms(u.role), ...userOverrides(u.id), effective: userPerms(u), permissions: PERMISSIONS });
+  });
+  r.put('/users/:id/permissions', need('users.manage'), (req, res) => {
+    const id = Number(req.params.id);
+    const u = get('SELECT id, name, role FROM users WHERE id = ?', id);
+    if (!u) throw notFound('المستخدم غير موجود');
+    if (u.role === 'admin') throw bad('المدير العام يملك كل الصلاحيات دائماً');
+    const before = userOverrides(id);
+    const after = req.body?.reset ? setUserOverrides(id, [], []) : setUserOverrides(id, req.body?.grants || [], req.body?.denies || []);
+    audit(req.user.id, 'user.permissions', 'user', id, { name: u.name, before, after });
+    changed('settings');
+    res.json({ ...after, effective: userPerms(u) });
   });
   r.put('/users/:id', need('users.manage'), (req, res) => {
     const id = Number(req.params.id);
@@ -546,7 +599,7 @@ export function buildRouter(emit) {
       SELECT t.id, t.name, t.seats, t.area, t.active, t.qr_open_until,
         CASE WHEN t.qr_open_until > datetime('now','localtime') THEN 1 ELSE 0 END AS qr_open,
         CASE WHEN t.qr_request_at > datetime('now','localtime','-15 minutes') AND COALESCE(t.qr_open_until, '') <= datetime('now','localtime') THEN 1 ELSE 0 END AS qr_requested, o.pending_confirm AS pending_confirm, CASE WHEN t.qr_open_until > datetime('now','localtime') THEN (SELECT name FROM users WHERE id = t.qr_opened_by) END AS qr_opened_by_name, t.qr_request_at, o.id AS order_id, o.number AS order_number, o.code AS order_code, o.total AS order_total, o.created_at AS opened_at,
-        o.guests, w.name AS waiter_name,
+        o.guests, w.name AS waiter_name, o.waiter_id,
         (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'ready') AS ready_items,
         (SELECT r.customer_name || ' ' || substr(r.reserved_at, 12, 5) FROM reservations r
           WHERE r.table_id = t.id AND r.status = 'booked' AND date(r.reserved_at) = date('now','localtime')
@@ -555,7 +608,13 @@ export function buildRouter(emit) {
       LEFT JOIN orders o ON o.table_id = t.id AND o.status = 'open'
       LEFT JOIN users w ON w.id = o.waiter_id
       WHERE t.active = 1 ORDER BY t.area, t.id`);
-    res.json(tables.map((t) => ({ ...t, status: t.order_id ? 'occupied' : t.reservation ? 'reserved' : 'free' })));
+    // النادل المقيَّد لا يدخل طاولة عليها طلب نادل آخر: تظهر مشغولة باسم صاحبها فقط
+    const mine = restrictedWaiter(req.user);
+    res.json(tables.map((t) => {
+      const locked = mine && t.order_id && t.waiter_id && t.waiter_id !== req.user.id;
+      const base = locked ? { ...t, order_id: null, order_number: null, order_code: null, order_total: null, pending_confirm: 0, ready_items: 0, locked: true } : t;
+      return { ...base, status: t.order_id ? 'occupied' : t.reservation ? 'reserved' : 'free' };
+    }));
   });
   // رموز QR للطاولات (للإدارة فقط)
   r.get('/tables/qr', need('settings.manage'), (req, res) => {
@@ -619,6 +678,27 @@ export function buildRouter(emit) {
   });
 
   // ───────────── الطلبات ─────────────
+  // ملكية الطلبات: النادل (بلا orders.view ولا payments.collect) يرى ويعدّل طلباته والطلبات غير المستلمة فقط
+  r.use('/orders/:id', (req, res, next) => {
+    const id = Number(req.params.id);
+    if (!id || !restrictedWaiter(req.user)) return next();
+    const o = get('SELECT waiter_id FROM orders WHERE id = ?', id);
+    if (o?.waiter_id && o.waiter_id !== req.user.id) return res.status(403).json({ error: 'هذا الطلب على حساب نادل آخر' });
+    next();
+  });
+  r.post('/orders/:id/claim', need('pos.create'), (req, res) => {
+    const id = Number(req.params.id);
+    const o = get('SELECT id, status, waiter_id, code FROM orders WHERE id = ?', id);
+    if (!o) throw notFound('الطلب غير موجود');
+    if (o.status !== 'open') throw bad('الطلب مغلق');
+    if (o.waiter_id === req.user.id) return res.json(orderChanged(id));
+    if (o.waiter_id && !hasPerm(req.user, 'orders.view')) throw bad('الطلب على حساب نادل آخر');
+    run('UPDATE orders SET waiter_id = ? WHERE id = ?', req.user.id, id);
+    Orders.logEvent(id, 'claimed', req.user.id, o.waiter_id ? `نقل الطلب إلى ${req.user.name}` : `استلم ${req.user.name} الطلب على حسابه`);
+    if (o.waiter_id) notify({ userIds: [o.waiter_id], type: 'order_moved', level: 'info', link: '/tables', title: `نُقل الطلب ${o.code} إلى ${req.user.name}`, exclude: req.user.id });
+    audit(req.user.id, 'order.claim', 'order', id, { from: o.waiter_id || null });
+    res.json(orderChanged(id));
+  });
   r.get('/orders', need('orders.view', 'pos.create', 'payments.collect'), (req, res) => {
     const { status, type, date, from, to } = req.query;
     const where = [];
@@ -629,6 +709,7 @@ export function buildRouter(emit) {
     if (from) { where.push('date(o.created_at) >= ?'); params.push(from); }
     if (to) { where.push('date(o.created_at) <= ?'); params.push(to); }
     if (!hasPerm(req.user, 'orders.view') && !hasPerm(req.user, 'payments.collect') && !status) { where.push("o.status = 'open'"); }
+    if (restrictedWaiter(req.user)) { where.push('(o.waiter_id = ? OR o.waiter_id IS NULL)'); params.push(req.user.id); }
     const rows = all(`
       SELECT o.*, t.name AS table_name, ev.name AS event_name, w.name AS waiter_name,
         (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id AND oi.status != 'cancelled') AS items_count,
@@ -742,6 +823,9 @@ export function buildRouter(emit) {
   r.post('/orders/:id/confirm', need('pos.create', 'payments.collect'), (req, res) => {
     const id = Number(req.params.id);
     Orders.confirmOrder(id, req.user);
+    // النادل الذي يعتمد الطلب يصبح الطلب على حسابه ويكمل معه المعاملة
+    const cur = get('SELECT waiter_id FROM orders WHERE id = ?', id);
+    if (!cur.waiter_id && hasPerm(req.user, 'pos.create')) { run('UPDATE orders SET waiter_id = ? WHERE id = ?', req.user.id, id); Orders.logEvent(id, 'claimed', req.user.id, `استلم ${req.user.name} الطلب على حسابه`); }
     changed('kitchen', 'orders', 'tables');
     res.json(orderChanged(id));
   });
@@ -1134,12 +1218,12 @@ export function buildRouter(emit) {
     emit('chat', { event_id: eid });
     emit('public-chat', `${eid}:${dev}`);
     const o = get('SELECT id FROM orders WHERE event_id = ? AND device_id = ? ORDER BY id DESC LIMIT 1', eid, dev);
-    if (o) customerNotify(o.id, { kind: 'chat', title: `رد من ${ev.name}`, body: body.slice(0, 140) });
+    customerChatNotify(eid, dev, o?.id || null, { kind: 'chat', title: `رد من ${ev.name}`, body: body.slice(0, 140) });
     res.status(201).json({ id });
   });
 
   // ───────────── فعاليات المؤسسات (إدارة) ─────────────
-  const evRow = (e) => ({ ...e, places: e.places ? JSON.parse(e.places) : [], state: eventState(e) });
+  const evRow = (e) => ({ ...e, places: e.places ? JSON.parse(e.places) : [], cat_times: catTimes(e), state: eventState(e) });
   const toDb = (s) => { const v = String(s || '').trim().replace('T', ' '); return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(v) ? (v.length === 16 ? `${v}:00` : v) : null; };
   const readEvent = (b) => {
     const name = clip(b.name, 80);
@@ -1153,11 +1237,19 @@ export function buildRouter(emit) {
     const item_ids = [...new Set((Array.isArray(b.item_ids) ? b.item_ids : []).map(Number).filter(Boolean))];
     if (menu_mode === 'selected' && !item_ids.length) throw bad('اختر أصنافاً للقائمة المحددة');
     const order_cap = Number(b.order_cap) > 0 ? Number(b.order_cap) : null;
+    const ct = {};
+    for (const [cid, w] of Object.entries(b.cat_times && typeof b.cat_times === 'object' ? b.cat_times : {})) {
+      const from = toDb(w?.from); const to = toDb(w?.to);
+      if (!Number(cid) || (!from && !to)) continue;
+      if (from && to && to <= from) throw bad('وقت نهاية القسم يجب أن يكون بعد بدايته');
+      if ([from, to].some((v) => v && (v < starts || v > ends))) throw bad('مواعيد الأقسام يجب أن تقع داخل وقت الفعالية');
+      ct[Number(cid)] = { from, to };
+    }
     const places = (Array.isArray(b.places) ? b.places : String(b.places || '').split('\n')).map((p) => clip(p, 40)).filter(Boolean).slice(0, 80);
     return {
       name, contact_name: clip(b.contact_name, 60) || null, contact_phone: clip(b.contact_phone, 20) || null, starts, ends, menu_mode, price_cap, order_cap, item_ids,
       billing: b.billing === 'individual' ? 'individual' : 'institution', needs_approval: b.needs_approval ? 1 : 0, places: places.length ? JSON.stringify(places) : null, notes: clip(b.notes, 300) || null,
-      welcome_message: clip(b.welcome_message, 400) || null, support_phone: clip(b.support_phone, 20) || null, support_chat: b.support_chat === false || b.support_chat === 0 ? 0 : 1,
+      cat_times: Object.keys(ct).length ? JSON.stringify(ct) : null, welcome_message: clip(b.welcome_message, 400) || null, support_phone: clip(b.support_phone, 20) || null, support_chat: b.support_chat === false || b.support_chat === 0 ? 0 : 1,
       active: b.active === false || b.active === 0 ? 0 : 1,
     };
   };
@@ -1180,8 +1272,8 @@ export function buildRouter(emit) {
   });
   r.post('/events', need('events.manage'), (req, res) => {
     const d = readEvent(req.body || {});
-    const info = run('INSERT INTO events(name, contact_name, contact_phone, starts_at, ends_at, menu_mode, price_cap, order_cap, billing, needs_approval, places, notes, token, active, created_by, welcome_message, support_phone, support_chat) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      d.name, d.contact_name, d.contact_phone, d.starts, d.ends, d.menu_mode, d.price_cap, d.order_cap, d.billing, d.needs_approval, d.places, d.notes, randomToken(), d.active, req.user.id, d.welcome_message, d.support_phone, d.support_chat);
+    const info = run('INSERT INTO events(name, contact_name, contact_phone, starts_at, ends_at, menu_mode, price_cap, order_cap, billing, needs_approval, places, notes, token, active, created_by, welcome_message, support_phone, support_chat, cat_times) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      d.name, d.contact_name, d.contact_phone, d.starts, d.ends, d.menu_mode, d.price_cap, d.order_cap, d.billing, d.needs_approval, d.places, d.notes, randomToken(), d.active, req.user.id, d.welcome_message, d.support_phone, d.support_chat, d.cat_times);
     const id = Number(info.lastInsertRowid);
     saveItems(id, d.menu_mode === 'selected' ? d.item_ids : []);
     audit(req.user.id, 'event.create', 'event', id, { name: d.name, mode: d.menu_mode });
@@ -1191,8 +1283,8 @@ export function buildRouter(emit) {
     const id = Number(req.params.id);
     if (!get('SELECT 1 AS x FROM events WHERE id = ?', id)) throw notFound('الفعالية غير موجودة');
     const d = readEvent(req.body || {});
-    run('UPDATE events SET name=?, contact_name=?, contact_phone=?, starts_at=?, ends_at=?, menu_mode=?, price_cap=?, order_cap=?, billing=?, needs_approval=?, places=?, notes=?, active=?, welcome_message=?, support_phone=?, support_chat=? WHERE id = ?',
-      d.name, d.contact_name, d.contact_phone, d.starts, d.ends, d.menu_mode, d.price_cap, d.order_cap, d.billing, d.needs_approval, d.places, d.notes, d.active, d.welcome_message, d.support_phone, d.support_chat, id);
+    run('UPDATE events SET name=?, contact_name=?, contact_phone=?, starts_at=?, ends_at=?, menu_mode=?, price_cap=?, order_cap=?, billing=?, needs_approval=?, places=?, notes=?, active=?, welcome_message=?, support_phone=?, support_chat=?, cat_times=? WHERE id = ?',
+      d.name, d.contact_name, d.contact_phone, d.starts, d.ends, d.menu_mode, d.price_cap, d.order_cap, d.billing, d.needs_approval, d.places, d.notes, d.active, d.welcome_message, d.support_phone, d.support_chat, d.cat_times, id);
     saveItems(id, d.menu_mode === 'selected' ? d.item_ids : []);
     audit(req.user.id, 'event.update', 'event', id, { name: d.name, mode: d.menu_mode, active: d.active });
     res.json({ id });

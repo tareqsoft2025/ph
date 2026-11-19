@@ -5,7 +5,7 @@ process.env.DB_PATH = ':memory:';
 const { run, get, all } = await import('../src/db.js');
 const { ensureSeed } = await import('../src/seed.js');
 const { createWebPush, ensureVapid } = await import('../src/webpush.js');
-const { setWebPush, customerNotify, webPushKey } = await import('../src/notify.js');
+const { setWebPush, customerNotify, customerChatNotify, webPushKey } = await import('../src/notify.js');
 const Orders = await import('../src/orders.js');
 ensureSeed();
 
@@ -65,4 +65,28 @@ test('customer web push: elegant status messages, per-subscription url, dead sub
   assert.equal(sent.length, n);
   setWebPush(null);
   customerNotify(id, { kind: 'x' }); // بلا مُرسل: لا يفشل
+});
+
+test('chat replies: pushed to the device subscription, fall back to the order subscription, dead subscriptions removed', async () => {
+  const sent = [];
+  const send = async (s, body) => {
+    if (s.endpoint.includes('dead')) throw Object.assign(new Error('gone'), { statusCode: 410 });
+    sent.push({ endpoint: s.endpoint, ...JSON.parse(body) });
+  };
+  setWebPush(createWebPush({ send, keys: { publicKey: 'PUB', privateKey: 'PRIV' }, log: { error() {} } }));
+  const ev = Number(run("INSERT INTO events(name, starts_at, ends_at, token) VALUES('م', '2020-01-01 00:00:00', '2099-01-01 00:00:00', 'tok-chat-push-0001')").lastInsertRowid);
+  const flush = () => new Promise((r) => setTimeout(r, 30));
+  const add = (ep) => run('INSERT INTO chat_push_subs(event_id, device_id, endpoint, p256dh, auth, url) VALUES(?,?,?,?,?,?)', ev, 'dev-12345678', ep, 'p', 'a', 'https://r.example/#/e/x');
+  add('https://push.example/c-ok'); add('https://push.example/c-dead');
+  customerChatNotify(ev, 'dev-12345678', null, { kind: 'chat', title: 'رد من م', body: 'أهلاً' });
+  await flush();
+  assert.equal(sent.length, 1, 'only the live subscription is delivered');
+  assert.equal(sent[0].endpoint, 'https://push.example/c-ok'); assert.equal(sent[0].url, 'https://r.example/#/e/x');
+  assert.equal(all('SELECT * FROM chat_push_subs WHERE event_id = ?', ev).length, 1, 'dead subscription removed');
+  // جهاز آخر بلا اشتراك محادثة: يُستعمل اشتراك طلبه
+  const o = Number(run("INSERT INTO orders(number, code, type, status, source, track_token) VALUES(77, 'ORD-TEST-CHAT', 'takeaway', 'open', 'online', 'tokchat')").lastInsertRowid); sub(o, 'https://push.example/order-fallback');
+  sent.length = 0;
+  customerChatNotify(ev, 'other-dev-1234', o, { kind: 'chat', title: 't', body: 'b' });
+  await flush();
+  assert.equal(sent.length, 1); assert.equal(sent[0].endpoint, 'https://push.example/order-fallback');
 });

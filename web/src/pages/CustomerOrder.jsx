@@ -11,6 +11,7 @@ const safe = (f, d = null) => { try { return f(); } catch { return d; } };
 const deviceId = () => { let d = safe(() => localStorage.getItem('ph-co-device')); if (!d) { d = Math.random().toString(36).slice(2, 12) + Date.now().toString(36); safe(() => localStorage.setItem('ph-co-device', d)); } return d; };
 const FRESH_MS = 8 * 3600 * 1000;
 const lastKey = (t) => `ph-online-last-${String(t).slice(0, 10)}`;
+const hm = (s) => String(s || '').slice(11, 16);
 const when = (s) => String(s || '').replace('T', ' ').slice(0, 16);
 const fmt = (n, cur) => `${(Math.round(Number(n) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${cur || ''}`.trim();
 const STEPS = [['new', 'تم الاستلام', Receipt], ['preparing', 'قيد التحضير', ChefHat], ['ready', 'جاهز', BellRing], ['served', 'تم التقديم', HandPlatter]];
@@ -62,6 +63,13 @@ export default function CustomerOrder({ kind = 'table' }) {
     }).catch((e) => setError(e.message));
   }, [tableToken]); // eslint-disable-line
 
+  // طلب المؤسسة: نعيد تحميل القائمة كل دقيقة ليفتح كل قسم تلقائياً عند موعده
+  useEffect(() => {
+    if (!isEvent || !menu) return undefined;
+    const t = setInterval(() => api(`${base}/menu`).then((m) => setMenu(m)).catch(() => {}), 60000);
+    return () => clearInterval(t);
+  }, [isEvent, !!menu, base]); // eslint-disable-line
+
   // الطاولة لم تُفتح بعد: نعيد الفحص تلقائياً حتى يفتحها النادل
   const waitingOpen = !isEvent && !!cfg && cfg.enabled && !cfg.table.open && !cfg.table.busy;
   useEffect(() => {
@@ -92,7 +100,7 @@ export default function CustomerOrder({ kind = 'table' }) {
       return ex ? c.map((l) => (l === ex ? { ...l, qty: l.qty + qty } : l)) : [...c, { key, item_id: item.id, name: item.name, unit, qty, mods, notes }];
     });
   };
-  const click = (item) => { if (!item.available) return; if (item.modifiers.length) setPicking(item); else add(item); };
+  const click = (item) => { if (!item.available || item.locked) return; if (item.modifiers.length) setPicking(item); else add(item); };
   const inCart = (id) => cart.filter((l) => l.item_id === id).reduce((a, l) => a + l.qty, 0);
   const dec = (id) => setCart((c) => { const i = c.findLastIndex((l) => l.item_id === id); if (i < 0) return c; return c[i].qty <= 1 ? c.filter((_, k) => k !== i) : c.map((l, k) => (k === i ? { ...l, qty: l.qty - 1 } : l)); });
   const setQty = (key, d) => setCart((c) => c.map((l) => (l.key === key ? { ...l, qty: l.qty + d } : l)).filter((l) => l.qty > 0));
@@ -146,18 +154,19 @@ export default function CustomerOrder({ kind = 'table' }) {
       </div>
       {menu && (
         <nav className="cat-tabs co-cats" role="tablist" aria-label="الفئات">
-          {menu.categories.map((c) => <button key={c.id} role="tab" aria-selected={!q && cat === c.id} className={`cat-tab ${!q && cat === c.id ? 'active' : ''}`} onClick={() => { setQ(''); setCat(c.id); }}>{c.name}</button>)}
+          {menu.categories.map((c) => <button key={c.id} role="tab" aria-selected={!q && cat === c.id} className={`cat-tab ${!q && cat === c.id ? 'active' : ''}`} onClick={() => { setQ(''); setCat(c.id); }}>{c.name}{c.state === 'soon' && <small className="co-cat-lock">يبدأ {hm(c.opens_at)}</small>}{c.state === 'closed' && <small className="co-cat-lock">انتهى</small>}</button>)}
         </nav>
       )}
       <main className="co-menu">
         {!menu ? <div className="co-state"><p className="muted">جارِ التحميل…</p></div> : (
           <div className="co-grid">
+            {!q && (() => { const c = menu.categories.find((x) => x.id === cat); return c && c.state !== 'open' ? <div className="co-soon"><strong>{c.state === 'soon' ? `طلب «${c.name}» يبدأ الساعة ${hm(c.opens_at)}` : `انتهى وقت طلب «${c.name}»`}</strong><small>{c.state === 'soon' ? 'يمكنك تصفح الأصناف الآن، وسيُفتح الطلب تلقائياً عند الموعد.' : 'يمكنك الطلب من الأقسام الأخرى.'}</small></div> : null; })()}
             {items.map((it) => {
               const n = inCart(it.id);
               const art = it.image || menu.categories.find((c) => c.id === it.category_id)?.icon || '';
               return (
-                <article key={it.id} className={`co-dish ${it.available ? '' : 'off'} ${n ? 'in' : ''}`}>
-                  <button className="co-dish-main" onClick={() => click(it)} disabled={!it.available} aria-label={`${it.name}، ${fmt(it.price, cur)}`}>
+                <article key={it.id} className={`co-dish ${it.available && !it.locked ? '' : 'off'} ${n ? 'in' : ''}`}>
+                  <button className="co-dish-main" onClick={() => click(it)} disabled={!it.available || !!it.locked} aria-label={`${it.name}، ${fmt(it.price, cur)}`}>
                     <span className="co-art" aria-hidden>{/^(https?:|data:)/.test(art) ? <img src={art} alt="" loading="lazy" /> : <span>{art || '🍽️'}</span>}</span>
                     <span className="co-info">
                       <strong>{it.name}</strong>
@@ -166,7 +175,7 @@ export default function CustomerOrder({ kind = 'table' }) {
                       <b>{fmt(it.price, cur)}</b>
                     </span>
                   </button>
-                  {!it.available ? <span className="co-off">نفد اليوم</span> : n > 0 ? (
+                  {!it.available ? <span className="co-off">نفد اليوم</span> : it.locked ? <span className="co-off">قريباً</span> : n > 0 ? (
                     <span className="co-step"><button onClick={() => dec(it.id)} aria-label="إنقاص"><Minus size={15} /></button><span>{n}</span><button onClick={() => click(it)} aria-label="زيادة"><Plus size={15} /></button></span>
                   ) : <button className="co-add" onClick={() => click(it)} aria-label={`إضافة ${it.name}`}><Plus size={18} strokeWidth={2.6} /></button>}
                 </article>

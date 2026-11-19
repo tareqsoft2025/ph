@@ -29,3 +29,17 @@ export async function enableOrderPush(code, token) {
   await api(`/public/orders/${code}/push?t=${token}`, { method: 'POST', body: { subscription: sub.toJSON(), url: window.location.href } });
   return 'granted';
 }
+
+/** يسجّل اشتراك الزبون لإشعارات ردود المحادثة (برمز جهازه): ترجع 'granted' أو 'denied' أو 'default' أو 'unavailable' */
+export async function enableChatPush(token, device) {
+  const key = await pushKey();
+  if (!key) return 'unavailable';
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') return perm;
+  const reg = await navigator.serviceWorker.register(new URL('sw.js', document.baseURI).href);
+  await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+  await api(`/public/event/${token}/chat/push`, { method: 'POST', body: { device_id: device, subscription: sub.toJSON(), url: window.location.href } });
+  return 'granted';
+}

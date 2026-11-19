@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { get } from './db.js';
-import { rolePerms } from './perms.js';
+import { userPerms } from './perms.js';
 
 const SECRET = process.env.JWT_SECRET || 'change-this-secret-in-production';
 
@@ -27,7 +27,7 @@ export function authenticate(req, res, next) {
   }
   const user = get('SELECT id, name, username, role, active FROM users WHERE id = ?', payload.id);
   if (!user || !user.active) return res.status(401).json({ error: 'الحساب غير مفعّل' });
-  user.perms = rolePerms(user.role);
+  user.perms = userPerms(user);
   req.user = user;
   // خارج try: أخطاء المسارات لا تتحول إلى "انتهت الجلسة"
   next();

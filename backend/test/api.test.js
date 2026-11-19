@@ -686,3 +686,84 @@ test('corporate QR: welcome message, support phone and customer chat with staff 
   const tok2 = (await api(`/events/${id2}`, { token: admin })).data.token;
   assert.equal((await api(`/public/event/${tok2}/chat`, { method: 'POST', body: { device_id: dev, body: 'مرحبا' } })).status, 400);
 });
+
+test('several waiters: each waiter owns the orders they take, manager sees all, claim/transfer, per-user permissions', async () => {
+  const admin = await login('admin', 'admin123');
+  const waiter = await login('waiter', '1234');
+  const cashier = await login('cashier', '1234');
+  const mk = await api('/users', { method: 'POST', token: admin, body: { name: 'النادل سعيد', username: 'waiter2', password: '1234', role: 'waiter' } });
+  assert.equal(mk.status, 201, JSON.stringify(mk.data));
+  const w2 = await login('waiter2', '1234');
+  const menu = (await api('/menu', { token: admin })).data;
+  const item = menu.items.find((i) => i.available && !i.modifiers.length);
+  const tables = (await api('/tables', { token: admin })).data;
+  const free = tables.filter((t) => t.status === 'free');
+  const mkOrder = (tk, t) => api('/orders', { method: 'POST', token: tk, body: { type: 'dine_in', table_id: t.id, guests: 2, customer_name: 'ع', customer_phone: '0501112299', items: [{ item_id: item.id, qty: 1 }] } });
+  const a = await mkOrder(waiter, free[0]);
+  assert.equal(a.status, 201, JSON.stringify(a.data));
+  assert.ok(a.data.waiter_id, 'order belongs to the waiter who created it');
+  // النادل الآخر لا يرى ولا يعدّل طلب زميله
+  assert.equal((await api(`/orders/${a.data.id}`, { token: w2 })).status, 403, 'other waiter cannot open it');
+  assert.equal((await api(`/orders/${a.data.id}/items`, { method: 'POST', token: w2, body: { items: [{ item_id: item.id, qty: 1 }] } })).status, 403);
+  const t2 = (await api('/tables', { token: w2 })).data.find((t) => t.id === free[0].id);
+  assert.equal(t2.locked, true); assert.equal(t2.order_id, null); assert.equal(t2.status, 'occupied');
+  assert.ok(!(await api('/orders', { token: w2 })).data.some((o) => o.id === a.data.id), 'not in the other waiter list');
+  // المدير والكاشير يريان الكل
+  assert.equal((await api(`/orders/${a.data.id}`, { token: admin })).status, 200);
+  assert.ok((await api('/orders', { token: cashier })).data.some((o) => o.id === a.data.id));
+  // طلب غير مستلم: أي نادل يستلمه فيصبح على حسابه وحده
+  const b = await mkOrder(waiter, free[1]);
+  assert.equal((await api(`/orders/${b.data.id}/claim`, { method: 'POST', token: w2 })).status, 403, 'cannot take an order owned by another waiter');
+  // المدير ينقل الطلب إلى نادل آخر
+  const mv = await api(`/orders/${b.data.id}/claim`, { method: 'POST', token: admin });
+  assert.equal(mv.status, 200);
+  const info = (await api(`/orders/${b.data.id}`, { token: admin })).data;
+  assert.notEqual(info.waiter_id, a.data.waiter_id, 'transferred to the manager account');
+  assert.ok(info.events.some((e) => e.type === 'claimed'), 'claim is logged');
+
+  // صلاحيات مخصّصة لمستخدم بعينه
+  const users = (await api('/users', { token: admin })).data;
+  const u2 = users.find((u) => u.username === 'waiter2');
+  assert.equal((await api(`/users/${u2.id}/permissions`, { token: waiter })).status, 403);
+  const before = (await api(`/users/${u2.id}/permissions`, { token: admin })).data;
+  assert.ok(!before.effective.includes('orders.view'));
+  assert.equal((await api(`/users/${u2.id}/permissions`, { method: 'PUT', token: admin, body: { grants: ['orders.view', 'nope.fake'], denies: ['pos.create'] } })).status, 200);
+  const after = (await api(`/users/${u2.id}/permissions`, { token: admin })).data;
+  assert.deepEqual(after.grants, ['orders.view']); assert.deepEqual(after.denies, ['pos.create']);
+  assert.ok(after.effective.includes('orders.view') && !after.effective.includes('pos.create'));
+  assert.equal((await api('/orders', { method: 'POST', token: w2, body: { type: 'takeaway', customer_name: 'x', customer_phone: '0501112223' } })).status, 403, 'revoked permission is enforced');
+  assert.equal((await api(`/orders/${a.data.id}`, { token: w2 })).status, 200, 'granted orders.view sees all');
+  // لا أثر على بقية النوادل
+  assert.ok((await api('/auth/me', { token: waiter })).status === 200);
+  assert.equal((await api(`/users/${users.find((u) => u.username === 'admin').id}/permissions`, { method: 'PUT', token: admin, body: { grants: [] } })).status, 400, 'admin is untouchable');
+  await api(`/users/${u2.id}/permissions`, { method: 'PUT', token: admin, body: { reset: true } });
+  assert.deepEqual((await api(`/users/${u2.id}/permissions`, { token: admin })).data.grants, []);
+});
+
+test('corporate event: category order windows (drinks first, meals later) and customer chat push endpoint', async () => {
+  const admin = await login('admin', 'admin123');
+  const menu = (await api('/menu', { token: admin })).data;
+  const cats = menu.categories.slice(0, 2);
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const now = Date.now();
+  const body = { name: 'مؤسسة الأقسام', starts_at: fmt(new Date(now - 36e5)), ends_at: fmt(new Date(now + 5 * 36e5)), menu_mode: 'full',
+    cat_times: { [cats[0].id]: { from: fmt(new Date(now + 2 * 36e5)), to: '' }, [cats[1].id]: { from: '', to: fmt(new Date(now + 3 * 36e5)) } } };
+  assert.equal((await api('/events', { method: 'POST', token: admin, body: { ...body, cat_times: { [cats[0].id]: { from: fmt(new Date(now + 9 * 36e5)), to: '' } } } })).status, 400, 'window must be inside the event');
+  const id = (await api('/events', { method: 'POST', token: admin, body })).data.id;
+  const ev = (await api(`/events/${id}`, { token: admin })).data;
+  assert.ok(ev.cat_times[cats[0].id].from, 'windows are stored');
+  const pm = (await api(`/public/event/${ev.token}/menu`)).data;
+  const c0 = pm.categories.find((c) => c.id === cats[0].id); const c1 = pm.categories.find((c) => c.id === cats[1].id);
+  assert.equal(c0.state, 'soon'); assert.equal(c1.state, 'open');
+  const locked = pm.items.find((i) => i.category_id === cats[0].id && i.available && !i.modifiers.length);
+  const okItem = pm.items.find((i) => i.category_id === cats[1].id && i.available && !i.modifiers.length);
+  assert.equal(locked.locked, true); assert.ok(!okItem.locked);
+  const post = (items) => api(`/public/event/${ev.token}/orders`, { method: 'POST', body: { customer_name: 'نورة', device_id: 'cat-dev-12345', items } });
+  const refused = await post([{ item_id: locked.id, qty: 1 }]);
+  assert.equal(refused.status, 400); assert.match(refused.data.error, /يبدأ الساعة/);
+  assert.equal((await post([{ item_id: okItem.id, qty: 1 }])).status, 201);
+  // اشتراك إشعارات المحادثة يتطلب مفتاح الإشعارات على الخادم
+  const push = await api(`/public/event/${ev.token}/chat/push`, { method: 'POST', body: { device_id: 'cat-dev-12345', subscription: { endpoint: 'https://x.example/p', keys: { p256dh: 'a', auth: 'b' } } } });
+  assert.ok([200, 503].includes(push.status), 'push endpoint exists: ' + push.status);
+});

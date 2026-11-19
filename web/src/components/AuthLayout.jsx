@@ -21,7 +21,7 @@ export default function AuthLayout({ children }) {
           <p>من استلام الطلب حتى إغلاق الوردية: نقطة بيع، شاشة مطبخ لحظية، حضور وموارد بشرية، مخزون وتقارير في مكان واحد.</p>
         </div>
         <ul className="auth-points">
-          <li><ReceiptText size={18} /> نقطة بيع سريعة للصالة والسفري والتوصيل</li>
+          <li><ReceiptText size={18} /> نقطة بيع سريعة للصالة والتيك وي والتوصيل</li>
           <li><ChefHat size={18} /> الطلبات تصل المطبخ فوراً</li>
           <li><Fingerprint size={18} /> حضور آمن بالموقع الجغرافي</li>
           <li><ChartColumn size={18} /> تقارير المبيعات والأرباح يومياً</li>

@@ -8,7 +8,7 @@ export const useApp = () => useContext(AppContext);
 export const ROLE_LABELS = {
   admin: 'المدير العام', manager: 'مدير الفرع', cashier: 'كاشير', waiter: 'نادل', kitchen: 'المطبخ', staff: 'موظف',
 };
-export const ORDER_TYPES = { dine_in: 'صالة', takeaway: 'سفري', delivery: 'توصيل' };
+export const ORDER_TYPES = { dine_in: 'صالة', takeaway: 'تيك وي', delivery: 'توصيل' };
 /** عنوان الطلب: الطاولة، أو المؤسسة والمكان (طلب فعالية)، أو نوع الطلب */
 export const orderWhere = (o) => o.table_name || (o.event_name ? `${o.event_name}${o.place ? ` · ${o.place}` : ''}` : ORDER_TYPES[o.type]);
 export const PAY_METHODS = { cash: 'نقدي', card: 'بطاقة', wallet: 'محفظة' };

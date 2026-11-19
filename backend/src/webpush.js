@@ -36,5 +36,20 @@ export function createWebPush({ send = (sub, body, o) => webpush.sendNotificatio
     // بعد الإشعار الأخير للطلب لا حاجة للاشتراكات
     if (FINAL.has(payload.kind)) run('DELETE FROM web_push_subs WHERE order_id = ?', orderId);
   }
-  return { publicKey: keys.publicKey, sendToOrder };
+  /** إشعار رد المحادثة لجهاز الزبون: يرجع عدد الإشعارات التي أُرسلت */
+  async function sendToChat(eventId, device, payload) {
+    const subs = all('SELECT * FROM chat_push_subs WHERE event_id = ? AND device_id = ?', eventId, device);
+    let n = 0;
+    for (const s of subs) {
+      try {
+        await send({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify({ ...payload, url: s.url || null }), opts);
+        n++;
+      } catch (e) {
+        if (e?.statusCode === 404 || e?.statusCode === 410) run('DELETE FROM chat_push_subs WHERE id = ?', s.id);
+        else log.error?.(`webpush ${e?.statusCode || ''}: ${e?.message || e}`);
+      }
+    }
+    return n;
+  }
+  return { publicKey: keys.publicKey, sendToOrder, sendToChat };
 }

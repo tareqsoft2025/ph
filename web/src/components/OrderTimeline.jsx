@@ -37,7 +37,7 @@ const STAGES = [
 export function stagesOf(order) {
   const types = new Set(order.events.map((e) => e.type));
   const at = (t) => order.events.find((e) => e.type === t);
-  // التقديم يُعتبر مكتملاً عند الدفع إن لم يُسجَّل صراحة (سفري مثلاً)
+  // التقديم يُعتبر مكتملاً عند الدفع إن لم يُسجَّل صراحة (تيك وي مثلاً)
   return STAGES.map(([k, label]) => {
     let done = types.has(k);
     if (!done && k === 'served' && types.has('paid')) done = true;
