@@ -4,6 +4,7 @@ import {
   UtensilsCrossed, Search, Plus, Minus, Armchair, QrCode, X, Send, Banknote, Wallet, Landmark, Smartphone, Copy, Check, Building2, MapPin as PinIcon, Info, CircleCheckBig, ChefHat, BellRing, HandPlatter, Clock, SlidersHorizontal, Ban, Phone, UserRound, MapPin, Receipt,
 } from 'lucide-react';
 import { api, watchOrder } from '../api.js';
+import DishDetail, { hasDetail } from '../components/DishDetail.jsx';
 import SupportHub from '../components/SupportHub.jsx';
 import { pushSupported, pushKey, enableOrderPush, isIOS, isStandalone } from '../webpush.js';
 
@@ -37,6 +38,7 @@ export default function CustomerOrder({ kind = 'table' }) {
   const [q, setQ] = useState('');
   const [cart, setCart] = useState([]);
   const [picking, setPicking] = useState(null);
+  const [info, setInfo] = useState(null);
   const [sheet, setSheet] = useState(false);
   const [adding, setAdding] = useState(false);
   const [askedAt, setAskedAt] = useState(0);
@@ -160,12 +162,13 @@ export default function CustomerOrder({ kind = 'table' }) {
       <main className="co-menu">
         {!menu ? <div className="co-state"><p className="muted">جارِ التحميل…</p></div> : (
           <div className="co-grid">
-            {!q && (() => { const c = menu.categories.find((x) => x.id === cat); return c && c.state !== 'open' ? <div className="co-soon"><strong>{c.state === 'soon' ? `طلب «${c.name}» يبدأ الساعة ${hm(c.opens_at)}` : `انتهى وقت طلب «${c.name}»`}</strong><small>{c.state === 'soon' ? 'يمكنك تصفح الأصناف الآن، وسيُفتح الطلب تلقائياً عند الموعد.' : 'يمكنك الطلب من الأقسام الأخرى.'}</small></div> : null; })()}
+            {!q && (() => { const c = menu.categories.find((x) => x.id === cat); return c && (c.state === 'soon' || c.state === 'closed') ? <div className="co-soon"><strong>{c.state === 'soon' ? `طلب «${c.name}» يبدأ الساعة ${hm(c.opens_at)}` : `انتهى وقت طلب «${c.name}»`}</strong><small>{c.state === 'soon' ? 'يمكنك تصفح الأصناف الآن، وسيُفتح الطلب تلقائياً عند الموعد.' : 'يمكنك الطلب من الأقسام الأخرى.'}</small></div> : null; })()}
             {items.map((it) => {
               const n = inCart(it.id);
               const art = it.image || menu.categories.find((c) => c.id === it.category_id)?.icon || '';
               return (
                 <article key={it.id} className={`co-dish ${it.available && !it.locked ? '' : 'off'} ${n ? 'in' : ''}`}>
+                  <div className="co-row">
                   <button className="co-dish-main" onClick={() => click(it)} disabled={!it.available || !!it.locked} aria-label={`${it.name}، ${fmt(it.price, cur)}`}>
                     <span className="co-art" aria-hidden>{/^(https?:|data:)/.test(art) ? <img src={art} alt="" loading="lazy" /> : <span>{art || '🍽️'}</span>}</span>
                     <span className="co-info">
@@ -178,6 +181,8 @@ export default function CustomerOrder({ kind = 'table' }) {
                   {!it.available ? <span className="co-off">نفد اليوم</span> : it.locked ? <span className="co-off">قريباً</span> : n > 0 ? (
                     <span className="co-step"><button onClick={() => dec(it.id)} aria-label="إنقاص"><Minus size={15} /></button><span>{n}</span><button onClick={() => click(it)} aria-label="زيادة"><Plus size={15} /></button></span>
                   ) : <button className="co-add" onClick={() => click(it)} aria-label={`إضافة ${it.name}`}><Plus size={18} strokeWidth={2.6} /></button>}
+                  </div>
+                  {hasDetail(it) && <button className="co-detail" onClick={() => setInfo(it)} aria-label={`تفاصيل ${it.name}`}><Info size={14} aria-hidden /> التفاصيل والمكونات</button>}
                 </article>
               );
             })}
@@ -188,6 +193,15 @@ export default function CustomerOrder({ kind = 'table' }) {
 
       {count > 0 && <button className="co-bar" onClick={() => setSheet(true)}><span className="co-bar-n">{count}</span><span>عرض السلة وإرسال الطلب</span><strong>{fmt(sub, cur)}</strong></button>}
 
+      {info && (
+        <div className="co-sheet-wrap" onClick={() => setInfo(null)}>
+          <section className="co-sheet" role="dialog" aria-modal="true" aria-label={`تفاصيل ${info.name}`} onClick={(e) => e.stopPropagation()}>
+            <header><h2>تفاصيل الوجبة</h2><button className="icon-btn" onClick={() => setInfo(null)} aria-label="إغلاق"><X size={20} /></button></header>
+            <div className="co-sheet-body"><DishDetail item={info} price={fmt(info.price, cur)} art={info.image || menu.categories.find((c) => c.id === info.category_id)?.icon || ''} /></div>
+            {info.available && !info.locked && <footer><button className="btn btn-primary btn-lg btn-block" onClick={() => { const it = info; setInfo(null); click(it); }}><Plus size={19} /> إضافة للطلب</button></footer>}
+          </section>
+        </div>
+      )}
       {picking && <Picker item={picking} cur={cur} onClose={() => setPicking(null)} onAdd={(o) => { add(picking, o); setPicking(null); }} />}
 
       {sheet && (

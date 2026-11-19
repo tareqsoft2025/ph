@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS menu_items (
   category_id INTEGER NOT NULL REFERENCES categories(id),
   name        TEXT NOT NULL,
   description TEXT,
+  details     TEXT,                              -- تفصيل الوجبة (نص أطول يراه الزبون)
+  components  TEXT,                              -- JSON: مكونات الوجبة المعروضة للزبون
   price       REAL NOT NULL DEFAULT 0,
   image       TEXT,
   station     TEXT NOT NULL DEFAULT 'kitchen',   -- قسم التحضير: kitchen / grill / drinks / dessert

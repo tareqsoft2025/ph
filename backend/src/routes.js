@@ -51,6 +51,13 @@ export function buildRouter(emit) {
     const w = get('SELECT waiter_id FROM orders WHERE id = ?', orderId)?.waiter_id;
     return w ? { userIds: [w], roles: ['admin', 'manager'], perms: ['payments.collect'] } : { perms: ['pos.create', 'payments.collect'], roles: ['admin', 'manager'] };
   };
+  // مكونات الوجبة: قائمة نصوص قصيرة (تُقبل مصفوفة أو نص بفواصل/أسطر)
+  const normComps = (v) => {
+    const arr = Array.isArray(v) ? v : String(v ?? '').split(/[\n,،]+/);
+    const out = [...new Set(arr.map((x) => clip(x, 40)).filter(Boolean))].slice(0, 30);
+    return out.length ? JSON.stringify(out) : null;
+  };
+  const withComps = (it) => { try { it.components = it.components ? JSON.parse(it.components) : []; } catch { it.components = []; } return it; };
   const forgetHours = () => { const h = Math.round(Number(getSettings().customer_forget_hours)); return h >= 1 && h <= 168 ? h : 8; };
   const onlineOn = () => getSettings().online_ordering === '1';
   const clip = (v, n) => String(v ?? '').trim().slice(0, n);
@@ -110,7 +117,7 @@ export function buildRouter(emit) {
     tableByToken(req);
     if (!onlineOn()) return res.status(403).json({ error: 'الطلب عبر QR متوقف حالياً', reason: 'disabled' });
     const categories = all('SELECT id, name, icon FROM categories WHERE active = 1 ORDER BY sort, id');
-    const items = all('SELECT id, category_id, name, description, price, image, available FROM menu_items WHERE active = 1 ORDER BY sort, id');
+    const items = all('SELECT id, category_id, name, description, details, components, price, image, available FROM menu_items WHERE active = 1 ORDER BY sort, id').map(withComps);
     const mods = all('SELECT id, item_id, name, price FROM modifiers ORDER BY id');
     for (const it of items) it.modifiers = mods.filter((m) => m.item_id === it.id).map(({ id, name, price }) => ({ id, name, price }));
     res.json({ categories, items });
@@ -232,7 +239,7 @@ export function buildRouter(emit) {
   });
   const eventMenu = (ev) => {
     const mods = all('SELECT id, item_id, name, price FROM modifiers ORDER BY id');
-    let items = all('SELECT id, category_id, name, description, price, image, available FROM menu_items WHERE active = 1 ORDER BY sort, id');
+    let items = all('SELECT id, category_id, name, description, details, components, price, image, available FROM menu_items WHERE active = 1 ORDER BY sort, id').map(withComps);
     if (ev.menu_mode === 'selected') { const ok = new Set(all('SELECT item_id FROM event_items WHERE event_id = ?', ev.id).map((x) => x.item_id)); items = items.filter((i) => ok.has(i.id)); }
     else if (ev.menu_mode === 'cap') items = items.filter((i) => i.price <= ev.price_cap);
     for (const it of items) it.modifiers = mods.filter((m) => m.item_id === it.id).map(({ id, name, price }) => ({ id, name, price }));
@@ -496,7 +503,7 @@ export function buildRouter(emit) {
   // ───────────── قائمة الطعام ─────────────
   r.get('/menu', (req, res) => {
     const categories = all('SELECT * FROM categories WHERE active = 1 ORDER BY sort, id');
-    const items = all('SELECT * FROM menu_items WHERE active = 1 ORDER BY sort, id');
+    const items = all('SELECT * FROM menu_items WHERE active = 1 ORDER BY sort, id').map(withComps);
     const mods = all('SELECT * FROM modifiers ORDER BY id');
     for (const it of items) it.modifiers = mods.filter((m) => m.item_id === it.id);
     res.json({ categories, items });
@@ -530,6 +537,7 @@ export function buildRouter(emit) {
   r.get('/items/:id', need('menu.manage'), (req, res) => {
     const item = get('SELECT * FROM menu_items WHERE id = ?', Number(req.params.id));
     if (!item) throw notFound();
+    withComps(item);
     item.modifiers = all('SELECT * FROM modifiers WHERE item_id = ?', item.id);
     item.recipe = all(`SELECT r.ingredient_id, r.qty, i.name, i.unit, i.cost_per_unit
       FROM recipes r JOIN ingredients i ON i.id = r.ingredient_id WHERE r.item_id = ?`, item.id);
@@ -537,7 +545,7 @@ export function buildRouter(emit) {
     res.json(item);
   });
 
-  const ITEM_FIELDS = ['category_id', 'name', 'description', 'price', 'image', 'station', 'available', 'sort'];
+  const ITEM_FIELDS = ['category_id', 'name', 'description', 'details', 'components', 'price', 'image', 'station', 'available', 'sort'];
   function saveItemChildren(itemId, body) {
     if (Array.isArray(body.modifiers)) {
       run('DELETE FROM modifiers WHERE item_id = ?', itemId);
@@ -554,8 +562,8 @@ export function buildRouter(emit) {
     const b = req.body || {};
     if (!b.name || !b.category_id) throw bad('أدخل الاسم والفئة');
     const id = tx(() => {
-      const info = run('INSERT INTO menu_items(category_id, name, description, price, image, station, available, sort) VALUES(?,?,?,?,?,?,?,?)',
-        b.category_id, b.name, b.description || null, Number(b.price) || 0, b.image || null, b.station || 'kitchen', b.available === false ? 0 : 1, b.sort || 0);
+      const info = run('INSERT INTO menu_items(category_id, name, description, details, components, price, image, station, available, sort) VALUES(?,?,?,?,?,?,?,?,?,?)',
+        b.category_id, b.name, b.description || null, clip(b.details, 600) || null, normComps(b.components), Number(b.price) || 0, b.image || null, b.station || 'kitchen', b.available === false ? 0 : 1, b.sort || 0);
       const newId = Number(info.lastInsertRowid);
       saveItemChildren(newId, b);
       return newId;
@@ -569,7 +577,10 @@ export function buildRouter(emit) {
     const before = get('SELECT price FROM menu_items WHERE id = ?', id);
     if (!before) throw notFound();
     tx(() => {
-      const u = updateSql('menu_items', pick(req.body, ITEM_FIELDS), id);
+      const fields = pick(req.body, ITEM_FIELDS);
+      if ('components' in fields) fields.components = normComps(fields.components);
+      if ('details' in fields) fields.details = clip(fields.details, 600) || null;
+      const u = updateSql('menu_items', fields, id);
       if (u) run(u.sql, ...u.params);
       saveItemChildren(id, req.body || {});
     });
