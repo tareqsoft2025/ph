@@ -2893,3 +2893,18 @@ button.inv-kpi { cursor: pointer; transition: transform 150ms var(--ease), box-s
 @media (prefers-reduced-motion: reduce) { .inv-flow i, .inv-level .fill, .inv-bars .tr i, .inv-drawer { animation: none !important; } }
 .inv-level .top b, .inv-level .top small { white-space: nowrap; } .inv-level .top b small { color: var(--muted); font-weight: 500; }
 .inv-table td:first-child { min-width: 190px; }
+
+/* ── طلب تفعيل الحساب من المدير العام ── */
+.gate-act { display: flex; flex-direction: column; gap: var(--s-3); }
+.gate-ask { width: 100%; justify-content: center; border-style: dashed; padding-block: var(--s-3); }
+.gate-form { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
+.gate-form textarea { width: 100%; resize: vertical; }
+.gate-form-acts { display: flex; gap: var(--s-2); }
+.gate-act.pending { flex-direction: row; align-items: center; gap: var(--s-3); padding: var(--s-4); background: var(--warn-soft, var(--primary-soft)); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.act-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--s-3); }
+.act-card { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); border-inline-start: 4px solid var(--muted); }
+.act-card.s-pending { border-inline-start-color: var(--warn, #d97706); }
+.act-card.s-approved { border-inline-start-color: var(--ok, #16a34a); }
+.act-card.s-denied { border-inline-start-color: var(--err, #dc2626); }
+.act-card header { display: flex; justify-content: space-between; align-items: center; gap: var(--s-2); }
+.act-btns { display: flex; gap: var(--s-2); flex-wrap: wrap; }
