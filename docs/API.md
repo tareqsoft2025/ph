@@ -316,3 +316,10 @@ POST /api/orders
 
 ## سجل كل حركة بتوقيتها
 خط زمن الطلب وسجل الحركات يعرضان كل حركة بتاريخها وتوقيتها بالثواني (`HH:MM:SS`) ومن نفّذها، وفي الطلب: المدة منذ البداية والمدة منذ الحركة السابقة. وصار المطبخ يسجّل **حركة لكل صنف** (`item_status`): متى بدأ تحضيره ومتى جهز ومتى قُدّم.
+
+## تفعيل الحساب من المدير العام (تعذّر الحضور)
+- `POST /attendance/activation-request` `{reason}` — يطلبه الموظف المحجوب (مسموح قبل الحضور)؛ يصل المدير إشعار.
+- `GET /attendance/activation-requests` — الطلبات (آخر 7 أيام)، للمدير أو من يملك `hr.attendance`.
+- `POST /attendance/activation-requests/:id/approve|deny` `{note}` — القرار؛ الموافقة تفتح الحساب لذلك اليوم فقط، وتُسجَّل في سجل التدقيق.
+- `POST /attendance/activate/:employeeId` — تفعيل مباشر دون طلب.
+- `GET /attendance/me` يعيد `activation` (حالة طلب اليوم).

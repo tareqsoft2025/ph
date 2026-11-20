@@ -189,7 +189,7 @@ function TeamView() {
   const [params, setParams] = useSearchParams();
   const tab = params.get('tab') || 'day';
   const setTab = (t) => setParams(t === 'day' ? {} : { tab: t }, { replace: true });
-  const TABS = [['day', 'الكشف اليومي'], ['month', 'الملخص الشهري'], ['reports', 'التقارير'], ['locations', 'مواقع الحضور']];
+  const TABS = [['day', 'الكشف اليومي'], ['month', 'الملخص الشهري'], ['activation', 'طلبات التفعيل'], ['reports', 'التقارير'], ['locations', 'مواقع الحضور']];
   return (
     <section className="team">
       <div className="tabs" role="tablist">
@@ -197,6 +197,7 @@ function TeamView() {
       </div>
       {tab === 'day' && <DaySheet />}
       {tab === 'month' && <MonthSheet />}
+      {tab === 'activation' && <Activation />}
       {tab === 'reports' && <Reports />}
       {tab === 'locations' && <Locations />}
     </section>
@@ -289,6 +290,32 @@ function MonthSheet() {
 }
 
 // ═════════════ تقارير الحضور ═════════════
+const ACT_ST = { pending: ['بانتظار القرار', 'badge-warn'], approved: ['مفعّل', 'badge-ok'], denied: ['مرفوض', 'badge-err'] };
+/** طلبات تفعيل الحساب: يوافق المدير العام لمن تعذّر عليه تسجيل الحضور */
+function Activation() {
+  const { data, loading, reload } = useData('/attendance/activation-requests', ['attendance']);
+  const [run] = useAction();
+  const decide = async (o, kind) => {
+    const note = kind === 'deny' ? window.prompt('سبب الرفض (اختياري)') : '';
+    if (note === null) return;
+    if (await run(() => api(`/attendance/activation-requests/${o.id}/${kind}`, { method: 'POST', body: { note } }), kind === 'approve' ? 'فُعّل الحساب لهذا اليوم' : 'رُفض الطلب')) reload();
+  };
+  if (loading) return <Loading />;
+  const rows = data || [];
+  if (!rows.length) return <Empty text="لا توجد طلبات تفعيل. تظهر هنا حين يتعذّر على موظف تسجيل حضوره." />;
+  return (
+    <div className="act-list">
+      {rows.map((o) => { const [label, cls] = ACT_ST[o.status] || ACT_ST.pending; return (
+        <article key={o.id} className={`act-card s-${o.status}`}>
+          <header><strong>{o.employee_name}</strong><span className={`badge ${cls}`}>{label}</span></header>
+          <p>{o.reason}</p>
+          <small className="muted">{o.job_title || ''} · طُلب {String(o.created_at).slice(5, 16)}{o.decided_name ? ` · قرار ${o.decided_name}` : ''}{o.note ? ` · ${o.note}` : ''}</small>
+          {o.status === 'pending' && <div className="act-btns"><button className="btn btn-primary" onClick={() => decide(o, 'approve')}>تفعيل الحساب اليوم</button><button className="btn btn-danger-ghost" onClick={() => decide(o, 'deny')}>رفض</button></div>}
+        </article>); })}
+    </div>
+  );
+}
+
 function Reports() {
   const navigate = useNavigate();
   const [from, setFrom] = useState(`${monthStr()}-01`);

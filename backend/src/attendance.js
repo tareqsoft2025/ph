@@ -176,6 +176,8 @@ export function attendanceStatus(user) {
   if (get("SELECT id FROM attendance WHERE employee_id = ? AND check_in IS NOT NULL AND check_out IS NULL AND date = date(?, '-1 day')", emp.id, t)) return none;
   if (offDays(emp).includes(parseDate(t).getDay())) return none;
   if (get("SELECT id FROM leaves WHERE employee_id = ? AND status = 'approved' AND start_date <= ? AND end_date >= ?", emp.id, t, t)) return none;
+  // فعّل المدير العام حسابه لهذا اليوم رغم تعذّر تسجيل الحضور
+  if (get("SELECT id FROM attendance_overrides WHERE employee_id = ? AND date = ? AND status = 'approved'", emp.id, t)) return none;
   const d = new Date();
   const nowMin = d.getHours() * 60 + d.getMinutes();
   const start = toMin(emp.work_start);
@@ -186,7 +188,7 @@ export function attendanceStatus(user) {
 }
 
 // مسارات مسموحة قبل تسجيل الحضور: الدخول، والحضور نفسه، والإعدادات والإشعارات
-const GATE_OPEN = [/^\/auth\//, /^\/attendance\/(me|challenge|check-in|check-out)$/, /^\/settings$/, /^\/notifications/, /^\/push\//, /^\/health$/];
+const GATE_OPEN = [/^\/auth\//, /^\/attendance\/(me|challenge|check-in|check-out|activation-request)$/, /^\/settings$/, /^\/notifications/, /^\/push\//, /^\/health$/];
 
 /** يمنع استخدام باقي النظام قبل تسجيل الحضور (حماية من جهة الخادم لا الواجهة فقط) */
 export function attendanceGate(req, res, next) {
@@ -222,7 +224,67 @@ export function attendanceRoutes(r, changed) {
       },
       server_time: nowStamp(),
       required: attendanceStatus(req.user).required,
+      activation: get('SELECT id, status, reason, note, decided_name, decided_at, created_at FROM attendance_overrides WHERE employee_id = ? AND date = ?', e.id, today()) || null,
     });
+  });
+
+  // ───── تفعيل الحساب بواسطة المدير العام عند تعذّر الحضور ─────
+  r.post('/attendance/activation-request', (req, res) => {
+    const e = employeeOf(req.user);
+    if (!e) throw bad('حسابك غير مرتبط بملف موظف');
+    const reason = String(req.body?.reason || '').trim().slice(0, 300);
+    if (reason.length < 3) throw bad('اذكر سبب تعذّر تسجيل الحضور');
+    const t = today();
+    const cur = get('SELECT * FROM attendance_overrides WHERE employee_id = ? AND date = ?', e.id, t);
+    if (cur?.status === 'approved') return res.json(cur);
+    if (cur) run("UPDATE attendance_overrides SET status = 'pending', reason = ?, user_id = ?, decided_by = NULL, decided_name = NULL, decided_at = NULL, note = NULL, created_at = datetime('now','localtime') WHERE id = ?", reason, req.user.id, cur.id);
+    else run('INSERT INTO attendance_overrides(employee_id, user_id, date, reason) VALUES(?,?,?,?)', e.id, req.user.id, t, reason);
+    audit(req.user.id, 'attendance.activation_requested', 'employee', e.id, { reason });
+    notify({
+      roles: ['admin'], perms: ['hr.attendance'], type: 'attendance_activation', level: 'warning', link: '/attendance?tab=activation',
+      title: `طلب تفعيل حساب: ${e.name}`, body: `تعذّر عليه تسجيل الحضور: ${reason}`,
+    });
+    changed('attendance');
+    res.status(201).json(get('SELECT * FROM attendance_overrides WHERE employee_id = ? AND date = ?', e.id, t));
+  });
+
+  const canDecide = (req, res, next) => (req.user.role === 'admin' ? next() : need('hr.attendance')(req, res, next));
+  r.get('/attendance/activation-requests', canDecide, (req, res) => {
+    res.json(all(`SELECT o.*, e.name AS employee_name, e.job_title, e.work_start FROM attendance_overrides o JOIN employees e ON e.id = o.employee_id
+      WHERE o.date >= date('now','localtime','-7 day') ORDER BY (o.status = 'pending') DESC, o.created_at DESC LIMIT 100`));
+  });
+  const decide = (status) => (req, res) => {
+    const o = get('SELECT o.*, e.name AS employee_name, e.user_id AS emp_user FROM attendance_overrides o JOIN employees e ON e.id = o.employee_id WHERE o.id = ?', Number(req.params.id));
+    if (!o) throw notFound('الطلب غير موجود');
+    if (o.date !== today()) throw bad('انتهى يوم هذا الطلب');
+    const note = String(req.body?.note || '').trim().slice(0, 200) || null;
+    run("UPDATE attendance_overrides SET status = ?, decided_by = ?, decided_name = ?, decided_at = datetime('now','localtime'), note = ? WHERE id = ?", status, req.user.id, req.user.name, note, o.id);
+    audit(req.user.id, `attendance.activation_${status}`, 'employee', o.employee_id, { note, reason: o.reason });
+    const uid = o.user_id || o.emp_user;
+    if (uid) {
+      notify({
+        userIds: [uid], type: 'attendance_activation', level: status === 'approved' ? 'success' : 'warning', link: '/',
+        title: status === 'approved' ? 'فعّل المدير حسابك لهذا اليوم' : 'رُفض طلب تفعيل حسابك',
+        body: note || (status === 'approved' ? 'يمكنك البدء بالعمل الآن' : 'سجّل حضورك أو تواصل مع المدير'),
+      });
+    }
+    changed('attendance');
+    res.json(get('SELECT * FROM attendance_overrides WHERE id = ?', o.id));
+  };
+  r.post('/attendance/activation-requests/:id/approve', canDecide, decide('approved'));
+  r.post('/attendance/activation-requests/:id/deny', canDecide, decide('denied'));
+  // تفعيل مباشر من المدير لموظف دون انتظار طلبه
+  r.post('/attendance/activate/:employeeId', canDecide, (req, res) => {
+    const e = get('SELECT * FROM employees WHERE id = ?', Number(req.params.employeeId));
+    if (!e) throw notFound('الموظف غير موجود');
+    const t = today();
+    const note = String(req.body?.note || '').trim().slice(0, 200) || null;
+    const cur = get('SELECT id FROM attendance_overrides WHERE employee_id = ? AND date = ?', e.id, t);
+    if (cur) run("UPDATE attendance_overrides SET status = 'approved', decided_by = ?, decided_name = ?, decided_at = datetime('now','localtime'), note = ? WHERE id = ?", req.user.id, req.user.name, note, cur.id);
+    else run("INSERT INTO attendance_overrides(employee_id, user_id, date, reason, status, decided_by, decided_name, decided_at, note) VALUES(?,?,?,?, 'approved', ?, ?, datetime('now','localtime'), ?)", e.id, e.user_id ?? null, t, 'تفعيل مباشر من المدير', req.user.id, req.user.name, note);
+    audit(req.user.id, 'attendance.activation_approved', 'employee', e.id, { note, direct: true });
+    changed('attendance');
+    res.json({ ok: true });
   });
 
   // رمز لمرة واحدة صالح دقيقتين

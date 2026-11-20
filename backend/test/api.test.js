@@ -953,3 +953,36 @@ test('order timeline: every kitchen item transition is logged with its own times
   assert.ok(steps.every((e) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(e.created_at) && e.user_name), 'full timestamp and actor on every step');
   assert.match(steps[0].message, /2× .*بدأ التحضير/);
 });
+
+test('attendance gate: blocked until check-in or manager activation', async () => {
+  const admin = await login('admin', 'admin123');
+  const waiterLogin = (await api('/auth/login', { method: 'POST', body: { username: 'waiter', password: '1234' } })).data;
+  const waiter = waiterLogin.token;
+  const list0 = (await api('/employees', { token: admin })).data;
+  let eid = list0.find((e) => e.user_id === waiterLogin.user.id)?.id;
+  if (!eid) eid = (await api('/employees', { method: 'POST', token: admin, body: { name: 'موظف بوابة', user_id: waiterLogin.user.id } })).data.id;
+  const up = await api(`/employees/${eid}`, { method: 'PUT', token: admin, body: { work_start: '00:00', work_end: '23:59', weekly_off: '', early_checkin_minutes: 60, hire_date: '2020-01-01' } });
+  assert.equal(up.status, 200, JSON.stringify(up.data));
+  await api('/settings', { method: 'PUT', token: admin, body: { att_required_before_work: '1' } });
+  try {
+    const blocked = await api('/tables', { token: waiter });
+    assert.equal(blocked.status, 403);
+    assert.equal(blocked.data.reason, 'attendance_required');
+    assert.equal((await api('/attendance/me', { token: waiter })).data.required, true);
+    // لا يقبل طلباً دون سبب
+    assert.equal((await api('/attendance/activation-request', { method: 'POST', token: waiter, body: {} })).status, 400);
+    const rq = await api('/attendance/activation-request', { method: 'POST', token: waiter, body: { reason: 'الجوال لا يحدد موقعي' } });
+    assert.equal(rq.status, 201);
+    assert.equal((await api('/tables', { token: waiter })).status, 403);
+    // الموظف لا يستطيع الموافقة بنفسه
+    assert.equal((await api(`/attendance/activation-requests/${rq.data.id}/approve`, { method: 'POST', token: waiter })).status, 403);
+    const list = await api('/attendance/activation-requests', { token: admin });
+    assert.equal(list.data.find((o) => o.id === rq.data.id).status, 'pending');
+    const ok = await api(`/attendance/activation-requests/${rq.data.id}/approve`, { method: 'POST', token: admin, body: { note: 'تم' } });
+    assert.equal(ok.data.status, 'approved');
+    assert.equal((await api('/tables', { token: waiter })).status, 200);
+    assert.equal((await api('/attendance/me', { token: waiter })).data.required, false);
+  } finally {
+    await api('/settings', { method: 'PUT', token: admin, body: { att_required_before_work: '0' } });
+  }
+});

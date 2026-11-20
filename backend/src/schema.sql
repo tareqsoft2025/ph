@@ -562,3 +562,19 @@ CREATE TABLE IF NOT EXISTS stocktakes (
   surplus_value  REAL NOT NULL DEFAULT 0,
   created_at     TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
+
+-- طلبات تفعيل الحساب من المدير العام عند تعذّر تسجيل الحضور (تتيح العمل لذلك اليوم فقط)
+CREATE TABLE IF NOT EXISTS attendance_overrides (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id  INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  user_id      INTEGER,
+  date         TEXT NOT NULL,
+  reason       TEXT,
+  status       TEXT NOT NULL DEFAULT 'pending',   -- pending / approved / denied
+  decided_by   INTEGER,
+  decided_name TEXT,
+  decided_at   TEXT,
+  note         TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE(employee_id, date)
+);
