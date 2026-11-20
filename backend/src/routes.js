@@ -993,7 +993,7 @@ export function buildRouter(emit) {
       }
       map.get(it.order_id).items.push({
         id: it.id, name: it.name, qty: it.qty, notes: it.notes, status: it.status, station: it.station,
-        modifiers: it.modifiers ? JSON.parse(it.modifiers) : [], sent_at: it.sent_at, sent_by_name: it.sent_by_name,
+        modifiers: it.modifiers ? JSON.parse(it.modifiers) : [], sent_at: it.sent_at, ready_at: it.ready_at, sent_by_name: it.sent_by_name,
       });
     }
     const orders = [...map.values()];
