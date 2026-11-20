@@ -870,3 +870,86 @@ test('transfer audit: wallet/bank/Jawwal Pay payments wait for verification, con
   for (const k of ['transfer.confirm', 'transfer.mismatch', 'transfer.reject']) assert.ok(acts.includes(k), k);
   await api('/shifts/close', { method: 'POST', token: cashier, body: { closing_cash: 9999 } });
 });
+
+test('warehouse: receipts with expiry batches, FEFO issue, waste reasons, stocktake, supplier and permissions', async () => {
+  const admin = await login('admin', 'admin123');
+  const kitchen = await login('kitchen', '1234');
+  const waiter = await login('waiter', '1234');
+  const pad = (n) => String(n).padStart(2, '0');
+  const ymd = (off) => { const d = new Date(); d.setDate(d.getDate() + off); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  const ings = (await api('/ingredients', { token: admin })).data;
+  const flour = ings.find((i) => i.name === 'دقيق');
+  assert.ok(flour.category && flour.supplier_name, 'seed has category and supplier');
+  // الاتساق: رصيد كل مادة = مجموع دفعاتها
+  const inv = (await api('/ingredients', { token: admin })).data;
+  for (const i of inv) { const d = (await api(`/ingredients/${i.id}`, { token: admin })).data; const sum = d.batches.reduce((a, b) => a + b.qty_left, 0); assert.ok(Math.abs(sum - i.stock) < 0.02, `${i.name}: stock ${i.stock} vs batches ${sum}`); }
+  assert.equal((await api('/suppliers', { method: 'POST', token: kitchen, body: { name: 'x' } })).status, 403, 'kitchen cannot add suppliers');
+  assert.equal((await api('/stocktake', { method: 'POST', token: kitchen, body: { counts: [{ ingredient_id: flour.id, qty: 1 }] } })).status, 403, 'kitchen cannot stocktake');
+  assert.equal((await api('/ingredients', { token: waiter })).status, 403, 'waiter cannot see warehouse');
+  const sup = (await api('/suppliers', { method: 'POST', token: admin, body: { name: 'مورد الاختبار', phone: '0500000000' } })).data.id;
+
+  // استلام بمستند: دفعتان بتاريخي صلاحية مختلفين
+  const before = flour.stock;
+  const rcv = await api('/stock/receipts', { method: 'POST', token: kitchen, body: { supplier_id: sup, invoice_no: 'T-1', received_at: ymd(0), lines: [{ ingredient_id: flour.id, qty: 10, unit_cost: 5, expiry_date: ymd(5) }, { ingredient_id: flour.id, qty: 4, unit_cost: 5, expiry_date: ymd(2) }] } });
+  assert.equal(rcv.status, 201, JSON.stringify(rcv.data));
+  assert.equal(rcv.data.total, 70);
+  assert.equal((await api('/stock/receipts', { method: 'POST', token: kitchen, body: { received_at: ymd(0), lines: [{ ingredient_id: flour.id, qty: 1, expiry_date: ymd(-3) }] } })).status, 400, 'expiry before receipt is refused');
+  const after = (await api(`/ingredients/${flour.id}`, { token: admin })).data;
+  assert.equal(Math.round((after.stock - before) * 100) / 100, 14);
+  assert.ok(after.cost_per_unit !== flour.cost_per_unit, 'weighted average cost updated');
+  const doc = (await api(`/stock/receipts/${rcv.data.id}`, { token: admin })).data;
+  assert.equal(doc.lines.length, 2); assert.equal(doc.supplier_name, 'مورد الاختبار');
+  const lastIn = after.movements.find((m) => m.type === 'purchase');
+  assert.ok(lastIn.balance_after != null && lastIn.receipt_id === rcv.data.id, 'ledger carries balance and receipt');
+
+  // الصرف FEFO: يخرج أولاً من الدفعة الأقدم صلاحية (يومان) ثم التي بعدها
+  const nearest = after.batches.filter((b) => b.qty_left > 0 && b.expiry_date).sort((a, b) => a.expiry_date.localeCompare(b.expiry_date))[0];
+  const issue = await api('/stock-movements', { method: 'POST', token: kitchen, body: { ingredient_id: flour.id, type: 'issue', qty: 1.5, reason: 'ضيافة' } });
+  assert.equal(issue.status, 201);
+  const afterIssue = (await api(`/ingredients/${flour.id}`, { token: admin })).data;
+  const nb = afterIssue.batches.find((b) => b.id === nearest.id);
+  assert.equal(Math.round((nearest.qty_left - nb.qty_left) * 100) / 100, 1.5, 'FEFO took from the earliest-expiry batch');
+  assert.equal(afterIssue.movements[0].reason, 'ضيافة');
+
+  // تالف بسبب + شطب دفعة + نظرة الإدارة
+  assert.equal((await api('/stock-movements', { method: 'POST', token: kitchen, body: { ingredient_id: flour.id, type: 'waste', qty: 0.5, reason: 'سقوط / انسكاب' } })).status, 201);
+  const b2 = afterIssue.batches.find((b) => b.qty_left > 0 && b.id !== nearest.id && b.expiry_date);
+  assert.equal((await api(`/stock/batches/${b2.id}/discard`, { method: 'POST', token: kitchen, body: { reason: 'تلف / فساد' } })).status, 200);
+  assert.equal((await api(`/stock/batches/${b2.id}/discard`, { method: 'POST', token: kitchen, body: {} })).status, 400, 'empty batch cannot be discarded twice');
+  const ov = (await api('/inventory/overview', { token: admin })).data;
+  assert.ok(ov.kpis.value > 0 && ov.flow.length === 14 && ov.by_category.length > 0);
+  assert.ok(ov.waste_by_reason.some((r) => r.reason === 'سقوط / انسكاب') && ov.waste_by_reason.some((r) => r.reason === 'تلف / فساد'));
+  assert.ok(ov.kpis.expired >= 1 && ov.suggestions.length >= 1, 'seed has expired batches and items to reorder');
+  const wasteRows = (await api('/stock-movements?kind=waste', { token: admin })).data;
+  assert.ok(wasteRows.rows.every((r) => r.type === 'waste') && wasteRows.count >= 2);
+  assert.equal((await api('/stock-movements?kind=in', { token: admin })).data.rows.every((r) => r.type === 'purchase'), true);
+
+  // الجرد: عجز وزيادة وقيمتهما
+  const cur = (await api(`/ingredients/${flour.id}`, { token: admin })).data;
+  const sugar = ings.find((i) => i.name === 'سكر');
+  const take = await api('/stocktake', { method: 'POST', token: admin, body: { note: 'جرد اختبار', counts: [{ ingredient_id: flour.id, qty: cur.stock - 2 }, { ingredient_id: sugar.id, qty: sugar.stock + 1 }, { ingredient_id: ings[0].id, qty: '' }] } });
+  assert.equal(take.status, 201, JSON.stringify(take.data));
+  assert.equal(take.data.counted, 2); assert.equal(take.data.changed, 2);
+  assert.ok(take.data.shortage_value > 0 && take.data.surplus_value > 0);
+  assert.equal((await api(`/ingredients/${flour.id}`, { token: admin })).data.stock, Math.round((cur.stock - 2) * 1000) / 1000);
+  assert.ok((await api('/stocktakes', { token: admin })).data.length >= 1);
+  // سجل الحركات يحتوي كل ذلك
+  const acts = (await api('/audit?category=stock', { token: admin })).data.rows.map((a) => a.action);
+  for (const a of ['stock.receipt', 'stock.issue', 'stock.waste', 'stock.stocktake']) assert.ok(acts.includes(a), a);
+});
+
+test('order timeline: every kitchen item transition is logged with its own timestamp', async () => {
+  const admin = await login('admin', 'admin123');
+  const kitchen = await login('kitchen', '1234');
+  const menu = (await api('/menu', { token: admin })).data;
+  const item = menu.items.find((i) => i.available && !i.modifiers.length);
+  const free = (await api('/tables', { token: admin })).data.find((t) => t.status === 'free');
+  const o = (await api('/orders', { method: 'POST', token: admin, body: { type: 'dine_in', table_id: free.id, guests: 1, customer_name: 'ع', customer_phone: '0501112288', send: true, items: [{ item_id: item.id, qty: 2 }] } })).data;
+  await api(`/kitchen/orders/${o.id}/bump`, { method: 'POST', token: kitchen, body: { status: 'preparing' } });
+  await api(`/kitchen/orders/${o.id}/bump`, { method: 'POST', token: kitchen, body: { status: 'ready' } });
+  const ev = (await api(`/orders/${o.id}`, { token: admin })).data.events;
+  const steps = ev.filter((e) => e.type === 'item_status');
+  assert.deepEqual(steps.map((e) => e.data.to), ['preparing', 'ready']);
+  assert.ok(steps.every((e) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(e.created_at) && e.user_name), 'full timestamp and actor on every step');
+  assert.match(steps[0].message, /2× .*بدأ التحضير/);
+});

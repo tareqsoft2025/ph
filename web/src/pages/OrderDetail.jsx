@@ -4,7 +4,7 @@ import {
   ArrowRight, Printer, Plus, Copy, Check, CircleCheckBig, Ban, Armchair, ShoppingBag, Bike, Building2, QrCode, Clock, Users, UserRound, Phone, MapPin, Banknote,
   ReceiptText, Hourglass, CircleAlert, CircleX, StickyNote, Timer, Wallet, Landmark, Smartphone, CreditCard, ExternalLink,
 } from 'lucide-react';
-import { useApp, useMoney, has, ORDER_TYPES, PAY_METHODS, ROLE_LABELS, ITEM_STATUS, timeOf } from '../lib.jsx';
+import { useApp, useMoney, has, ORDER_TYPES, PAY_METHODS, ROLE_LABELS, ITEM_STATUS, timeOf, clockOf, spanOf } from '../lib.jsx';
 import { EVENT, stagesOf } from '../components/OrderTimeline.jsx';
 
 const TYPE_ICON = { dine_in: Armchair, takeaway: ShoppingBag, delivery: Bike };
@@ -104,7 +104,7 @@ export default function OrderDetail({ order: o, onPrint, onNew }) {
                 {i > 0 && s.gap > 0 && s.done && <span className="od-gap">+{fmtDur(s.gap)}</span>}
                 <span className="od-node" aria-hidden>{s.done ? <Check size={15} strokeWidth={3} /> : i + 1}</span>
                 <strong>{s.label}</strong>
-                <time dir="ltr">{s.time ? timeOf(s.time) : s.done ? '—' : ''}</time>
+                <time dir="ltr">{s.time ? clockOf(s.time) : s.done ? '—' : ''}</time>
               </li>
             ))}
           </ol>
@@ -192,19 +192,19 @@ export default function OrderDetail({ order: o, onPrint, onNew }) {
 
           {/* ───── سجل الحركات ───── */}
           <section className="od-card" aria-label="سجل حركات الطلب">
-            <header><h3>تسلسل العملية</h3><span className="muted small">{o.events.length} حركة</span></header>
+            <header><h3>تسلسل العملية</h3><span className="muted small">{o.events.length} حركة · من {String(o.events[0]?.created_at || '').slice(0, 19)} إلى {String(o.events[o.events.length - 1]?.created_at || '').slice(11, 19)}</span></header>
             <ol className="od-tl">
               {o.events.map((e, i) => {
                 const [Icon, label] = EVENT[e.type] || [ReceiptText, e.type];
-                const gap = i > 0 ? mins(o.events[i - 1].created_at, e.created_at) : null;
                 return (
                   <li key={e.id} className={`ev-${e.type}`}>
                     <span className="dot" aria-hidden><Icon size={14} /></span>
                     <div>
-                      <div className="top"><strong>{label}</strong><time dir="ltr">{timeOf(e.created_at)}</time></div>
+                      <div className="top"><strong>{label}</strong><time dir="ltr" title={e.created_at}>{clockOf(e.created_at)}</time></div>
                       {e.type === 'payment' && e.data ? <span>{PAY_METHODS[e.data.method]} · {money(e.data.amount)}</span> : e.message ? <span>{e.message}</span> : null}
                       {e.type === 'sent' && e.data?.items && <small className="muted">{e.data.items.map((x) => `${x.qty}× ${x.name}`).join('، ')}</small>}
-                      <small className="muted">{e.user_name ? `${e.user_name}${e.user_role ? ` · ${ROLE_LABELS[e.user_role] || ''}` : ''}` : o.source === 'online' ? 'الزبون' : ''}{gap ? ` · بعد ${fmtDur(gap)}` : ''}</small>
+                      <small className="muted">{e.user_name ? `${e.user_name}${e.user_role ? ` · ${ROLE_LABELS[e.user_role] || ''}` : ''}` : o.source === 'online' ? 'الزبون' : ''}</small>
+                      {i > 0 && <small className="od-since">+{spanOf(o.events[0].created_at, e.created_at)} من البداية · بعد {spanOf(o.events[i - 1].created_at, e.created_at)}</small>}
                     </div>
                   </li>
                 );

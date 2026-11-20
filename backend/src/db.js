@@ -25,6 +25,38 @@ function migrate() {
   db.exec(`UPDATE orders SET code = 'ORD-' || substr(replace(date(created_at), '-', ''), 3) || '-' || printf('%04d', number) WHERE code IS NULL`);
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_code ON orders(code)');
 
+  // المخازن: أعمدة جديدة للمواد، وإعادة بناء حركات المخزون لقبول الصرف والمرتجع وبياناتها الإضافية
+  const addIng = (c, def) => { if (!cols('ingredients').includes(c)) db.exec(`ALTER TABLE ingredients ADD COLUMN ${c} ${def}`); };
+  addIng('category', 'TEXT'); addIng('storage', 'TEXT'); addIng('par_level', 'REAL NOT NULL DEFAULT 0'); addIng('supplier_id', 'INTEGER'); addIng('shelf_life_days', 'INTEGER');
+  const smSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'stock_movements'").get()?.sql || '';
+  if (smSql && !smSql.includes("'issue'")) {
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+      db.exec(`CREATE TABLE stock_movements_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ingredient_id INTEGER NOT NULL REFERENCES ingredients(id), qty REAL NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('purchase','sale','waste','adjust','issue','return')), unit_cost REAL, note TEXT, order_id INTEGER, user_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')), reason TEXT, batch_id INTEGER, receipt_id INTEGER, supplier_id INTEGER, stocktake_id INTEGER, balance_after REAL)`);
+      db.exec('INSERT INTO stock_movements_new(id, ingredient_id, qty, type, unit_cost, note, order_id, user_id, created_at) SELECT id, ingredient_id, qty, type, unit_cost, note, order_id, user_id, created_at FROM stock_movements');
+      db.exec('DROP TABLE stock_movements');
+      db.exec('ALTER TABLE stock_movements_new RENAME TO stock_movements');
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON');
+    }
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sm_ing ON stock_movements(ingredient_id, id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sm_type ON stock_movements(type, created_at)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_batch_ing ON stock_batches(ingredient_id, expiry_date)');
+  // ترقية: الأرصدة القديمة بلا دفعات تصبح «دفعة افتتاحية» بلا تاريخ صلاحية حتى تُستلم بضاعة جديدة بتواريخها
+  if (!db.prepare('SELECT COUNT(*) AS c FROM stock_batches').get().c) {
+    db.exec(`INSERT INTO stock_batches(ingredient_id, qty_in, qty_left, unit_cost, received_at)
+      SELECT id, stock, stock, cost_per_unit, date('now','localtime') FROM ingredients WHERE stock > 0`);
+  }
+
   // تدقيق التحويلات: جدول الدفعات يقبل البنك وجوال بي ويحمل بيانات التدقيق (إعادة بناء لتعديل قيد CHECK)
   const paySql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'payments'").get()?.sql || '';
   if (paySql && !paySql.includes("'jawwalpay'")) {

@@ -3,7 +3,7 @@ import {
   Copy, Phone, UserRound, Users, MapPin, Armchair, Check, QrCode, ReceiptText,
 } from 'lucide-react';
 import { useState } from 'react';
-import { useData, useMoney, Modal, Loading, ORDER_TYPES, PAY_METHODS, ROLE_LABELS, timeOf, ITEM_STATUS } from '../lib.jsx';
+import { useData, useMoney, Modal, Loading, ORDER_TYPES, PAY_METHODS, ROLE_LABELS, timeOf, clockOf, spanOf, ITEM_STATUS } from '../lib.jsx';
 
 export const EVENT = {
   created: [FilePlus2, 'إنشاء الطلب'],
@@ -27,6 +27,7 @@ export const EVENT = {
   transfer_verified: [BadgeCheck, 'تدقيق التحويل'],
   transfer_rejected: [CircleX, 'تحويل لم يصل'],
   qr_open: [QrCode, 'فتح الطاولة للـ QR'],
+  item_status: [Flame, 'حركة صنف'],
 };
 
 /** مراحل الطلب الرئيسية لشريط التقدم */
@@ -122,7 +123,7 @@ export default function OrderTimeline({ orderId, onClose }) {
             <section>
               <h4 className="section-title first">التسلسل الكامل</h4>
               <ol className="timeline">
-                {o.events.map((e) => {
+                {o.events.map((e, idx) => {
                   const [Icon, label] = EVENT[e.type] || [FilePlus2, e.type];
                   return (
                     <li key={e.id} className={`tl-item tl-${e.type}`}>
@@ -130,7 +131,7 @@ export default function OrderTimeline({ orderId, onClose }) {
                       <div className="tl-body">
                         <div className="tl-top">
                           <strong>{label}</strong>
-                          <time dir="ltr">{timeOf(e.created_at)}</time>
+                          <time dir="ltr" title={e.created_at}>{clockOf(e.created_at)}</time>
                         </div>
                         {e.type === 'payment' && e.data
                           ? <span>{PAY_METHODS[e.data.method]} · {money(e.data.amount)}</span>
@@ -138,6 +139,7 @@ export default function OrderTimeline({ orderId, onClose }) {
                         {e.type === 'sent' && e.data?.items && (
                           <span className="muted small">{e.data.items.map((x) => `${x.qty}× ${x.name}`).join('، ')}</span>
                         )}
+                        {idx > 0 && <small className="muted">+{spanOf(o.events[0].created_at, e.created_at)} من البداية · بعد {spanOf(o.events[idx - 1].created_at, e.created_at)}</small>}
                         {(e.user_name || ['online', 'created', 'items_added', 'sent', 'bill_requested', 'bill_cancelled'].includes(e.type) && o.source === 'online') && <small className="muted">بواسطة {e.user_name || 'الزبون (QR)'}{e.user_role ? ` (${ROLE_LABELS[e.user_role]})` : ''}</small>}
                       </div>
                     </li>

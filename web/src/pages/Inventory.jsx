@@ -1,145 +1,59 @@
 import { useState } from 'react';
-import { api } from '../api.js';
-import { useData, useMoney, useAction, useApp, has, Modal, Field, Loading, Empty, PageHead } from '../lib.jsx';
-import { Pencil, Plus } from 'lucide-react';
+import { LayoutDashboard, Boxes, PackagePlus, PackageMinus, Trash, CalendarX2, ClipboardCheck, Truck } from 'lucide-react';
+import { useApp, useData, has, PageHead, useMoney } from '../lib.jsx';
+import Overview from '../inventory/Overview.jsx';
+import Stock from '../inventory/Stock.jsx';
+import Flow from '../inventory/Flow.jsx';
+import { Expiry, Stocktake, Suppliers } from '../inventory/Panels.jsx';
+import { ReceiveForm, MoveForm, IngredientForm, MaterialDrawer } from '../inventory/forms.jsx';
 
-const MOVE_TYPES = { purchase: 'شراء / استلام', waste: 'تالف / هدر', adjust: 'تسوية جرد', sale: 'بيع' };
+const TABS = [
+  ['overview', 'نظرة عامة', LayoutDashboard], ['stock', 'الأرصدة', Boxes], ['in', 'وارد', PackagePlus], ['out', 'صادر', PackageMinus],
+  ['waste', 'التالف', Trash], ['expiry', 'الصلاحية', CalendarX2], ['take', 'الجرد', ClipboardCheck, 'manage'], ['suppliers', 'الموردون', Truck],
+];
 
+/** المخازن: مركز إدارة المخزون — وارد، صادر، تالف، صلاحيات، جرد وموردون */
 export default function Inventory() {
   const money = useMoney();
   const { user } = useApp();
-  const isManager = has(user, 'inventory.manage');
-  const { data, loading, reload } = useData('/ingredients', ['inventory']);
-  const [tab, setTab] = useState('stock');
-  const [edit, setEdit] = useState(null);
-  const [move, setMove] = useState(null);
-  const [onlyLow, setOnlyLow] = useState(false);
-
-  if (loading) return <Loading />;
-  const rows = (data || []).filter((i) => !onlyLow || i.low);
-  const lowCount = (data || []).filter((i) => i.low).length;
-  const value = (data || []).reduce((a, i) => a + Math.max(0, i.stock) * i.cost_per_unit, 0);
+  const canManage = has(user, 'inventory.manage');
+  const canRecv = has(user, 'inventory.receive', 'inventory.manage');
+  const [tab, setTab] = useState(() => { try { return localStorage.getItem('ph-inv-tab') || 'overview'; } catch { return 'overview'; } });
+  const ings = useData('/ingredients', ['inventory']);
+  const sup = useData('/suppliers', ['inventory']);
+  const ov = useData('/inventory/overview', ['inventory']);
+  const [drawer, setDrawer] = useState(null);
+  const [form, setForm] = useState(null);       // { kind, ing, preset }
+  const go = (t) => { setTab(t); try { localStorage.setItem('ph-inv-tab', t); } catch { /* */ } };
+  const list = ings.data || [];
+  const act = (kind, ing, preset) => setForm({ kind, ing, preset });
+  const afterSave = () => { setForm(null); ings.reload(); sup.reload(); ov.reload(); };
+  const value = ov.data?.kpis?.value;
+  const visible = TABS.filter((t) => !t[3] || canManage);
 
   return (
-    <div>
-      <PageHead title="المخزون" sub={`قيمة المخزون: ${money(value)}`}>
-        {isManager && <button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={18} /> مادة خام</button>}
+    <div className="inv">
+      <PageHead title="المخازن" sub={value != null ? `قيمة المخزون ${money(value)} · ${list.length} مادة` : 'إدارة المخزون'}>
+        {canRecv && <button className="btn btn-primary" onClick={() => act('receive')}><PackagePlus size={17} /> استلام بضاعة</button>}
+        {canRecv && <button className="btn" onClick={() => act('issue')}><PackageMinus size={17} /> صرف</button>}
+        {canRecv && <button className="btn btn-danger-ghost" onClick={() => act('waste')}><Trash size={17} /> تالف</button>}
       </PageHead>
-      <div className="filters">
-        <div className="seg">
-          <button className={tab === 'stock' ? 'active' : ''} onClick={() => setTab('stock')}>الأرصدة</button>
-          {isManager && <button className={tab === 'moves' ? 'active' : ''} onClick={() => setTab('moves')}>الحركات</button>}
-        </div>
-        {tab === 'stock' && (
-          <label className="switch"><input type="checkbox" checked={onlyLow} onChange={(e) => setOnlyLow(e.target.checked)} /> المنخفض فقط ({lowCount})</label>
-        )}
-      </div>
-      {tab === 'stock' ? (
-        !rows.length ? <Empty text="لا توجد مواد" /> : (
-          <div className="table-wrap">
-            <table className="data">
-              <thead><tr><th>المادة</th><th>الرصيد</th><th>الحد الأدنى</th><th>تكلفة الوحدة</th><th /></tr></thead>
-              <tbody>
-                {rows.map((i) => (
-                  <tr key={i.id} className={i.low ? 'row-warn' : ''}>
-                    <td><strong>{i.name}</strong>{i.low ? <span className="badge badge-err">منخفض</span> : null}</td>
-                    <td>{+i.stock.toFixed(3)} {i.unit}</td>
-                    <td>{i.min_stock} {i.unit}</td>
-                    <td>{money(i.cost_per_unit)}</td>
-                    <td className="row gap-s">
-                      <button className="btn btn-sm" onClick={() => setMove({ ing: i, type: 'purchase' })}>+ استلام</button>
-                      <button className="btn btn-sm" onClick={() => setMove({ ing: i, type: 'waste' })}>تالف</button>
-                      {isManager && <button className="btn btn-sm" onClick={() => setMove({ ing: i, type: 'adjust' })}>جرد</button>}
-                      {isManager && <button className="btn btn-sm btn-ghost" onClick={() => setEdit(i)} aria-label="تعديل"><Pencil size={15} /></button>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )
-      ) : <Movements />}
-      {edit && <IngredientForm ing={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); reload(); }} />}
-      {move && <MoveForm {...move} onClose={() => setMove(null)} onSaved={() => { setMove(null); reload(); }} />}
+
+      <nav className="inv-tabs" role="tablist" aria-label="أقسام المخازن">
+        {visible.map(([k, l, Icon]) => <button key={k} role="tab" aria-selected={tab === k} className={`${tab === k ? 'on' : ''} t-${k}`} onClick={() => go(k)}><Icon size={16} aria-hidden /> {l}</button>)}
+      </nav>
+
+      {tab === 'overview' && <Overview canRecv={canRecv} onGo={go} onReceive={(preset) => act('receive', null, preset)} />}
+      {tab === 'stock' && <Stock canManage={canManage} canRecv={canRecv} onOpen={setDrawer} onAction={act} onNew={() => act('edit', {})} />}
+      {(tab === 'in' || tab === 'out' || tab === 'waste') && <Flow key={tab} kind={tab} canRecv={canRecv} onAdd={(k) => act(k)} />}
+      {tab === 'expiry' && <Expiry canRecv={canRecv} />}
+      {tab === 'take' && canManage && <Stocktake onDone={afterSave} />}
+      {tab === 'suppliers' && <Suppliers canManage={canManage} />}
+
+      {drawer && <MaterialDrawer id={drawer} canManage={canManage} canRecv={canRecv} onClose={() => setDrawer(null)} onAction={(k, ing) => { if (!k) { ings.reload(); ov.reload(); return; } act(k, ing); }} />}
+      {form?.kind === 'receive' && <ReceiveForm ingredients={list} suppliers={sup.data || []} preset={{ ...form.preset, ing: form.ing }} onClose={() => setForm(null)} onSaved={afterSave} />}
+      {['issue', 'waste', 'return', 'adjust'].includes(form?.kind) && <MoveForm type={form.kind} ing={form.ing} ingredients={list} onClose={() => setForm(null)} onSaved={afterSave} />}
+      {form?.kind === 'edit' && <IngredientForm ing={form.ing || {}} suppliers={sup.data || []} categories={ov.data?.categories || []} onClose={() => setForm(null)} onSaved={afterSave} />}
     </div>
-  );
-}
-
-function Movements() {
-  const { data, loading } = useData('/stock-movements', ['inventory']);
-  const money = useMoney();
-  if (loading) return <Loading />;
-  if (!data?.length) return <Empty text="لا توجد حركات" />;
-  return (
-    <div className="table-wrap">
-      <table className="data">
-        <thead><tr><th>التاريخ</th><th>المادة</th><th>النوع</th><th>الكمية</th><th>التكلفة</th><th>بواسطة</th><th>ملاحظة</th></tr></thead>
-        <tbody>
-          {data.map((m) => (
-            <tr key={m.id}>
-              <td dir="ltr" className="small">{m.created_at}</td>
-              <td>{m.ingredient_name}</td>
-              <td>{MOVE_TYPES[m.type]}{m.order_id ? ` (طلب)` : ''}</td>
-              <td className={m.qty < 0 ? 'text-err' : 'text-ok'} dir="ltr">{m.qty > 0 ? '+' : ''}{+m.qty.toFixed(3)} {m.unit}</td>
-              <td>{m.unit_cost ? money(m.unit_cost) : '—'}</td>
-              <td>{m.user_name}</td>
-              <td className="small">{m.note}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function IngredientForm({ ing, onClose, onSaved }) {
-  const [run, busy] = useAction();
-  const [f, setF] = useState({ name: ing.name || '', unit: ing.unit || 'كغ', stock: ing.stock ?? 0, min_stock: ing.min_stock ?? 0, cost_per_unit: ing.cost_per_unit ?? 0 });
-  const save = async () => {
-    const ok = await run(() => (ing.id ? api(`/ingredients/${ing.id}`, { method: 'PUT', body: f }) : api('/ingredients', { method: 'POST', body: f })), 'تم الحفظ');
-    if (ok) onSaved();
-  };
-  const del = async () => {
-    if (!window.confirm('حذف المادة؟')) return;
-    const ok = await run(() => api(`/ingredients/${ing.id}`, { method: 'DELETE' }), 'تم الحذف');
-    if (ok) onSaved();
-  };
-  return (
-    <Modal title={ing.id ? 'تعديل مادة' : 'مادة خام جديدة'} onClose={onClose} footer={
-      <>{ing.id && <button className="btn btn-danger-ghost" onClick={del}>حذف</button>}<button className="btn btn-primary" onClick={save} disabled={busy}>حفظ</button></>
-    }>
-      <div className="grid-2">
-        <Field label="الاسم"><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} autoFocus /></Field>
-        <Field label="الوحدة">
-          <select value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })}>
-            {['كغ', 'غرام', 'لتر', 'مل', 'حبة', 'علبة', 'كرتون'].map((u) => <option key={u}>{u}</option>)}
-          </select>
-        </Field>
-        {!ing.id && <Field label="الرصيد الافتتاحي"><input type="number" value={f.stock} onChange={(e) => setF({ ...f, stock: e.target.value })} /></Field>}
-        <Field label="الحد الأدنى للتنبيه"><input type="number" value={f.min_stock} onChange={(e) => setF({ ...f, min_stock: e.target.value })} /></Field>
-        <Field label="تكلفة الوحدة"><input type="number" step="0.01" value={f.cost_per_unit} onChange={(e) => setF({ ...f, cost_per_unit: e.target.value })} /></Field>
-      </div>
-    </Modal>
-  );
-}
-
-function MoveForm({ ing, type, onClose, onSaved }) {
-  const [run, busy] = useAction();
-  const [qty, setQty] = useState(type === 'adjust' ? ing.stock : '');
-  const [cost, setCost] = useState('');
-  const [note, setNote] = useState('');
-  const save = async () => {
-    const ok = await run(() => api('/stock-movements', { method: 'POST', body: { ingredient_id: ing.id, type, qty: Number(qty), unit_cost: Number(cost) || undefined, note } }), 'تم تسجيل الحركة');
-    if (ok) onSaved();
-  };
-  return (
-    <Modal title={`${MOVE_TYPES[type]} — ${ing.name}`} onClose={onClose} footer={<button className="btn btn-primary" onClick={save} disabled={busy}>حفظ</button>}>
-      <p className="muted">الرصيد الحالي: {+ing.stock.toFixed(3)} {ing.unit}</p>
-      <Field label={type === 'adjust' ? `الكمية الفعلية بعد الجرد (${ing.unit})` : `الكمية (${ing.unit})`}>
-        <input type="number" step="0.001" value={qty} onChange={(e) => setQty(e.target.value)} autoFocus />
-      </Field>
-      {type === 'purchase' && <Field label="سعر شراء الوحدة (اختياري)"><input type="number" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} /></Field>}
-      <Field label="ملاحظة"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder={type === 'purchase' ? 'المورد / رقم الفاتورة' : ''} /></Field>
-    </Modal>
   );
 }

@@ -53,7 +53,12 @@ CREATE TABLE IF NOT EXISTS ingredients (
   stock         REAL NOT NULL DEFAULT 0,
   min_stock     REAL NOT NULL DEFAULT 0,
   cost_per_unit REAL NOT NULL DEFAULT 0,
-  active        INTEGER NOT NULL DEFAULT 1
+  active        INTEGER NOT NULL DEFAULT 1,
+  category      TEXT,                              -- مجموعة المخزن: لحوم، خضار، ألبان، جاف...
+  storage       TEXT,                              -- التخزين: مبرد / مجمد / جاف
+  par_level     REAL NOT NULL DEFAULT 0,           -- الكمية المستهدفة عند إعادة التعبئة
+  supplier_id   INTEGER,                           -- المورد المعتاد
+  shelf_life_days INTEGER                          -- مدة الصلاحية الافتراضية عند الاستلام
 );
 
 -- الوصفة: كمية كل مادة خام في الصنف
@@ -67,13 +72,19 @@ CREATE TABLE IF NOT EXISTS recipes (
 CREATE TABLE IF NOT EXISTS stock_movements (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
-  qty           REAL NOT NULL,              -- موجب = إضافة، سالب = خصم
-  type          TEXT NOT NULL CHECK (type IN ('purchase','sale','waste','adjust')),
+  qty           REAL NOT NULL,              -- موجب = وارد، سالب = صادر
+  type          TEXT NOT NULL CHECK (type IN ('purchase','sale','waste','adjust','issue','return')),
   unit_cost     REAL,
   note          TEXT,
   order_id      INTEGER,
   user_id       INTEGER,
-  created_at    TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  created_at    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  reason        TEXT,                       -- سبب التالف / الصرف
+  batch_id      INTEGER,
+  receipt_id    INTEGER,
+  supplier_id   INTEGER,
+  stocktake_id  INTEGER,
+  balance_after REAL                        -- الرصيد بعد الحركة (كشف حساب المادة)
 );
 
 CREATE TABLE IF NOT EXISTS dining_tables (
@@ -509,3 +520,45 @@ CREATE TABLE IF NOT EXISTS chat_push_subs (
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 CREATE INDEX IF NOT EXISTS idx_cps_dev ON chat_push_subs(event_id, device_id);
+
+-- الموردون ومستندات الاستلام والدفعات (لوطات) بتواريخ الصلاحية، وجلسات الجرد
+CREATE TABLE IF NOT EXISTS suppliers (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL,
+  phone      TEXT,
+  contact    TEXT,
+  notes      TEXT,
+  active     INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE TABLE IF NOT EXISTS stock_receipts (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  supplier_id INTEGER REFERENCES suppliers(id),
+  invoice_no  TEXT,
+  received_at TEXT NOT NULL,                  -- تاريخ الاستلام
+  total       REAL NOT NULL DEFAULT 0,
+  note        TEXT,
+  user_id     INTEGER,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE TABLE IF NOT EXISTS stock_batches (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
+  receipt_id    INTEGER REFERENCES stock_receipts(id),
+  supplier_id   INTEGER,
+  qty_in        REAL NOT NULL,
+  qty_left      REAL NOT NULL,
+  unit_cost     REAL,
+  received_at   TEXT NOT NULL,
+  expiry_date   TEXT,                         -- NULL = لا تنتهي صلاحيته
+  created_at    TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE TABLE IF NOT EXISTS stocktakes (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id        INTEGER,
+  note           TEXT,
+  items          INTEGER NOT NULL DEFAULT 0,
+  shortage_value REAL NOT NULL DEFAULT 0,
+  surplus_value  REAL NOT NULL DEFAULT 0,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
