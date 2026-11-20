@@ -986,3 +986,29 @@ test('attendance gate: blocked until check-in or manager activation', async () =
     await api('/settings', { method: 'PUT', token: admin, body: { att_required_before_work: '0' } });
   }
 });
+
+test('reports overview: KPIs, previous period, filters and expenses', async () => {
+  const admin = await login('admin', 'admin123');
+  const day = new Date().toISOString().slice(0, 10);
+  const all = await api(`/reports/overview?from=${day}&to=${day}`, { token: admin });
+  assert.equal(all.status, 200);
+  assert.ok(all.data.kpis.orders >= 1 && all.data.kpis.sales > 0, 'paid orders appear');
+  assert.equal(all.data.range.days, 1);
+  assert.equal(all.data.series.length, 1);
+  assert.equal(all.data.prev_series.length, 1);
+  assert.ok(all.data.previous.to < day);
+  assert.ok(all.data.by_payment.length >= 1 && all.data.items.length >= 1 && all.data.meta.categories.length >= 1);
+  // فلتر لا يطابق شيئاً يعيد صفراً، وفلتر مطابق يبقي النتيجة
+  const none = await api(`/reports/overview?from=${day}&to=${day}&type=delivery&event=any`, { token: admin });
+  assert.equal(none.data.kpis.orders, 0);
+  const dine = await api(`/reports/overview?from=${day}&to=${day}&type=dine_in`, { token: admin });
+  assert.equal(dine.data.kpis.orders, all.data.kpis.orders);
+  const cat = all.data.by_category[0].id;
+  assert.equal((await api(`/reports/overview?from=${day}&to=${day}&category=${cat}&method=cash`, { token: admin })).status, 200);
+  // الفترة المعكوسة وتواريخ سيئة لا تكسر الخادم
+  assert.equal((await api('/reports/overview?from=2099-01-05&to=2099-01-01', { token: admin })).data.range.days, 5);
+  assert.equal((await api('/reports/overview?from=abc', { token: admin })).status, 200);
+  // الصلاحية مطلوبة
+  const kitchen = await login('kitchen', '1234');
+  assert.equal((await api('/reports/overview', { token: kitchen })).status, 403);
+});

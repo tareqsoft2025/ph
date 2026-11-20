@@ -7,6 +7,7 @@ import { bad, notFound, pick, updateSql, normalize, round2, today } from './util
 import * as Orders from './orders.js';
 import * as Inventory from './inventory.js';
 import { hrRoutes } from './hr.js';
+import { reportRoutes } from './reports.js';
 import { attendanceRoutes, attendanceGate } from './attendance.js';
 import { setNotifyEmitter, notify, pushEnabled, webPushKey, customerChatNotify } from './notify.js';
 
@@ -1318,6 +1319,8 @@ export function buildRouter(emit) {
       lowStock,
     });
   });
+
+  reportRoutes(r);
 
   // ───────────── الموارد البشرية ─────────────
   hrRoutes(r, changed);
