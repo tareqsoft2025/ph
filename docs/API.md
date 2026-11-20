@@ -323,3 +323,9 @@ POST /api/orders
 - `POST /attendance/activation-requests/:id/approve|deny` `{note}` — القرار؛ الموافقة تفتح الحساب لذلك اليوم فقط، وتُسجَّل في سجل التدقيق.
 - `POST /attendance/activate/:employeeId` — تفعيل مباشر دون طلب.
 - `GET /attendance/me` يعيد `activation` (حالة طلب اليوم).
+
+## التقارير الشاملة
+`GET /reports/overview` (صلاحية `reports.view`) — لقطة كاملة للفترة مع مقارنة بالفترة السابقة المماثلة.
+المعاملات: `from`, `to` + فلاتر اختيارية: `type`, `method`, `staff`, `category`, `source` (staff|online), `event` (رقم|any|none), `area`, `hour_from`, `hour_to`.
+يعيد: `kpis` و`prev_kpis` (مبيعات، طلبات، متوسط الفاتورة، ضيوف، تكلفة، مجمل/صافي الربح، هامش، خصومات، إلغاءات، هدر، مصروفات)، `series`/`prev_series` (يومي)، `by_hour`، `heat` (يوم×ساعة)، `by_weekday`، `by_type/source/area/table/event/payment`، `items`، `bottom_items`، `by_category`، `unsold`، `staff`، `cashiers`، `discounts`، `cancels`، `expenses`، `inventory`، `customers`، و`meta` لتعبئة الفلاتر.
+(`/reports/summary` القديم ما زال متاحاً.)
