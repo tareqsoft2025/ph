@@ -6,6 +6,7 @@ import {
   ORDER_TYPES, ITEM_STATUS, PAY_METHODS,
 } from '../lib.jsx';
 import Receipt from '../components/Receipt.jsx';
+import OrderDetail from './OrderDetail.jsx';
 import OrderTimeline from '../components/OrderTimeline.jsx';
 import ConfirmBanner from '../components/ConfirmBanner.jsx';
 import DishDetail, { hasDetail } from '../components/DishDetail.jsx';
@@ -219,6 +220,15 @@ export default function Pos() {
   if (menu.loading || (orderId && orderQ.loading && !order)) return <Loading />;
   if (!orderId && !canEdit) return <Navigate to={canPay ? '/cashier' : '/tables'} replace />;
   if (orderId && orderQ.error) return <Empty icon={TriangleAlert} text={orderQ.error} />;
+  // الطلب المنتهي (مدفوع/ملغى): نعرض ملف المعاملة بدل شاشة الطلب
+  if (order && order.status !== 'open') {
+    return (
+      <>
+        <OrderDetail order={order} onPrint={setPrintOrder} onNew={newOrder} />
+        {printOrder && <Receipt order={printOrder} onClose={() => setPrintOrder(null)} />}
+      </>
+    );
+  }
 
   // لا توجد شاشة طلب عامة: يجب الدخول من طاولة (أو طلب تيك وي/توصيل من صفحة الطاولات)
   if (!orderId && (!meta.type || (meta.type === 'dine_in' && !meta.table_id))) return <Navigate to="/tables" replace />;
