@@ -5,6 +5,7 @@ import { authenticate, allow, signToken, ROLES } from './auth.js';
 import { need, hasPerm, PERMISSIONS, ROLES_EDITABLE, DEFAULTS, rolePerms, setRolePerms, resetRolePerms, usersWithPerm, userPerms, userOverrides, setUserOverrides } from './perms.js';
 import { bad, notFound, pick, updateSql, normalize, round2, today } from './util.js';
 import * as Orders from './orders.js';
+import * as Inventory from './inventory.js';
 import { hrRoutes } from './hr.js';
 import { attendanceRoutes, attendanceGate } from './attendance.js';
 import { setNotifyEmitter, notify, pushEnabled, webPushKey, customerChatNotify } from './notify.js';
@@ -1006,10 +1007,11 @@ export function buildRouter(emit) {
   r.patch('/kitchen/items/:id', need('kitchen.update'), (req, res) => {
     const { status } = req.body || {};
     if (!['new', 'preparing', 'ready', 'served'].includes(status)) throw bad('الحالة غير صحيحة');
-    const item = get('SELECT order_id, status FROM order_items WHERE id = ?', Number(req.params.id));
+    const item = get('SELECT order_id, status, name, qty FROM order_items WHERE id = ?', Number(req.params.id));
     if (!item) throw notFound();
     run(`UPDATE order_items SET status = ?, ready_at = CASE WHEN ? = 'ready' THEN datetime('now','localtime') ELSE ready_at END WHERE id = ?`,
       status, status, Number(req.params.id));
+    if (item.status !== status) Orders.logItemStatus(item.order_id, { id: Number(req.params.id), name: item.name, qty: item.qty, status: item.status }, status, req.user);
     if (status !== 'new') Orders.kitchenProgress(item.order_id, status, req.user, item.status !== status);
     changed('kitchen', 'orders', 'tables');
     emit('public-order', item.order_id);
@@ -1020,29 +1022,64 @@ export function buildRouter(emit) {
     if (!['preparing', 'ready', 'served'].includes(status)) throw bad('الحالة غير صحيحة');
     const from = { preparing: "('new')", ready: "('new','preparing')", served: "('ready')" }[status];
     const id = Number(req.params.id);
+    const moving = all(`SELECT id, name, qty, status FROM order_items WHERE order_id = ? AND status IN ${from}`, id);
     const ch = run(`UPDATE order_items SET status = ?, ready_at = CASE WHEN ? = 'ready' THEN datetime('now','localtime') ELSE ready_at END
       WHERE order_id = ? AND status IN ${from}`, status, status, id);
+    for (const it of moving) Orders.logItemStatus(id, it, status, req.user);   // كل صنف بتوقيته
     Orders.kitchenProgress(id, status, req.user, Number(ch.changes));
     changed('kitchen', 'orders', 'tables');
     emit('public-order', id);
     res.json({ ok: true });
   });
 
-  // ───────────── المخزون ─────────────
-  r.get('/ingredients', need('inventory.view', 'inventory.manage', 'menu.manage'), (req, res) => {
-    res.json(all('SELECT *, (stock <= min_stock) AS low FROM ingredients WHERE active = 1 ORDER BY name'));
+  // ───────────── المخازن ─────────────
+  const invView = need('inventory.view', 'inventory.manage', 'menu.manage');
+  const invRecv = need('inventory.receive', 'inventory.manage');
+  const ING_FIELDS = ['name', 'unit', 'min_stock', 'cost_per_unit', 'category', 'storage', 'par_level', 'supplier_id', 'shelf_life_days'];
+  const cleanIng = (b) => {
+    const f = pick(b, ING_FIELDS);
+    if ('storage' in f && !['مبرد', 'مجمد', 'جاف'].includes(f.storage)) f.storage = null;
+    if ('category' in f) f.category = clip(f.category, 40) || null;
+    for (const k of ['min_stock', 'par_level', 'cost_per_unit']) if (k in f) f[k] = Math.max(0, Number(f[k]) || 0);
+    if ('shelf_life_days' in f) f.shelf_life_days = Number(f.shelf_life_days) > 0 ? Math.round(Number(f.shelf_life_days)) : null;
+    if ('supplier_id' in f) f.supplier_id = Number(f.supplier_id) || null;
+    return f;
+  };
+  r.get('/ingredients', invView, (req, res) => res.json(Inventory.ingredientsFull()));
+  r.get('/inventory/overview', invView, (req, res) => res.json({ ...Inventory.overview(), reasons: { waste: Inventory.WASTE_REASONS, issue: Inventory.ISSUE_REASONS }, categories: Inventory.CATEGORIES }));
+  r.get('/ingredients/:id', invView, (req, res) => {
+    const id = Number(req.params.id);
+    const ing = Inventory.ingredientsFull().find((i) => i.id === id);
+    if (!ing) throw notFound('المادة غير موجودة');
+    const batches = all('SELECT b.*, s.name AS supplier_name FROM stock_batches b LEFT JOIN suppliers s ON s.id = b.supplier_id WHERE b.ingredient_id = ? ORDER BY (b.qty_left > 0) DESC, b.expiry_date IS NULL, b.expiry_date, b.id DESC LIMIT 40', id);
+    const moves = all(`SELECT m.*, u.name AS user_name, s.name AS supplier_name, rc.invoice_no FROM stock_movements m LEFT JOIN users u ON u.id = m.user_id LEFT JOIN suppliers s ON s.id = m.supplier_id LEFT JOIN stock_receipts rc ON rc.id = m.receipt_id WHERE m.ingredient_id = ? ORDER BY m.id DESC LIMIT 80`, id);
+    const usage = all(`SELECT date(created_at) AS d, SUM(-qty) AS q FROM stock_movements WHERE ingredient_id = ? AND type IN ('sale','issue') AND date(created_at) >= date('now','localtime','-29 days') GROUP BY d ORDER BY d`, id);
+    res.json({ ...ing, batches, movements: moves, usage });
   });
   r.post('/ingredients', need('inventory.manage'), (req, res) => {
     const b = req.body || {};
-    if (!b.name) throw bad('أدخل اسم المادة');
-    const info = run('INSERT INTO ingredients(name, unit, stock, min_stock, cost_per_unit) VALUES(?,?,?,?,?)',
-      b.name, b.unit || 'كغ', Number(b.stock) || 0, Number(b.min_stock) || 0, Number(b.cost_per_unit) || 0);
-    audit(req.user.id, 'stock.ingredient_create', 'ingredient', Number(info.lastInsertRowid), { name: b.name });
+    if (!clip(b.name, 80)) throw bad('أدخل اسم المادة');
+    const f = cleanIng({ ...b, name: clip(b.name, 80), unit: b.unit || 'كغ' });
+    const open = Math.max(0, Number(b.stock) || 0);
+    const id = tx(() => {
+      const info = run('INSERT INTO ingredients(name, unit, stock, min_stock, cost_per_unit, category, storage, par_level, supplier_id, shelf_life_days) VALUES(?,?,?,?,?,?,?,?,?,?)',
+        f.name, f.unit || 'كغ', 0, f.min_stock || 0, f.cost_per_unit || 0, f.category ?? null, f.storage ?? null, f.par_level || 0, f.supplier_id ?? null, f.shelf_life_days ?? null);
+      const nid = Number(info.lastInsertRowid);
+      if (open > 0) {
+        const exp = f.shelf_life_days ? Inventory.addDays(f.shelf_life_days) : null;
+        const bid = Number(run('INSERT INTO stock_batches(ingredient_id, qty_in, qty_left, unit_cost, received_at, expiry_date) VALUES(?,?,?,?,?,?)', nid, open, open, f.cost_per_unit || 0, Inventory.todayYmd(), exp).lastInsertRowid);
+        Inventory.recordMovement({ ingredient_id: nid, qty: open, type: 'adjust', user_id: req.user.id, reason: 'رصيد افتتاحي', batch_id: bid });
+      }
+      return nid;
+    });
+    audit(req.user.id, 'stock.ingredient_create', 'ingredient', id, { name: f.name });
     changed('inventory');
-    res.status(201).json({ id: Number(info.lastInsertRowid) });
+    res.status(201).json({ id });
   });
   r.put('/ingredients/:id', need('inventory.manage'), (req, res) => {
-    const u = updateSql('ingredients', pick(req.body, ['name', 'unit', 'min_stock', 'cost_per_unit']), Number(req.params.id));
+    const f = cleanIng(req.body || {});
+    if ('name' in f && !clip(f.name, 80)) throw bad('أدخل اسم المادة');
+    const u = updateSql('ingredients', f, Number(req.params.id));
     if (u) run(u.sql, ...u.params);
     changed('inventory');
     res.json({ ok: true });
@@ -1052,37 +1089,125 @@ export function buildRouter(emit) {
     changed('inventory');
     res.json({ ok: true });
   });
-  // حركة مخزون: شراء / تالف / تسوية جرد
-  r.post('/stock-movements', need('inventory.receive', 'inventory.manage'), (req, res) => {
-    const { ingredient_id, qty, type, unit_cost, note } = req.body || {};
-    const ing = get('SELECT * FROM ingredients WHERE id = ?', ingredient_id);
+
+  // الموردون
+  r.get('/suppliers', invView, (req, res) => {
+    res.json(all(`SELECT s.*, (SELECT COUNT(*) FROM stock_receipts rc WHERE rc.supplier_id = s.id) AS receipts,
+      (SELECT COALESCE(SUM(total), 0) FROM stock_receipts rc WHERE rc.supplier_id = s.id) AS total,
+      (SELECT MAX(received_at) FROM stock_receipts rc WHERE rc.supplier_id = s.id) AS last_at,
+      (SELECT COUNT(*) FROM ingredients i WHERE i.supplier_id = s.id AND i.active = 1) AS items
+      FROM suppliers s WHERE s.active = 1 ORDER BY s.name`));
+  });
+  const readSupplier = (b) => { const name = clip(b.name, 80); if (!name) throw bad('أدخل اسم المورد'); return [name, clip(b.phone, 20) || null, clip(b.contact, 60) || null, clip(b.notes, 200) || null]; };
+  r.post('/suppliers', need('inventory.manage'), (req, res) => {
+    const v = readSupplier(req.body || {});
+    const id = Number(run('INSERT INTO suppliers(name, phone, contact, notes) VALUES(?,?,?,?)', ...v).lastInsertRowid);
+    audit(req.user.id, 'stock.supplier_create', 'supplier', id, { name: v[0] });
+    changed('inventory');
+    res.status(201).json({ id });
+  });
+  r.put('/suppliers/:id', need('inventory.manage'), (req, res) => {
+    const v = readSupplier(req.body || {});
+    run('UPDATE suppliers SET name = ?, phone = ?, contact = ?, notes = ? WHERE id = ?', ...v, Number(req.params.id));
+    changed('inventory');
+    res.json({ ok: true });
+  });
+  r.delete('/suppliers/:id', need('inventory.manage'), (req, res) => {
+    run('UPDATE suppliers SET active = 0 WHERE id = ?', Number(req.params.id));
+    changed('inventory');
+    res.json({ ok: true });
+  });
+
+  // استلام بضاعة (مستند بأسطر وتواريخ صلاحية)
+  r.post('/stock/receipts', invRecv, (req, res) => {
+    const out = Inventory.receive(req.body || {}, req.user);
+    audit(req.user.id, 'stock.receipt', 'receipt', out.id, { total: out.total, lines: out.lines.length, invoice: req.body?.invoice_no || undefined });
+    changed('inventory');
+    res.status(201).json(out);
+  });
+  r.get('/stock/receipts', invView, (req, res) => {
+    res.json(all(`SELECT rc.*, s.name AS supplier_name, u.name AS user_name, (SELECT COUNT(*) FROM stock_batches b WHERE b.receipt_id = rc.id) AS lines
+      FROM stock_receipts rc LEFT JOIN suppliers s ON s.id = rc.supplier_id LEFT JOIN users u ON u.id = rc.user_id ORDER BY rc.id DESC LIMIT 60`));
+  });
+  r.get('/stock/receipts/:id', invView, (req, res) => {
+    const rc = get('SELECT rc.*, s.name AS supplier_name, u.name AS user_name FROM stock_receipts rc LEFT JOIN suppliers s ON s.id = rc.supplier_id LEFT JOIN users u ON u.id = rc.user_id WHERE rc.id = ?', Number(req.params.id));
+    if (!rc) throw notFound('المستند غير موجود');
+    rc.lines = all('SELECT b.*, i.name, i.unit FROM stock_batches b JOIN ingredients i ON i.id = b.ingredient_id WHERE b.receipt_id = ? ORDER BY b.id', rc.id);
+    res.json(rc);
+  });
+
+  // حركات: وارد سريع / صادر / تالف / مرتجع / تسوية (سجلات بسبب وتاريخ)
+  r.post('/stock-movements', invRecv, (req, res) => {
+    const { ingredient_id, qty, type, unit_cost, note, reason, batch_id, supplier_id } = req.body || {};
+    const ing = get('SELECT * FROM ingredients WHERE id = ? AND active = 1', Number(ingredient_id));
     if (!ing) throw notFound('المادة غير موجودة');
-    if (!['purchase', 'waste', 'adjust'].includes(type)) throw bad('نوع الحركة غير صحيح');
+    if (!['purchase', 'waste', 'adjust', 'issue', 'return'].includes(type)) throw bad('نوع الحركة غير صحيح');
+    if (type === 'adjust' && !hasPerm(req.user, 'inventory.manage')) throw Object.assign(bad('التسوية للإدارة فقط'), { status: 403 });
     let delta = Number(qty);
     if (!Number.isFinite(delta)) throw bad('الكمية غير صحيحة');
-    if (type === 'purchase' && delta <= 0) throw bad('كمية الشراء يجب أن تكون موجبة');
-    if (type === 'waste') delta = -Math.abs(delta);
-    if (type === 'adjust') delta = delta - ing.stock; // qty = الكمية الفعلية بعد الجرد
-    tx(() => {
-      run('UPDATE ingredients SET stock = stock + ? WHERE id = ?', delta, ing.id);
-      if (type === 'purchase' && Number(unit_cost) > 0) {
-        // متوسط التكلفة المرجّح
-        const newStock = ing.stock + delta;
-        const avg = newStock > 0 ? (Math.max(ing.stock, 0) * ing.cost_per_unit + delta * Number(unit_cost)) / (Math.max(ing.stock, 0) + delta) : Number(unit_cost);
-        run('UPDATE ingredients SET cost_per_unit = ? WHERE id = ?', round2(avg * 1000) / 1000, ing.id);
-      }
-      run('INSERT INTO stock_movements(ingredient_id, qty, type, unit_cost, note, user_id) VALUES(?,?,?,?,?,?)',
-        ing.id, delta, type, unit_cost ? Number(unit_cost) : null, note || null, req.user.id);
-    });
-    audit(req.user.id, `stock.${type}`, 'ingredient', ing.id, { name: ing.name, qty: Math.round(delta * 1000) / 1000, unit: ing.unit, note: note || undefined });
+    if (type === 'purchase') {
+      if (delta <= 0) throw bad('كمية الشراء يجب أن تكون موجبة');
+      Inventory.receive({ supplier_id: supplier_id || null, note, lines: [{ ingredient_id: ing.id, qty: delta, unit_cost: unit_cost || undefined }] }, req.user);
+    } else {
+      if (type === 'adjust') delta -= ing.stock;                // qty = الكمية الفعلية بعد الجرد
+      else { delta = -Math.abs(delta); if (!delta) throw bad('الكمية غير صحيحة'); }
+      const why = clip(reason, 60) || (type === 'waste' ? 'غير محدد' : null);
+      Inventory.recordMovement({ ingredient_id: ing.id, qty: delta, type, user_id: req.user.id, reason: why, note: clip(note, 200) || null, batch_id: Number(batch_id) || null, supplier_id: Number(supplier_id) || null });
+    }
+    audit(req.user.id, `stock.${type}`, 'ingredient', ing.id, { name: ing.name, qty: Math.round(delta * 1000) / 1000, unit: ing.unit, note: note || undefined, reason: reason || undefined });
     changed('inventory');
     res.status(201).json({ ok: true });
   });
-  r.get('/stock-movements', need('inventory.manage'), (req, res) => {
-    const { ingredient_id } = req.query;
-    res.json(all(`SELECT m.*, i.name AS ingredient_name, i.unit, u.name AS user_name
-      FROM stock_movements m JOIN ingredients i ON i.id = m.ingredient_id LEFT JOIN users u ON u.id = m.user_id
-      ${ingredient_id ? 'WHERE m.ingredient_id = ?' : ''} ORDER BY m.id DESC LIMIT 300`, ...(ingredient_id ? [Number(ingredient_id)] : [])));
+  r.get('/stock-movements', invView, (req, res) => {
+    const { ingredient_id, type, from, to, q, kind } = req.query;
+    const where = []; const params = [];
+    if (Number(ingredient_id)) { where.push('m.ingredient_id = ?'); params.push(Number(ingredient_id)); }
+    if (['purchase', 'sale', 'waste', 'adjust', 'issue', 'return'].includes(type)) { where.push('m.type = ?'); params.push(type); }
+    if (kind === 'in') where.push("m.type = 'purchase'"); else if (kind === 'out') where.push("m.type IN ('sale','issue','return')"); else if (kind === 'waste') where.push("m.type = 'waste'");
+    if (from) { where.push('date(m.created_at) >= ?'); params.push(from); }
+    if (to) { where.push('date(m.created_at) <= ?'); params.push(to); }
+    if (q) { where.push('(i.name LIKE ? OR m.note LIKE ? OR m.reason LIKE ?)'); params.push(...Array(3).fill(`%${String(q).trim()}%`)); }
+    const W = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const rows = all(`SELECT m.*, i.name AS ingredient_name, i.unit, i.category, COALESCE(m.unit_cost, i.cost_per_unit) AS cost, u.name AS user_name, s.name AS supplier_name, rc.invoice_no, o.code AS order_code,
+        b.expiry_date AS batch_expiry
+      FROM stock_movements m JOIN ingredients i ON i.id = m.ingredient_id LEFT JOIN users u ON u.id = m.user_id LEFT JOIN suppliers s ON s.id = m.supplier_id
+      LEFT JOIN stock_receipts rc ON rc.id = m.receipt_id LEFT JOIN orders o ON o.id = m.order_id LEFT JOIN stock_batches b ON b.id = m.batch_id
+      ${W} ORDER BY m.id DESC LIMIT 400`, ...params);
+    const sum = get(`SELECT COUNT(*) AS n, COALESCE(SUM(ABS(m.qty) * COALESCE(m.unit_cost, i.cost_per_unit)), 0) AS value FROM stock_movements m JOIN ingredients i ON i.id = m.ingredient_id ${W}`, ...params);
+    res.json({ rows, count: sum.n, value: round2(sum.value) });
+  });
+
+  // دفعات وتواريخ الصلاحية
+  r.get('/stock/batches', invView, (req, res) => {
+    const t = Inventory.todayYmd(); const { status } = req.query;
+    const where = ['b.qty_left > 0', 'i.active = 1'];
+    const params = [];
+    if (status === 'expired') { where.push('b.expiry_date < ?'); params.push(t); }
+    else if (['3', '7', '30'].includes(status)) { where.push('b.expiry_date >= ? AND b.expiry_date <= ?'); params.push(t, Inventory.addDays(Number(status))); }
+    else if (status === 'dated') where.push('b.expiry_date IS NOT NULL');
+    res.json(all(`SELECT b.*, i.name, i.unit, i.category, i.storage, s.name AS supplier_name, ROUND(b.qty_left * COALESCE(b.unit_cost, i.cost_per_unit), 2) AS value,
+        CAST(julianday(b.expiry_date) - julianday(?) AS INTEGER) AS days_left
+      FROM stock_batches b JOIN ingredients i ON i.id = b.ingredient_id LEFT JOIN suppliers s ON s.id = b.supplier_id
+      WHERE ${where.join(' AND ')} ORDER BY b.expiry_date IS NULL, b.expiry_date, b.id LIMIT 300`, t, ...params));
+  });
+  r.post('/stock/batches/:id/discard', invRecv, (req, res) => {
+    const b = get('SELECT b.*, i.name FROM stock_batches b JOIN ingredients i ON i.id = b.ingredient_id WHERE b.id = ?', Number(req.params.id));
+    const left = b?.qty_left;
+    Inventory.discardBatch(Number(req.params.id), req.user, clip(req.body?.reason, 60) || 'انتهاء الصلاحية', clip(req.body?.note, 200) || null);
+    audit(req.user.id, 'stock.waste', 'ingredient', b.ingredient_id, { name: b.name, qty: -left, reason: 'شطب دفعة', note: req.body?.note || undefined });
+    changed('inventory');
+    res.json({ ok: true });
+  });
+
+  // الجرد
+  r.post('/stocktake', need('inventory.manage'), (req, res) => {
+    const out = Inventory.stocktake(req.body?.counts, req.body?.note, req.user);
+    audit(req.user.id, 'stock.stocktake', 'stocktake', out.id, { counted: out.counted, changed: out.changed, shortage: out.shortage_value, surplus: out.surplus_value });
+    changed('inventory');
+    res.status(201).json(out);
+  });
+  r.get('/stocktakes', invView, (req, res) => {
+    res.json(all('SELECT st.*, u.name AS user_name FROM stocktakes st LEFT JOIN users u ON u.id = st.user_id ORDER BY st.id DESC LIMIT 30'));
   });
 
   // ───────────── الورديات ─────────────

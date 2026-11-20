@@ -5,7 +5,7 @@ import {
   Settings, Building2, QrCode, ShieldCheck, KeyRound, IdCard, CalendarOff, Fingerprint, HandCoins, CalendarDays, ChefHat, History, Search, Activity as ActivityIcon,
 } from 'lucide-react';
 import { api } from '../api.js';
-import { useData, useMoney, Loading, Empty, PageHead, ROLE_LABELS, PAY_METHODS, todayStr, timeOf } from '../lib.jsx';
+import { useData, useMoney, Loading, Empty, PageHead, ROLE_LABELS, PAY_METHODS, todayStr, clockOf } from '../lib.jsx';
 
 const CATEGORIES = [
   ['', 'كل العمليات'], ['order', 'الطلبات'], ['kitchen', 'المطبخ'], ['shift', 'الورديات'], ['item', 'الأصناف'], ['menu', 'القائمة'],
@@ -104,7 +104,8 @@ function dayLabel(d) {
   const t = todayStr();
   const y = new Date(); y.setDate(y.getDate() - 1);
   const ys = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
-  return d === t ? 'اليوم' : d === ys ? 'أمس' : d;
+  const full = new Date(`${d}T00:00`).toLocaleDateString('ar', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  return d === t ? `اليوم · ${full}` : d === ys ? `أمس · ${full}` : full;
 }
 
 export default function Activity() {
@@ -178,7 +179,7 @@ export default function Activity() {
                           {a.entity === 'table' && /^qr\./.test(a.action) && <> · <button className="link-btn small" onClick={() => navigate(`/tables?table=${a.entity_id}`)}>عرض الطاولة</button></>}
                         </small>
                       </div>
-                      <time dir="ltr">{timeOf(a.created_at)}</time>
+                      <time dir="ltr" title={a.created_at}>{clockOf(a.created_at)}</time>
                     </li>
                   );
                 })}

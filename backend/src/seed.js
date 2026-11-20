@@ -22,16 +22,21 @@ function seed() {
   }
 
   const ing = {};
+  // [الاسم، الوحدة، الرصيد، الحد الأدنى، التكلفة، المجموعة، التخزين، المستهدف، المورد، الصلاحية بالأيام]
   const ingredients = [
-    ['دجاج', 'كغ', 20, 5, 18], ['لحم بقري', 'كغ', 15, 4, 40], ['خبز برجر', 'حبة', 100, 30, 1],
-    ['خبز صاج', 'حبة', 150, 40, 0.5], ['جبن شيدر', 'كغ', 5, 1, 30], ['بطاطس', 'كغ', 25, 8, 5],
-    ['أرز', 'كغ', 30, 10, 6], ['خس', 'كغ', 5, 2, 8], ['طماطم', 'كغ', 8, 3, 6],
-    ['حليب', 'لتر', 20, 5, 5], ['قهوة', 'كغ', 3, 1, 80], ['ليمون', 'كغ', 6, 2, 7],
-    ['سكر', 'كغ', 10, 3, 4], ['شوكولاتة', 'كغ', 3, 1, 45], ['دقيق', 'كغ', 20, 5, 3],
+    ['دجاج', 'كغ', 20, 5, 18, 'لحوم ودواجن', 'مبرد', 40, 0, 4], ['لحم بقري', 'كغ', 15, 4, 40, 'لحوم ودواجن', 'مبرد', 30, 0, 5], ['خبز برجر', 'حبة', 100, 30, 1, 'مخبوزات', 'جاف', 200, 1, 5],
+    ['خبز صاج', 'حبة', 150, 40, 0.5, 'مخبوزات', 'جاف', 300, 1, 4], ['جبن شيدر', 'كغ', 5, 1, 30, 'ألبان وبيض', 'مبرد', 10, 2, 45], ['بطاطس', 'كغ', 25, 8, 5, 'خضار وفواكه', 'جاف', 50, 3, 14],
+    ['أرز', 'كغ', 30, 10, 6, 'مواد جافة', 'جاف', 60, 2, 365], ['خس', 'كغ', 5, 2, 8, 'خضار وفواكه', 'مبرد', 10, 3, 5], ['طماطم', 'كغ', 8, 3, 6, 'خضار وفواكه', 'مبرد', 15, 3, 6],
+    ['حليب', 'لتر', 20, 5, 5, 'ألبان وبيض', 'مبرد', 40, 2, 7], ['قهوة', 'كغ', 0.9, 1, 80, 'مشروبات', 'جاف', 6, 2, 180], ['ليمون', 'كغ', 6, 2, 7, 'خضار وفواكه', 'مبرد', 12, 3, 14],
+    ['سكر', 'كغ', 10, 3, 4, 'مواد جافة', 'جاف', 20, 2, 540], ['شوكولاتة', 'كغ', 3, 1, 45, 'مواد جافة', 'جاف', 6, 2, 240], ['دقيق', 'كغ', 20, 5, 3, 'مواد جافة', 'جاف', 40, 2, 180],
+    ['زيت قلي', 'لتر', 25, 8, 6, 'مواد جافة', 'جاف', 50, 2, 300], ['صلصة الثوم', 'كغ', 1, 1.5, 14, 'صلصات وتوابل', 'مبرد', 8, 2, 20], ['علب تغليف', 'حبة', 120, 150, 0.35, 'تغليف ومستهلكات', 'جاف', 800, 2, null],
   ];
-  for (const [name, unit, stock, min, cost] of ingredients) {
-    ing[name] = Number(run('INSERT INTO ingredients(name, unit, stock, min_stock, cost_per_unit) VALUES(?,?,?,?,?)', name, unit, stock, min, cost).lastInsertRowid);
+  const sup = [['مزرعة الوادي للدواجن واللحوم', '0501110001', 'أبو سعود'], ['مخبز النخبة', '0502220002', 'م. خالد'], ['شركة الخير للمواد الغذائية', '0503330003', 'قسم المبيعات'], ['سوق الخضار المركزي', '0504440004', 'أبو ياسر']]
+    .map(([n, p, c]) => Number(run('INSERT INTO suppliers(name, phone, contact) VALUES(?,?,?)', n, p, c).lastInsertRowid));
+  for (const [name, unit, stock, min, cost, cat, storage, par, si, life] of ingredients) {
+    ing[name] = Number(run('INSERT INTO ingredients(name, unit, stock, min_stock, cost_per_unit, category, storage, par_level, supplier_id, shelf_life_days) VALUES(?,?,?,?,?,?,?,?,?,?)', name, unit, stock, min, cost, cat, storage, par, sup[si], life).lastInsertRowid);
   }
+  seedInventory(ingredients, ing, sup);
 
   const cats = [
     ['المقبلات', '🥗'], ['الوجبات الرئيسية', '🍛'], ['البرجر والساندويتش', '🍔'],
@@ -150,4 +155,71 @@ function seedHr() {
     ids[2], fmt(addDays(10)), fmt(addDays(12)));
   run("INSERT INTO leaves(employee_id, type, start_date, end_date, days, reason, status) VALUES(?, 'sick', ?, ?, 1, 'مراجعة طبية', 'approved')",
     ids[4], fmt(addDays(-6)), fmt(addDays(-6)));
+}
+
+
+/** مخزون تجريبي واقعي: دفعتان لكل مادة بتواريخ صلاحية، استلامات من الموردين، واستهلاك وتالف وصرف لآخر 14 يوماً بأرصدة متسقة */
+function seedInventory(ingredients, ing, sup) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const dayStr = (off) => { const d = new Date(); d.setDate(d.getDate() + off); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  let seedN = 7;
+  const rnd = () => { seedN = (seedN * 9301 + 49297) % 233280; return seedN / 233280; };
+  const kitchen = get("SELECT id FROM users WHERE username = 'kitchen'")?.id || 1;
+  const admin = get("SELECT id FROM users WHERE username = 'admin'")?.id || 1;
+  // حالات توضّح التنبيهات: [المادة] → [المتبقي في الدفعة القديمة، يوم انتهاء القديمة، يوم انتهاء الجديدة]
+  const special = { 'خس': [1.2, -1, 3], 'حليب': [6, 2, 6], 'دجاج': [5, 1, 3], 'طماطم': [2, 2, 5], 'لحم بقري': [4, 3, 4], 'صلصة الثوم': [1, 4, 18] };
+  const receipts = {};
+  const rec = (supId, off, inv) => {
+    const key = `${supId}:${off}`;
+    if (!receipts[key]) receipts[key] = Number(run('INSERT INTO stock_receipts(supplier_id, invoice_no, received_at, user_id, created_at) VALUES(?,?,?,?,?)', supId, `${inv}-${1000 + Object.keys(receipts).length * 37}`, dayStr(off), admin, `${dayStr(off)} 09:15:00`).lastInsertRowid);
+    return receipts[key];
+  };
+  const moves = [];
+  const wasteReasons = ['انتهاء الصلاحية', 'تلف / فساد', 'سوء تخزين', 'خطأ في التحضير', 'سقوط / انسكاب'];
+  const issueReasons = ['ضيافة', 'تحضير داخلي', 'عينات وتجارب'];
+  for (const [name, unit, stock, min, cost, , , , si, life] of ingredients) {
+    const id = ing[name];
+    const supId = sup[si];
+    const sp = special[name];
+    const leftA = sp ? sp[0] : Math.round(stock * 0.3 * 100) / 100;
+    const leftB = Math.round((stock - leftA) * 1000) / 1000;
+    // الاستهلاك على 14 يوماً
+    const daily = Math.max(stock * 0.045, min * 0.25);
+    const rows = [];
+    for (let d = 13; d >= 0; d--) {
+      const q = Math.round(daily * (0.6 + rnd() * 0.9) * 100) / 100;
+      rows.push({ off: -d, type: 'sale', qty: -q, time: `${pad(12 + Math.floor(rnd() * 9))}:${pad(Math.floor(rnd() * 60))}:${pad(Math.floor(rnd() * 60))}` });
+    }
+    for (let k = 0; k < (life && life < 10 ? 3 : 1); k++) {
+      const q = Math.round(Math.min(stock * 0.08, 0.6) * (0.5 + rnd()) * 100) / 100;
+      if (q > 0) rows.push({ off: -(1 + Math.floor(rnd() * 11)), type: 'waste', qty: -q, reason: wasteReasons[Math.floor(rnd() * wasteReasons.length)], time: `${pad(10 + Math.floor(rnd() * 10))}:${pad(Math.floor(rnd() * 60))}:00` });
+    }
+    if (rnd() > 0.55) rows.push({ off: -(1 + Math.floor(rnd() * 9)), type: 'issue', qty: -Math.round(Math.max(0.2, daily * 0.5) * 100) / 100, reason: issueReasons[Math.floor(rnd() * 3)], time: '16:30:00' });
+    const out = rows.reduce((a, r) => a - r.qty, 0);
+    // رصيد افتتاحي يغطي ما صُرف قبل أول استلام في الكشف
+    const before = rows.filter((r) => r.off < -8 || (r.off === -8 && r.time < '09:15:00')).reduce((a, r) => a - r.qty, 0);
+    const opening = Math.round(before * 1000) / 1000;
+    if (opening > 0) rows.push({ off: -14, type: 'adjust', qty: opening, reason: 'رصيد افتتاحي', time: '08:00:00' });
+    // الدفعة القديمة وصلت قبل 8 أيام، والجديدة قبل يومين
+    const inA = Math.round((leftA + (out - opening) * 0.75) * 1000) / 1000;
+    const inB = Math.round((leftB + (out - opening) * 0.25) * 1000) / 1000;
+    const expA = life ? dayStr(sp ? sp[1] : -8 + Math.round(life * 0.7)) : null;
+    const expB = life ? dayStr(sp ? sp[2] : -2 + life) : null;
+    const bA = Number(run('INSERT INTO stock_batches(ingredient_id, receipt_id, supplier_id, qty_in, qty_left, unit_cost, received_at, expiry_date) VALUES(?,?,?,?,?,?,?,?)', id, rec(supId, -8, 'INV'), supId, inA, leftA, cost, dayStr(-8), expA).lastInsertRowid);
+    const bB = Number(run('INSERT INTO stock_batches(ingredient_id, receipt_id, supplier_id, qty_in, qty_left, unit_cost, received_at, expiry_date) VALUES(?,?,?,?,?,?,?,?)', id, rec(supId, -2, 'INV'), supId, inB, leftB, cost, dayStr(-2), expB).lastInsertRowid);
+    rows.push({ off: -8, type: 'purchase', qty: inA, time: '09:15:00', batch: bA, receipt: rec(supId, -8, 'INV'), sup: supId });
+    rows.push({ off: -2, type: 'purchase', qty: inB, time: '09:15:00', batch: bB, receipt: rec(supId, -2, 'INV'), sup: supId });
+    // أرصدة متسقة: نحسبها من الرصيد الحالي رجوعاً
+    rows.sort((a, b) => (a.off - b.off) || a.time.localeCompare(b.time) || ((a.type === 'purchase' || a.type === 'adjust') ? -1 : 1));
+    let bal = stock;
+    for (let i = rows.length - 1; i >= 0; i--) { rows[i].bal = Math.round(bal * 1000) / 1000; bal -= rows[i].qty; }
+    for (const r of rows) moves.push({ id, cost, supId, ...r });
+  }
+  for (const m of moves) {
+    run('INSERT INTO stock_movements(ingredient_id, qty, type, unit_cost, user_id, created_at, reason, batch_id, receipt_id, supplier_id, balance_after) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+      m.id, m.qty, m.type, m.cost, m.type === 'purchase' ? admin : kitchen, `${dayStr(m.off)} ${m.time}`, m.reason || null, m.batch || null, m.receipt || null, m.type === 'purchase' ? m.sup : null, m.bal);
+  }
+  for (const [key, id] of Object.entries(receipts)) {
+    run('UPDATE stock_receipts SET total = (SELECT ROUND(SUM(qty_in * unit_cost), 2) FROM stock_batches WHERE receipt_id = ?) WHERE id = ?', id, id);
+  }
 }

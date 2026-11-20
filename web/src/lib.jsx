@@ -210,3 +210,14 @@ export const todayStr = () => {
 };
 
 export const timeOf = (ts) => (ts ? ts.slice(11, 16) : '');
+/** التوقيت بالثواني HH:MM:SS (لسجلات الحركات) */
+export const clockOf = (ts) => (ts ? String(ts).slice(11, 19) : '');
+const tsMs = (ts) => new Date(String(ts).replace(' ', 'T')).getTime();
+/** المدة بين لحظتين بصيغة م:ث أو س:م:ث */
+export function spanOf(a, b) {
+  const s = Math.max(0, Math.round((tsMs(b) - tsMs(a)) / 1000));
+  if (!Number.isFinite(s)) return '';
+  const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = s % 60;
+  const p = (n) => String(n).padStart(2, '0');
+  return h ? `${h}:${p(m)}:${p(sec)}` : `${p(m)}:${p(sec)}`;
+}

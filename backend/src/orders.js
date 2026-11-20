@@ -2,6 +2,7 @@
 import { get, all, run, tx, getSettings, audit } from './db.js';
 import { bad, notFound, round2 } from './util.js';
 import { notify, customerNotify } from './notify.js';
+import { recordMovement } from './inventory.js';
 import { hasPerm } from './perms.js';
 
 const TYPE_LABEL = { dine_in: 'صالة', takeaway: 'تيك وي', delivery: 'توصيل' };
@@ -332,9 +333,7 @@ function closeOrder(orderId, user) {
       notify({ perms: ['inventory.manage'], roles: ['admin'], type: 'low_stock', level: 'warning', link: '/inventory',
         title: `مخزون منخفض: ${ing.name}`, body: `المتبقي ${+(ing.stock - u.used).toFixed(2)} ${ing.unit} (الحد الأدنى ${ing.min_stock})` });
     }
-    run('UPDATE ingredients SET stock = stock - ? WHERE id = ?', u.used, u.ingredient_id);
-    run("INSERT INTO stock_movements(ingredient_id, qty, type, order_id, user_id) VALUES(?,?, 'sale', ?, ?)",
-      u.ingredient_id, -u.used, orderId, user.id);
+    recordMovement({ ingredient_id: u.ingredient_id, qty: -u.used, type: 'sale', order_id: orderId, user_id: user.id });
   }
   // نقاط الولاء
   const order = get('SELECT customer_id, total FROM orders WHERE id = ?', orderId);
@@ -379,6 +378,12 @@ export function moveTable(orderId, tableId, user) {
  * بعد تغيير حالة أصناف في المطبخ: يسجّل الخطوة، وإذا أصبح الطلب كله جاهزاً يُشعر الموظف/الكاشير
  * @param {'preparing'|'ready'|'served'} status
  */
+const ITEM_STATE = { new: 'أُعيد لانتظار المطبخ', preparing: 'بدأ التحضير', ready: 'جاهز', served: 'قُدِّم' };
+/** حركة لكل صنف بتوقيتها: متى بدأ تحضيره ومتى جهز ومتى قُدِّم */
+export function logItemStatus(orderId, item, status, user) {
+  logEvent(orderId, 'item_status', user.id, `${item.qty}× ${item.name}: ${ITEM_STATE[status] || status}`, { item_id: item.id, name: item.name, qty: item.qty, from: item.status, to: status });
+}
+
 export function kitchenProgress(orderId, status, user, changed) {
   if (!changed) return;
   const msg = { preparing: 'بدأ التحضير في المطبخ', ready: 'أصناف جاهزة', served: 'تم تقديم الطلب' }[status];
