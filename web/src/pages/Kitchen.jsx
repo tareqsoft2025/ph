@@ -308,7 +308,7 @@ function Ticket({ o, l, lv, isNew, canAct, busy, onBump, onItem, multiStation })
       </header>
       <div className="kd-t-meta">
         <span dir="ltr" className="kd-code">{o.code}</span>
-        <span>{online ? <><QrCode size="1em" aria-hidden /> طلب الزبون</> : (o.sent_by_name || o.waiter_name || '—')}</span>
+        <span>{online && <><QrCode size="1em" aria-hidden /> طلب الزبون</>}{online && (o.sent_by_name || o.waiter_name) ? ' · ' : ''}{o.sent_by_name || o.waiter_name || (online ? '' : '—')}</span>
         {o.guests ? <span><Users size="1em" aria-hidden /> {o.guests}</span> : null}
         <span dir="ltr">{timeOf(o.sent_at)}</span>
       </div>
