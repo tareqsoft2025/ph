@@ -5,7 +5,7 @@ import {
 import { useState } from 'react';
 import { useData, useMoney, Modal, Loading, ORDER_TYPES, PAY_METHODS, ROLE_LABELS, timeOf, ITEM_STATUS } from '../lib.jsx';
 
-const EVENT = {
+export const EVENT = {
   created: [FilePlus2, 'إنشاء الطلب'],
   online: [QrCode, 'طلب من رمز QR'],
   bill_requested: [ReceiptText, 'طلب الحساب'],
@@ -22,6 +22,11 @@ const EVENT = {
   payment: [Banknote, 'دفعة'],
   paid: [BadgeCheck, 'السداد والإغلاق'],
   cancelled: [CircleX, 'إلغاء الطلب'],
+  claimed: [UserRound, 'استلام الطلب'],
+  table_released: [Armchair, 'تحرير الطاولة'],
+  transfer_verified: [BadgeCheck, 'تدقيق التحويل'],
+  transfer_rejected: [CircleX, 'تحويل لم يصل'],
+  qr_open: [QrCode, 'فتح الطاولة للـ QR'],
 };
 
 /** مراحل الطلب الرئيسية لشريط التقدم */
